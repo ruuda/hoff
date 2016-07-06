@@ -33,3 +33,25 @@ issues here:
 
 For now I’ll go with serialization as simple as possible; write on shutdown and
 read at startup. There will be no durability initially.
+
+## State
+
+What state does the system need to keep track of? First of all, the things that
+are configuration rather than state:
+
+ * The url of the repository to keep track of (let’s limit it to one initially).
+ * API tokens and urls.
+ * Authorization for review policy etc. will come later.
+
+As for the actual state, I need to know:
+
+ * The set of pull requests that have been approved. That probably means the
+   entire set of open pull requests, and whether they have been approved or not.
+   This could be recovered entirely from GitHub.
+
+ * The state per approved pull request: approved but missing enforced checks,
+   build pending or failed, etc. This cannot easily be recovered from GitHub.
+
+ * The current candidate pull request for integrating. Also the sha of the
+   integrated change (rebased or merge commit, depending on the strategy), and
+   details about the build state.
