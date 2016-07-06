@@ -55,3 +55,31 @@ As for the actual state, I need to know:
  * The current candidate pull request for integrating. Also the sha of the
    integrated change (rebased or merge commit, depending on the strategy), and
    details about the build state.
+
+## Events
+
+What are the events that can change the state?
+
+ * A pull request was opened. This should make the commits elegible for
+   automated checks (e.g. enforce commit message format), but it should not
+   attempt a build or merge.
+
+ * A comment with magic approve incantation was left on an open pull request.
+   This makes the pull request elegible for building and testing if all checks
+   passed.
+
+ * The `HEAD` of a pull request changed. This may throw away the details of the
+   previous revision and treat the new one as a fresh pull request. That way
+   approval and check results are invalidated automatically. If check results
+   are made available via the web interface only (and not by leaving a comment
+   on GitHub), this is sufficient.
+
+ * A pull request was closed. Removes the pull request from the system.
+
+ * The CI build state changed. If this concerned the current integration
+   candidate, proceed to the next step. If the build and tests were successful,
+   fast-forward master and consider the next candidate. If it failed, mark the
+   pull request as failed (until it is modified) and consider the next candidate
+   without updating master.
+
+ * Perhaps there should be an option to retry a failed build.
