@@ -15,9 +15,11 @@ module Project
   PullRequestId (..),
   Sha (..),
   deletePullRequest,
+  existsPullRequest,
   emptyProjectState,
   insertPullRequest,
   loadProjectState,
+  lookupPullRequest,
   saveProjectState,
 )
 where
@@ -115,3 +117,10 @@ deletePullRequest :: PullRequestId -> ProjectState -> ProjectState
 deletePullRequest (PullRequestId n) state = state {
   pullRequests = IntMap.delete n $ pullRequests state
 }
+
+-- Returns whether the pull request is part of the set of open pull requests.
+existsPullRequest :: PullRequestId -> ProjectState -> Bool
+existsPullRequest (PullRequestId n) = IntMap.member n . pullRequests
+
+lookupPullRequest :: PullRequestId -> ProjectState -> Maybe PullRequest
+lookupPullRequest (PullRequestId n) = IntMap.lookup n . pullRequests

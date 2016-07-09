@@ -52,7 +52,6 @@ test-suite spec
   ghc-options:    -Wall -fwarn-tabs -threaded
 
   build-depends: base       >= 4.9  && < 4.10
-               , containers   >= 0.5.7  && < 0.6.0
                , hoff
                , hspec      >= 2.2 && < 3.0
                , hspec-core >= 2.2 && < 3.0

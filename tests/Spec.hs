@@ -6,9 +6,8 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 
+import Data.Maybe (fromJust)
 import Test.Hspec
-
-import qualified Data.IntMap as IntMap
 
 import Logic
 import Project
@@ -20,8 +19,8 @@ main = hspec $ do
     it "handles PullRequestOpened" $ do
       let event = PullRequestOpened (PullRequestId 3) (Sha "e0f") "lisa"
           state = handleEvent event emptyProjectState
-      pullRequests state `shouldSatisfy` IntMap.member 3
-      let pr = pullRequests state IntMap.! 3
+      state `shouldSatisfy` existsPullRequest (PullRequestId 3)
+      let pr = fromJust $ lookupPullRequest (PullRequestId 3) state
       sha pr         `shouldBe` Sha "e0f"
       author pr      `shouldBe` "lisa"
       approvedBy pr  `shouldBe` Nothing
@@ -32,7 +31,7 @@ main = hspec $ do
           event2 = PullRequestOpened (PullRequestId 2) (Sha "def") "jack"
           event3 = PullRequestClosed (PullRequestId 1)
           state  = foldr handleEvent emptyProjectState [event3, event2, event1]
-      pullRequests state `shouldSatisfy` not . (IntMap.member 1)
+      state `shouldSatisfy` not . existsPullRequest (PullRequestId 1)
 
     it "handles closing the integration candidate PR" $ do
       let event  = PullRequestClosed (PullRequestId 1)
