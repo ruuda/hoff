@@ -27,3 +27,17 @@ main = hspec $ do
       author prInfo       `shouldBe` "lisa"
       approvedBy prState  `shouldBe` Nothing
       buildStatus prState `shouldBe` BuildNotStarted
+
+    it "handles PullRequestClosed" $ do
+      let event1 = PullRequestOpened (PullRequestId 1) (Sha "abc") "peter"
+          event2 = PullRequestOpened (PullRequestId 2) (Sha "def") "jack"
+          event3 = PullRequestClosed (PullRequestId 1)
+          state  = foldr handleEvent emptyProjectState [event3, event2, event1]
+      pullRequestInfo  state `shouldSatisfy` not . (IntMap.member 1)
+      pullRequestState state `shouldSatisfy` not . (IntMap.member 1)
+
+    it "handles closing the integration candidate PR" $ do
+      let event  = PullRequestClosed (PullRequestId 1)
+          state  = emptyProjectState { integrationCandidate = Just $ PullRequestId 1 }
+          state' = handleEvent event state
+      integrationCandidate state' `shouldBe` Nothing

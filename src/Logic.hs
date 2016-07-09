@@ -6,13 +6,13 @@
 
 module Logic (Action (..), Event (..), handleEvent) where
 
+import Control.Monad (mfilter)
 import Data.Text (Text)
-import Project (BuildStatus (..), ProjectState, PullRequestId (..))
-import Project (PullRequestInfo (PullRequestInfo))
-import Project (PullRequestState (PullRequestState))
+import Project (BuildStatus (..))
+import Project (ProjectState)
+import Project (PullRequestId (..))
 import Project (Sha)
 
-import qualified Data.IntMap as IntMap
 import qualified Project as Pr
 
 data Event
@@ -35,19 +35,16 @@ handleEvent event = case event of
   BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
 
 handlePullRequestOpened :: PullRequestId -> Sha -> Text -> ProjectState -> ProjectState
-handlePullRequestOpened (PullRequestId pr) sha author state =
-  let prInfo  = PullRequestInfo { Pr.sha = sha, Pr.author = author }
-      prState = PullRequestState { Pr.approvedBy = Nothing, Pr.buildStatus = BuildNotStarted }
-  in state {
-    Pr.pullRequestInfo  = IntMap.insert pr prInfo (Pr.pullRequestInfo state),
-    Pr.pullRequestState = IntMap.insert pr prState (Pr.pullRequestState state)
-  }
+handlePullRequestOpened pr sha author = Pr.insertPullRequest pr sha author
 
 handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> ProjectState
 handlePullRequestCommitChanged pr sha state = state
 
 handlePullRequestClosed :: PullRequestId -> ProjectState -> ProjectState
-handlePullRequestClosed pr state = state
+handlePullRequestClosed pr state = Pr.deletePullRequest pr state {
+  -- If the PR was the current integration candidate, reset that to Nothing.
+  Pr.integrationCandidate = mfilter (/= pr) $ Pr.integrationCandidate state
+}
 
 handleCommentAdded :: PullRequestId -> Text -> Text -> ProjectState -> ProjectState
 handleCommentAdded pr author body state = state

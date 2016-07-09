@@ -10,16 +10,16 @@
 module Project
 (
   BuildStatus (..),
-  ProjectState,
+  ProjectState (..),
   PullRequestId (..),
   PullRequestInfo (..),
   PullRequestState (..),
   Sha (..),
+  deletePullRequest,
   emptyProjectState,
+  insertPullRequest,
   loadProjectState,
   saveProjectState,
-  pullRequestInfo,
-  pullRequestState
 )
 where
 
@@ -105,4 +105,22 @@ emptyProjectState = ProjectState {
   pullRequestInfo      = IntMap.empty,
   pullRequestState     = IntMap.empty,
   integrationCandidate = Nothing
+}
+
+-- Inserts a new pull request into the project, with approval set to Nothing and
+-- build status to BuildNotStarted.
+insertPullRequest :: PullRequestId -> Sha -> Text -> ProjectState -> ProjectState
+insertPullRequest (PullRequestId pr) prSha prAuthor state = state {
+    pullRequestInfo  = IntMap.insert pr prInfo  $ pullRequestInfo state,
+    pullRequestState = IntMap.insert pr prState $ pullRequestState state
+  }
+  where prInfo  = PullRequestInfo { sha = prSha, author = prAuthor }
+        prState = PullRequestState { approvedBy = Nothing, buildStatus = BuildNotStarted }
+
+-- Removes the pull request detail from the project. This does not change the
+-- integration candidate, which can be equal to the deleted pull request.
+deletePullRequest :: PullRequestId -> ProjectState -> ProjectState
+deletePullRequest (PullRequestId pr) state = state {
+  pullRequestInfo  = IntMap.delete pr $ pullRequestInfo state,
+  pullRequestState = IntMap.delete pr $ pullRequestState state
 }
