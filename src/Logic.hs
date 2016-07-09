@@ -26,7 +26,7 @@ data Event
 
 data Action = Nop
 
-handleEvent :: Event -> ProjectState -> (ProjectState, Action)
+handleEvent :: Event -> ProjectState -> ProjectState
 handleEvent event = case event of
   PullRequestOpened pr sha author -> handlePullRequestOpened pr sha author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
@@ -34,25 +34,23 @@ handleEvent event = case event of
   CommentAdded pr author body     -> handleCommentAdded pr author body
   BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
 
-handlePullRequestOpened :: PullRequestId -> Sha -> Text -> ProjectState -> (ProjectState, Action)
+handlePullRequestOpened :: PullRequestId -> Sha -> Text -> ProjectState -> ProjectState
 handlePullRequestOpened (PullRequestId pr) sha author state =
   let prInfo  = PullRequestInfo { Pr.sha = sha, Pr.author = author }
       prState = PullRequestState { Pr.approvedBy = Nothing, Pr.buildStatus = BuildNotStarted }
-      newState = state {
-        Pr.pullRequestInfo  = IntMap.insert pr prInfo (Pr.pullRequestInfo state),
-        Pr.pullRequestState = IntMap.insert pr prState (Pr.pullRequestState state)
-      }
-      action = Nop
-  in (newState, action)
+  in state {
+    Pr.pullRequestInfo  = IntMap.insert pr prInfo (Pr.pullRequestInfo state),
+    Pr.pullRequestState = IntMap.insert pr prState (Pr.pullRequestState state)
+  }
 
-handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> (ProjectState, Action)
-handlePullRequestCommitChanged pr sha state = (state, Nop)
+handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> ProjectState
+handlePullRequestCommitChanged pr sha state = state
 
-handlePullRequestClosed :: PullRequestId -> ProjectState -> (ProjectState, Action)
-handlePullRequestClosed pr state = (state, Nop)
+handlePullRequestClosed :: PullRequestId -> ProjectState -> ProjectState
+handlePullRequestClosed pr state = state
 
-handleCommentAdded :: PullRequestId -> Text -> Text -> ProjectState -> (ProjectState, Action)
-handleCommentAdded pr author body state = (state, Nop)
+handleCommentAdded :: PullRequestId -> Text -> Text -> ProjectState -> ProjectState
+handleCommentAdded pr author body state = state
 
-handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> (ProjectState, Action)
-handleBuildStatusChanged sha status state = (state, Nop)
+handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> ProjectState
+handleBuildStatusChanged sha status state = state

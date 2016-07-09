@@ -19,7 +19,7 @@ main = hspec $ do
 
     it "handles PullRequestOpened" $ do
       let event = PullRequestOpened (PullRequestId 3) (Sha "e0f") "lisa"
-          (state, action) = handleEvent event emptyProjectState
+          state = handleEvent event emptyProjectState
       pullRequestInfo state `shouldSatisfy` IntMap.member 3
       let prInfo  = pullRequestInfo state IntMap.! 3
           prState = pullRequestState state IntMap.! 3
