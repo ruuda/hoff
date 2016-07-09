@@ -1,0 +1,11 @@
+# Build output
+/.stack-work
+/dist
+
+# Cabal sandbox
+/.cabal-sandbox
+/cabal.sandbox.config
+
+# Editor files
+*.swp
+*.swo
