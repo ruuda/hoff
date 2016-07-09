@@ -21,6 +21,8 @@ module Project
   loadProjectState,
   lookupPullRequest,
   saveProjectState,
+  setApproval,
+  updatePullRequest
 )
 where
 
@@ -124,3 +126,13 @@ existsPullRequest (PullRequestId n) = IntMap.member n . pullRequests
 
 lookupPullRequest :: PullRequestId -> ProjectState -> Maybe PullRequest
 lookupPullRequest (PullRequestId n) = IntMap.lookup n . pullRequests
+
+updatePullRequest :: PullRequestId -> (PullRequest -> PullRequest) -> ProjectState -> ProjectState
+updatePullRequest (PullRequestId n) f state = state {
+  pullRequests = IntMap.adjust f n $ pullRequests state
+}
+
+-- Marks the pull request as approved by somebody or nobody.
+setApproval :: PullRequestId -> Maybe Text -> ProjectState -> ProjectState
+setApproval pr newApprovedBy = updatePullRequest pr changeApproval
+  where changeApproval pullRequest = pullRequest { approvedBy = newApprovedBy }

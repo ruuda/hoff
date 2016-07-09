@@ -51,7 +51,8 @@ test-suite spec
   hs-source-dirs: tests
   ghc-options:    -Wall -fwarn-tabs -threaded
 
-  build-depends: base       >= 4.9  && < 4.10
+  build-depends: base       >= 4.9 && < 4.10
                , hoff
                , hspec      >= 2.2 && < 3.0
                , hspec-core >= 2.2 && < 3.0
+               , text       >= 1.2 && < 1.3

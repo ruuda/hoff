@@ -7,10 +7,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import Data.Maybe (fromJust)
+import Data.Text (Text)
 import Test.Hspec
 
 import Logic
 import Project
+
+singlePullRequestState :: PullRequestId -> Sha -> Text -> ProjectState
+singlePullRequestState pr prSha prAuthor =
+  let event = PullRequestOpened pr prSha prAuthor
+  in  handleEvent event emptyProjectState
 
 main :: IO ()
 main = hspec $ do
@@ -32,9 +38,20 @@ main = hspec $ do
           event3 = PullRequestClosed (PullRequestId 1)
           state  = foldr handleEvent emptyProjectState [event3, event2, event1]
       state `shouldSatisfy` not . existsPullRequest (PullRequestId 1)
+      state `shouldSatisfy` existsPullRequest (PullRequestId 2)
 
     it "handles closing the integration candidate PR" $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = emptyProjectState { integrationCandidate = Just $ PullRequestId 1 }
           state' = handleEvent event state
       integrationCandidate state' `shouldBe` Nothing
+
+    it "loses approval after the PR commit changed" $ do
+      let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
+          state0 = singlePullRequestState (PullRequestId 1) (Sha "abc") "alice"
+          state1 = setApproval (PullRequestId 1) (Just "hatter") state0
+          state2 = handleEvent event state1
+          pr1    = fromJust $ lookupPullRequest (PullRequestId 1) state1
+          pr2    = fromJust $ lookupPullRequest (PullRequestId 1) state2
+      approvedBy pr1 `shouldBe` Just "hatter"
+      approvedBy pr2 `shouldBe` Nothing
