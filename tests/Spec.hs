@@ -46,6 +46,12 @@ main = hspec $ do
           state' = handleEvent event state
       integrationCandidate state' `shouldBe` Nothing
 
+    it "does not modify the integration candidate if a different PR was closed" $ do
+      let event  = PullRequestClosed (PullRequestId 1)
+          state  = emptyProjectState { integrationCandidate = Just $ PullRequestId 2 }
+          state' = handleEvent event state
+      integrationCandidate state' `shouldBe` (Just $ PullRequestId 2)
+
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
           state0 = singlePullRequestState (PullRequestId 1) (Sha "abc") "alice"
