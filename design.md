@@ -8,7 +8,7 @@ with GitHub and Travis CI.
 To interact with the outside world, the system will need:
 
  * An http server to receive GitHub and Travis CI webhook calls.
- * An http client to call the GitHub Travis CI APIs.
+ * An http client to call the GitHub and Travis CI APIs.
  * An http server to serve a webpage with the current status.
  * A way to read configuration.
  * A way to persist state to disk and reload in case of a restart.
@@ -45,8 +45,7 @@ are configuration rather than state:
 
 As for the actual state, I need to know:
 
- * The set of pull requests that have been approved. That probably means the
-   entire set of open pull requests, and whether they have been approved or not.
+ * The set of open pull request, and whether they have been approved or not.
    This could be recovered entirely from GitHub.
 
  * The state per approved pull request: approved but missing enforced checks,
