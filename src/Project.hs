@@ -12,16 +12,12 @@ module Project
   BuildStatus (..),
   ProjectState,
   PullRequestId (..),
-  PullRequestInfo,
-  PullRequestState,
+  PullRequestInfo (..),
+  PullRequestState (..),
   Sha (..),
-  approvedBy,
-  author,
-  buildStatus,
   emptyProjectState,
   loadProjectState,
   saveProjectState,
-  sha,
   pullRequestInfo,
   pullRequestState
 )

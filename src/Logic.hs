@@ -7,7 +7,13 @@
 module Logic (Action (..), Event (..), handleEvent) where
 
 import Data.Text (Text)
-import Project (BuildStatus, ProjectState, PullRequestId, Sha)
+import Project (BuildStatus (..), ProjectState, PullRequestId (..))
+import Project (PullRequestInfo (PullRequestInfo))
+import Project (PullRequestState (PullRequestState))
+import Project (Sha)
+
+import qualified Data.IntMap as IntMap
+import qualified Project as Pr
 
 data Event
   -- GitHub events
@@ -21,9 +27,32 @@ data Event
 data Action = Nop
 
 handleEvent :: Event -> ProjectState -> (ProjectState, Action)
-handleEvent event state = case event of
-  PullRequestOpened pr sha author  -> (state, Nop)
-  PullRequestCommitChanged pr sha  -> (state, Nop)
-  PullRequestClosed pr             -> (state, Nop)
-  CommentAdded pr author body      -> (state, Nop)
-  BuildStatusChanged sha newstatus -> (state, Nop)
+handleEvent event = case event of
+  PullRequestOpened pr sha author -> handlePullRequestOpened pr sha author
+  PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
+  PullRequestClosed pr            -> handlePullRequestClosed pr
+  CommentAdded pr author body     -> handleCommentAdded pr author body
+  BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
+
+handlePullRequestOpened :: PullRequestId -> Sha -> Text -> ProjectState -> (ProjectState, Action)
+handlePullRequestOpened (PullRequestId pr) sha author state =
+  let prInfo  = PullRequestInfo { Pr.sha = sha, Pr.author = author }
+      prState = PullRequestState { Pr.approvedBy = Nothing, Pr.buildStatus = BuildNotStarted }
+      newState = state {
+        Pr.pullRequestInfo  = IntMap.insert pr prInfo (Pr.pullRequestInfo state),
+        Pr.pullRequestState = IntMap.insert pr prState (Pr.pullRequestState state)
+      }
+      action = Nop
+  in (newState, action)
+
+handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> (ProjectState, Action)
+handlePullRequestCommitChanged pr sha state = (state, Nop)
+
+handlePullRequestClosed :: PullRequestId -> ProjectState -> (ProjectState, Action)
+handlePullRequestClosed pr state = (state, Nop)
+
+handleCommentAdded :: PullRequestId -> Text -> Text -> ProjectState -> (ProjectState, Action)
+handleCommentAdded pr author body state = (state, Nop)
+
+handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> (ProjectState, Action)
+handleBuildStatusChanged sha status state = (state, Nop)
