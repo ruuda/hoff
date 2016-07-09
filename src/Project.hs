@@ -17,7 +17,9 @@ module Project
   Sha (..),
   loadProjectState,
   saveProjectState,
-  exampleState
+  exampleState,
+  pullRequestInfo,
+  pullRequestState
 )
 where
 
