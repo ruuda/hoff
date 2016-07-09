@@ -11,10 +11,10 @@ module Project
 (
   BuildStatus (..),
   ProjectState,
-  PullRequestId,
+  PullRequestId (..),
   PullRequestInfo,
   PullRequestState,
-  Sha,
+  Sha (..),
   loadProjectState,
   saveProjectState,
   exampleState
@@ -68,11 +68,11 @@ data ProjectState = ProjectState
   deriving (Show, Generic)
 
 instance FromJSON Sha where
-  parseJSON (String sha) = return (Sha sha)
+  parseJSON (String str) = return (Sha str)
   parseJSON _            = mzero
 
 instance ToJSON Sha where
-  toJSON (Sha sha) = String sha
+  toJSON (Sha str) = String str
 
 -- TODO: These default instances produce ugly json. Write a custom
 -- implementation. For now this will suffice.
@@ -96,6 +96,7 @@ loadProjectState = (fmap decodeStrict') . readFile
 saveProjectState :: FilePath -> ProjectState -> IO ()
 saveProjectState fname state = writeFile fname $ encodePretty state
 
+exampleState :: ProjectState
 exampleState = ProjectState {
   pullRequestInfo = fromList [(0, PullRequestInfo { sha = Sha "abc", author = "john" }),
                               (2, PullRequestInfo { sha = Sha "def", author = "dave" })],
