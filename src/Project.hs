@@ -11,9 +11,8 @@ module Project
 (
   BuildStatus (..),
   ProjectState (..),
+  PullRequest (..),
   PullRequestId (..),
-  PullRequestInfo (..),
-  PullRequestState (..),
   Sha (..),
   deletePullRequest,
   emptyProjectState,
@@ -49,15 +48,10 @@ data BuildStatus
   | BuildFailed
   deriving (Eq, Show, Generic)
 
-data PullRequestInfo = PullRequestInfo
+data PullRequest = PullRequest
   {
-    sha    :: Sha,
-    author :: Text
-  }
-  deriving (Eq, Show, Generic)
-
-data PullRequestState = PullRequestState
-  {
+    sha         :: Sha,
+    author      :: Text,
     approvedBy  :: Maybe Text,
     buildStatus :: BuildStatus
   }
@@ -65,8 +59,7 @@ data PullRequestState = PullRequestState
 
 data ProjectState = ProjectState
   {
-    pullRequestInfo      :: IntMap PullRequestInfo,
-    pullRequestState     :: IntMap PullRequestState,
+    pullRequests         :: IntMap PullRequest,
     integrationCandidate :: Maybe PullRequestId
   }
   deriving (Eq, Show, Generic)
@@ -82,15 +75,13 @@ instance ToJSON Sha where
 -- implementation. For now this will suffice.
 instance FromJSON BuildStatus
 instance FromJSON ProjectState
+instance FromJSON PullRequest
 instance FromJSON PullRequestId
-instance FromJSON PullRequestInfo
-instance FromJSON PullRequestState
 
 instance ToJSON BuildStatus where toEncoding = genericToEncoding defaultOptions
 instance ToJSON ProjectState where toEncoding = genericToEncoding defaultOptions
+instance ToJSON PullRequest where toEncoding = genericToEncoding defaultOptions
 instance ToJSON PullRequestId where toEncoding = genericToEncoding defaultOptions
-instance ToJSON PullRequestInfo where toEncoding = genericToEncoding defaultOptions
-instance ToJSON PullRequestState where toEncoding = genericToEncoding defaultOptions
 
 -- Reads and parses the state. Returns Nothing if parsing failed, but crashes if
 -- the file could not be read.
@@ -102,25 +93,25 @@ saveProjectState fname state = writeFile fname $ encodePretty state
 
 emptyProjectState :: ProjectState
 emptyProjectState = ProjectState {
-  pullRequestInfo      = IntMap.empty,
-  pullRequestState     = IntMap.empty,
+  pullRequests         = IntMap.empty,
   integrationCandidate = Nothing
 }
 
 -- Inserts a new pull request into the project, with approval set to Nothing and
 -- build status to BuildNotStarted.
 insertPullRequest :: PullRequestId -> Sha -> Text -> ProjectState -> ProjectState
-insertPullRequest (PullRequestId pr) prSha prAuthor state = state {
-    pullRequestInfo  = IntMap.insert pr prInfo  $ pullRequestInfo state,
-    pullRequestState = IntMap.insert pr prState $ pullRequestState state
-  }
-  where prInfo  = PullRequestInfo { sha = prSha, author = prAuthor }
-        prState = PullRequestState { approvedBy = Nothing, buildStatus = BuildNotStarted }
+insertPullRequest (PullRequestId n) prSha prAuthor state =
+  let pullRequest = PullRequest {
+        sha         = prSha,
+        author      = prAuthor,
+        approvedBy  = Nothing,
+        buildStatus = BuildNotStarted
+      }
+  in state { pullRequests = IntMap.insert n pullRequest $ pullRequests state }
 
 -- Removes the pull request detail from the project. This does not change the
 -- integration candidate, which can be equal to the deleted pull request.
 deletePullRequest :: PullRequestId -> ProjectState -> ProjectState
-deletePullRequest (PullRequestId pr) state = state {
-  pullRequestInfo  = IntMap.delete pr $ pullRequestInfo state,
-  pullRequestState = IntMap.delete pr $ pullRequestState state
+deletePullRequest (PullRequestId n) state = state {
+  pullRequests = IntMap.delete n $ pullRequests state
 }

@@ -9,8 +9,7 @@
 module Main where
 
 import Configuration (loadConfiguration)
-import Logic (Event (..), handleEvent)
-import Project (PullRequestId (..), Sha (..), emptyProjectState, saveProjectState)
+import Project (emptyProjectState, saveProjectState)
 
 main :: IO ()
 main = do
