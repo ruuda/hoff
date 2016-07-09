@@ -4,9 +4,15 @@
 -- it under the terms of the GNU General Public License version 3. See
 -- the licence file in the root of the repository.
 
-module Configuration where
+{-# LANGUAGE DeriveGeneric #-}
 
+module Configuration (Configuration, loadConfiguration) where
+
+import Data.Aeson (FromJSON, decodeStrict')
+import Data.ByteString (readFile)
 import Data.Text (Text)
+import GHC.Generics
+import Prelude hiding (readFile)
 
 data Configuration = Configuration
   {
@@ -15,3 +21,11 @@ data Configuration = Configuration
     branch     :: Text, -- The branch to guard and integrate commits into.
     port       :: Int   -- The port to listen on for webhooks.
   }
+  deriving (Generic, Show)
+
+instance FromJSON Configuration
+
+-- Reads and parses the configuration. Returns Nothing if parsing failed, but
+-- crashes if the file could not be read.
+loadConfiguration :: FilePath -> IO (Maybe Configuration)
+loadConfiguration = (fmap decodeStrict') . readFile

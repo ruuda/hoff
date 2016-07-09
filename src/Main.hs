@@ -6,5 +6,11 @@
 
 module Main where
 
+import Configuration (loadConfiguration)
+
 main :: IO ()
-main = putStrLn "not yet implemented"
+main = do
+  maybeConfig <- loadConfiguration "config.json"
+  case maybeConfig of
+    Just config -> putStrLn $ show config
+    Nothing     -> putStrLn "failed to load configuration"
