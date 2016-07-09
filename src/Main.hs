@@ -7,6 +7,7 @@
 module Main where
 
 import Configuration (loadConfiguration)
+import Project (exampleState, saveProjectState)
 
 main :: IO ()
 main = do
@@ -14,3 +15,4 @@ main = do
   case maybeConfig of
     Just config -> putStrLn $ show config
     Nothing     -> putStrLn "failed to load configuration"
+  saveProjectState "project.json" exampleState
