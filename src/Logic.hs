@@ -7,6 +7,7 @@
 module Logic (Action (..), Event (..), handleEvent) where
 
 import Control.Monad (mfilter)
+import Data.Maybe (maybe)
 import Data.Text (Text)
 import Project (BuildStatus (..))
 import Project (ProjectState)
@@ -38,7 +39,16 @@ handlePullRequestOpened :: PullRequestId -> Sha -> Text -> ProjectState -> Proje
 handlePullRequestOpened pr sha author = Pr.insertPullRequest pr sha author
 
 handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> ProjectState
-handlePullRequestCommitChanged pr sha state = state
+handlePullRequestCommitChanged pr sha state =
+  -- If the commit changes, pretend that the PR was closed. This forgets about
+  -- approval and build status. Then pretend a new PR was opened, with the same
+  -- author as the original one, but with the new sha.
+  let closedState = handlePullRequestClosed pr state
+      update pullRequest =
+        let author = Pr.author pullRequest
+        in  handlePullRequestOpened pr sha author closedState
+  -- If the pull request was not present in the first place, do nothing.
+  in maybe state update $ Pr.lookupPullRequest pr state
 
 handlePullRequestClosed :: PullRequestId -> ProjectState -> ProjectState
 handlePullRequestClosed pr state = Pr.deletePullRequest pr state {
