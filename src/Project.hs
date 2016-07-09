@@ -22,6 +22,7 @@ module Project
   lookupPullRequest,
   saveProjectState,
   setApproval,
+  setBuildStatus,
   updatePullRequest
 )
 where
@@ -136,3 +137,8 @@ updatePullRequest (PullRequestId n) f state = state {
 setApproval :: PullRequestId -> Maybe Text -> ProjectState -> ProjectState
 setApproval pr newApprovedBy = updatePullRequest pr changeApproval
   where changeApproval pullRequest = pullRequest { approvedBy = newApprovedBy }
+
+-- Sets the build status for a pull request.
+setBuildStatus :: PullRequestId -> BuildStatus -> ProjectState -> ProjectState
+setBuildStatus pr newStatus = updatePullRequest pr changeBuildStatus
+  where changeBuildStatus pullRequest = pullRequest { buildStatus = newStatus }

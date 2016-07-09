@@ -46,7 +46,7 @@ main = hspec $ do
           state' = handleEvent event state
       integrationCandidate state' `shouldBe` Nothing
 
-    it "loses approval after the PR commit changed" $ do
+    it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
           state0 = singlePullRequestState (PullRequestId 1) (Sha "abc") "alice"
           state1 = setApproval (PullRequestId 1) (Just "hatter") state0
@@ -55,3 +55,13 @@ main = hspec $ do
           pr2    = fromJust $ lookupPullRequest (PullRequestId 1) state2
       approvedBy pr1 `shouldBe` Just "hatter"
       approvedBy pr2 `shouldBe` Nothing
+
+    it "resets the build status after the PR commit has changed" $ do
+      let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
+          state0 = singlePullRequestState (PullRequestId 1) (Sha "abc") "thomas"
+          state1 = setBuildStatus (PullRequestId 1) BuildQueued state0
+          state2 = handleEvent event state1
+          pr1    = fromJust $ lookupPullRequest (PullRequestId 1) state1
+          pr2    = fromJust $ lookupPullRequest (PullRequestId 1) state2
+      buildStatus pr1 `shouldBe` BuildQueued
+      buildStatus pr2 `shouldBe` BuildNotStarted
