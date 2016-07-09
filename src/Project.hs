@@ -15,9 +15,13 @@ module Project
   PullRequestInfo,
   PullRequestState,
   Sha (..),
+  approvedBy,
+  author,
+  buildStatus,
+  emptyProjectState,
   loadProjectState,
   saveProjectState,
-  exampleState,
+  sha,
   pullRequestInfo,
   pullRequestState
 )
@@ -28,16 +32,18 @@ import Data.Aeson
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString (readFile)
 import Data.ByteString.Lazy (writeFile)
-import Data.IntMap (IntMap, fromList)
+import Data.IntMap (IntMap)
 import Data.Text (Text)
 import GHC.Generics
 import Prelude hiding (readFile, writeFile)
 
+import qualified Data.IntMap as IntMap
+
 -- A commit hash is stored as its hexadecimal representation.
-data Sha = Sha Text deriving (Show)
+data Sha = Sha Text deriving (Eq, Show)
 
 -- A pull request is identified by its number.
-data PullRequestId = PullRequestId Int deriving (Show, Generic)
+data PullRequestId = PullRequestId Int deriving (Eq, Show, Generic)
 
 data BuildStatus
   = BuildNotStarted
@@ -45,21 +51,21 @@ data BuildStatus
   | BuildInProgress
   | BuildSucceeded
   | BuildFailed
-  deriving (Show, Generic)
+  deriving (Eq, Show, Generic)
 
 data PullRequestInfo = PullRequestInfo
   {
     sha    :: Sha,
     author :: Text
   }
-  deriving (Show, Generic)
+  deriving (Eq, Show, Generic)
 
 data PullRequestState = PullRequestState
   {
     approvedBy  :: Maybe Text,
     buildStatus :: BuildStatus
   }
-  deriving (Show, Generic)
+  deriving (Eq, Show, Generic)
 
 data ProjectState = ProjectState
   {
@@ -67,7 +73,7 @@ data ProjectState = ProjectState
     pullRequestState     :: IntMap PullRequestState,
     integrationCandidate :: Maybe PullRequestId
   }
-  deriving (Show, Generic)
+  deriving (Eq, Show, Generic)
 
 instance FromJSON Sha where
   parseJSON (String str) = return (Sha str)
@@ -98,11 +104,9 @@ loadProjectState = (fmap decodeStrict') . readFile
 saveProjectState :: FilePath -> ProjectState -> IO ()
 saveProjectState fname state = writeFile fname $ encodePretty state
 
-exampleState :: ProjectState
-exampleState = ProjectState {
-  pullRequestInfo = fromList [(0, PullRequestInfo { sha = Sha "abc", author = "john" }),
-                              (2, PullRequestInfo { sha = Sha "def", author = "dave" })],
-  pullRequestState = fromList [(0, PullRequestState { approvedBy = Nothing, buildStatus = BuildNotStarted }),
-                               (2, PullRequestState { approvedBy = Just "peter", buildStatus = BuildQueued })],
-  integrationCandidate = Just (PullRequestId 2)
+emptyProjectState :: ProjectState
+emptyProjectState = ProjectState {
+  pullRequestInfo      = IntMap.empty,
+  pullRequestState     = IntMap.empty,
+  integrationCandidate = Nothing
 }

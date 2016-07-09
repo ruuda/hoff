@@ -10,7 +10,7 @@ module Main where
 
 import Configuration (loadConfiguration)
 import Logic (Event (..), handleEvent)
-import Project (PullRequestId (..), Sha (..), exampleState, saveProjectState)
+import Project (PullRequestId (..), Sha (..), emptyProjectState, saveProjectState)
 
 main :: IO ()
 main = do
@@ -18,9 +18,4 @@ main = do
   case maybeConfig of
     Just config -> putStrLn $ show config
     Nothing     -> putStrLn "failed to load configuration"
-  let state = exampleState
-  putStrLn $ "state: " ++ (show state)
-  let event = PullRequestOpened (PullRequestId 3) (Sha "e0f") "lisa"
-  let (state', action) = handleEvent event state
-  putStrLn $ "state after event: " ++ (show state')
-  saveProjectState "project.json" exampleState
+  saveProjectState "project.json" emptyProjectState

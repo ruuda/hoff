@@ -18,7 +18,12 @@ main = hspec $ do
   describe "Logic.handleEvent" $ do
 
     it "handles PullRequestOpened" $ do
-      let state = exampleState
-          event = PullRequestOpened (PullRequestId 3) (Sha "e0f") "lisa"
-          (state', action) = handleEvent event state
-      state' `shouldSatisfy` (IntMap.member 3) . pullRequestInfo
+      let event = PullRequestOpened (PullRequestId 3) (Sha "e0f") "lisa"
+          (state, action) = handleEvent event emptyProjectState
+      pullRequestInfo state `shouldSatisfy` IntMap.member 3
+      let prInfo  = pullRequestInfo state IntMap.! 3
+          prState = pullRequestState state IntMap.! 3
+      sha prInfo          `shouldBe` Sha "e0f"
+      author prInfo       `shouldBe` "lisa"
+      approvedBy prState  `shouldBe` Nothing
+      buildStatus prState `shouldBe` BuildNotStarted
