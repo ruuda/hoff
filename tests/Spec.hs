@@ -71,3 +71,10 @@ main = hspec $ do
           pr2    = fromJust $ lookupPullRequest (PullRequestId 1) state2
       buildStatus pr1 `shouldBe` BuildQueued
       buildStatus pr2 `shouldBe` BuildNotStarted
+
+    it "sets approval after a comment containing an approval stamp" $ do
+      let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "alice"
+      let event  = CommentAdded (PullRequestId 1) "marie" "LGTM 6412ef5"
+          state' = handleEvent event state
+          pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
+      approvedBy pr `shouldBe` Just "marie"

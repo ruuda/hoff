@@ -4,6 +4,8 @@
 -- it under the terms of the GNU General Public License version 3. See
 -- the licence file in the root of the repository.
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Logic (Action (..), Event (..), handleEvent) where
 
 import Control.Monad (mfilter)
@@ -12,8 +14,9 @@ import Data.Text (Text)
 import Project (BuildStatus (..))
 import Project (ProjectState)
 import Project (PullRequestId (..))
-import Project (Sha)
+import Project (Sha (..))
 
+import qualified Data.Text as Text
 import qualified Project as Pr
 
 data Event
@@ -56,8 +59,24 @@ handlePullRequestClosed pr state = Pr.deletePullRequest pr state {
   Pr.integrationCandidate = mfilter (/= pr) $ Pr.integrationCandidate state
 }
 
+-- Returns whether the message is an approval stamp for the given commit. The
+-- message must have a format like "LGTM 3b77e3f", where the SHA must be a
+-- prefix of the SHA to be tested, and it must be at least 7 characters long.
+isApproval :: Text -> Sha -> Bool
+isApproval message (Sha target) =
+  let isGood sha = (Text.length sha >= 7) && (sha `Text.isPrefixOf` target)
+  in case Text.words message of
+    stamp : sha : [] -> (stamp == "LGTM") && (isGood sha)
+    _                -> False
+
 handleCommentAdded :: PullRequestId -> Text -> Text -> ProjectState -> ProjectState
-handleCommentAdded pr author body state = state
+handleCommentAdded pr author body = Pr.updatePullRequest pr update
+  -- If the message was a valid approval stamp for the sha of this pull request,
+  -- then it was approved by the author of the stamp. Otherwise do nothing.
+  where update pullRequest =
+          if isApproval body $ Pr.sha pullRequest
+            then pullRequest { Pr.approvedBy = Just author }
+            else pullRequest
 
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> ProjectState
 handleBuildStatusChanged sha status state = state
