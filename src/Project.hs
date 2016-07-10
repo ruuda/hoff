@@ -15,9 +15,11 @@ module Project
   PullRequest (..),
   PullRequestId (..),
   Sha (..),
+  approvedPullRequests,
   deletePullRequest,
   existsPullRequest,
   emptyProjectState,
+  getIntegrationCandidate,
   insertPullRequest,
   loadProjectState,
   lookupPullRequest,
@@ -35,6 +37,7 @@ import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString (readFile)
 import Data.ByteString.Lazy (writeFile)
 import Data.IntMap (IntMap)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import GHC.Generics
 import Prelude hiding (readFile, writeFile)
@@ -163,3 +166,15 @@ setBuildStatus pr newStatus = updatePullRequest pr changeBuildStatus
 setIntegrationStatus :: PullRequestId -> IntegrationStatus -> ProjectState -> ProjectState
 setIntegrationStatus pr newStatus = updatePullRequest pr changeIntegrationStatus
   where changeIntegrationStatus pullRequest = pullRequest { integrationStatus = newStatus }
+
+getIntegrationCandidate :: ProjectState -> Maybe (PullRequestId, PullRequest)
+getIntegrationCandidate state = do
+  pullRequestId <- integrationCandidate state
+  candidate     <- lookupPullRequest pullRequestId state
+  return (pullRequestId, candidate)
+
+-- Returns the pull requests that have been approved, in order of ascending id.
+approvedPullRequests :: ProjectState -> [PullRequestId]
+approvedPullRequests =
+  fmap PullRequestId . IntMap.keys . IntMap.filter approved . pullRequests
+  where approved = isJust . approvedBy

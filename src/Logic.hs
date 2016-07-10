@@ -8,6 +8,7 @@
 
 module Logic (Action (..), Event (..), handleEvent) where
 
+import Control.Applicative ((<|>))
 import Control.Monad (mfilter)
 import Data.Maybe (fromMaybe, maybe)
 import Data.Text (Text)
@@ -96,3 +97,33 @@ handleBuildStatusChanged buildSha newStatus state =
 data Action
   = Integrate PullRequestId
   | StartBuild
+
+nextAction :: ProjectState -> Maybe (ProjectState, Action)
+nextAction state =
+  -- "<|>" here means: first try the left-hand side. If it is Just, then return
+  -- it. If it is Nothing, return the right-hand side.
+  tryStartBuild state <|>
+  tryIntegrate state
+
+-- If the integration candidate can be built but the build has not been started,
+-- returns a StartBuild action and sets the build status to BuildQueued.
+tryStartBuild :: ProjectState -> Maybe (ProjectState, Action)
+tryStartBuild state =
+  let startBuild (id, pr) = case (Pr.buildStatus pr, Pr.integrationStatus pr) of
+        (BuildNotStarted, Integrated str) ->
+          Just (Pr.setBuildStatus id BuildQueued state, StartBuild)
+        _ -> Nothing
+  in Pr.getIntegrationCandidate state >>= startBuild
+
+-- Picks the oldest (by pull request number) pull request that has been approved
+-- and generates an Integrate action for it.
+tryIntegrate :: ProjectState -> Maybe (ProjectState, Action)
+tryIntegrate state = foldr pick Nothing $ Pr.approvedPullRequests state
+  where pick pr action = (integratePullRequest state pr) <|> action
+
+-- Issues an Integrate action.
+-- TODO: How do I deal with this situation where I need to do IO to know the
+-- new sha, but that may take a while and it should be in a monad ... make
+-- Action a monad?
+integratePullRequest :: ProjectState -> PullRequestId -> Maybe (ProjectState, Action)
+integratePullRequest state pr = Just (state, Integrate pr)
