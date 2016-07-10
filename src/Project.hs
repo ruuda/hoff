@@ -53,12 +53,23 @@ data BuildStatus
   | BuildFailed
   deriving (Eq, Show, Generic)
 
+-- When attempting to integrated changes, there can be three states: no attempt
+-- has been made to integrate; integration (e.g. merge or rebase) was successful
+-- and the new commit has the given sha; and an attempt to integrate was made,
+-- but it resulted in merge conflicts.
+data IntegrationStatus
+  = NotIntegrated
+  | Integrated Sha
+  | Conflicted
+  deriving (Eq, Show, Generic)
+
 data PullRequest = PullRequest
   {
-    sha         :: Sha,
-    author      :: Text,
-    approvedBy  :: Maybe Text,
-    buildStatus :: BuildStatus
+    sha               :: Sha,
+    author            :: Text,
+    approvedBy        :: Maybe Text,
+    buildStatus       :: BuildStatus,
+    integrationStatus :: IntegrationStatus
   }
   deriving (Eq, Show, Generic)
 
@@ -81,11 +92,13 @@ instance ToJSON Sha where
 -- TODO: These default instances produce ugly json. Write a custom
 -- implementation. For now this will suffice.
 instance FromJSON BuildStatus
+instance FromJSON IntegrationStatus
 instance FromJSON ProjectState
 instance FromJSON PullRequest
 instance FromJSON PullRequestId
 
 instance ToJSON BuildStatus where toEncoding = genericToEncoding defaultOptions
+instance ToJSON IntegrationStatus where toEncoding = genericToEncoding defaultOptions
 instance ToJSON ProjectState where toEncoding = genericToEncoding defaultOptions
 instance ToJSON PullRequest where toEncoding = genericToEncoding defaultOptions
 instance ToJSON PullRequestId where toEncoding = genericToEncoding defaultOptions
@@ -104,15 +117,16 @@ emptyProjectState = ProjectState {
   integrationCandidate = Nothing
 }
 
--- Inserts a new pull request into the project, with approval set to Nothing and
--- build status to BuildNotStarted.
+-- Inserts a new pull request into the project, with approval set to Nothing,
+-- build status to BuildNotStarted, and integration status to NotIntegrated.
 insertPullRequest :: PullRequestId -> Sha -> Text -> ProjectState -> ProjectState
 insertPullRequest (PullRequestId n) prSha prAuthor state =
   let pullRequest = PullRequest {
-        sha         = prSha,
-        author      = prAuthor,
-        approvedBy  = Nothing,
-        buildStatus = BuildNotStarted
+        sha               = prSha,
+        author            = prAuthor,
+        approvedBy        = Nothing,
+        buildStatus       = BuildNotStarted,
+        integrationStatus = NotIntegrated
       }
   in state { pullRequests = IntMap.insert n pullRequest $ pullRequests state }
 

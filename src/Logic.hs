@@ -28,8 +28,6 @@ data Event
   -- CI events
   | BuildStatusChanged Sha BuildStatus
 
-data Action = Nop
-
 handleEvent :: Event -> ProjectState -> ProjectState
 handleEvent event = case event of
   PullRequestOpened pr sha author -> handlePullRequestOpened pr sha author
@@ -87,3 +85,7 @@ handleBuildStatusChanged buildSha newStatus state =
           then Pr.setBuildStatus pr newStatus state
           else state
   in maybe state update $ Pr.integrationCandidate state
+
+data Action
+  = Integrate PullRequestId
+  | StartBuild
