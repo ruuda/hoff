@@ -110,3 +110,15 @@ main = hspec $ do
           state' = handleEvent event state
           pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
       buildStatus pr `shouldBe` BuildSucceeded
+
+    it "ignores a build status change of random shas" $ do
+      let event0 = PullRequestOpened (PullRequestId 2) (Sha "0ad") "harry"
+          event1 = BuildStatusChanged (Sha "0ad") BuildSucceeded
+          state  = candidateState (PullRequestId 1) (Sha "a38") "harry" (Sha "84c")
+          state' = handleEvent event1 $ handleEvent event0 state
+          pr1    = fromJust $ lookupPullRequest (PullRequestId 1) state'
+          pr2    = fromJust $ lookupPullRequest (PullRequestId 2) state'
+      -- Even though the build status changed for "0ad" which is a known commit,
+      -- only the build status of the integration candidate can be changed.
+      buildStatus pr1 `shouldBe` BuildNotStarted
+      buildStatus pr2 `shouldBe` BuildNotStarted
