@@ -103,3 +103,10 @@ main = hspec $ do
           state' = handleEvent event state
           pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
       approvedBy pr `shouldBe` Nothing
+
+    it "handles a build status change of the integration candidate" $ do
+      let event  = BuildStatusChanged (Sha "84c") BuildSucceeded
+          state  = candidateState (PullRequestId 1) (Sha "a38") "johanna" (Sha "84c")
+          state' = handleEvent event state
+          pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
+      buildStatus pr `shouldBe` BuildSucceeded

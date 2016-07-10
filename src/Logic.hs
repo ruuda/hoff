@@ -79,4 +79,11 @@ handleCommentAdded pr author body = Pr.updatePullRequest pr update
             else pullRequest
 
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> ProjectState
-handleBuildStatusChanged sha status state = state
+handleBuildStatusChanged buildSha newStatus state =
+  -- If there is an integration candidate, and its sha matches that of the
+  -- build, the update the corresponding pull request. Otherwise do nothing.
+  let update (pr, candidateSha) =
+        if buildSha == candidateSha
+          then Pr.setBuildStatus pr newStatus state
+          else state
+  in maybe state update $ Pr.integrationCandidate state
