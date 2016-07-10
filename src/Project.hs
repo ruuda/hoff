@@ -65,7 +65,9 @@ data PullRequest = PullRequest
 data ProjectState = ProjectState
   {
     pullRequests         :: IntMap PullRequest,
-    integrationCandidate :: Maybe PullRequestId
+    -- The candidate is the pull request from which a commit originated, and the
+    -- integration commit (which might be different due to a rebase or merge).
+    integrationCandidate :: Maybe (PullRequestId, Sha)
   }
   deriving (Eq, Show, Generic)
 

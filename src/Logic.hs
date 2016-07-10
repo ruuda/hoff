@@ -56,7 +56,7 @@ handlePullRequestCommitChanged pr sha state =
 handlePullRequestClosed :: PullRequestId -> ProjectState -> ProjectState
 handlePullRequestClosed pr state = Pr.deletePullRequest pr state {
   -- If the PR was the current integration candidate, reset that to Nothing.
-  Pr.integrationCandidate = mfilter (/= pr) $ Pr.integrationCandidate state
+  Pr.integrationCandidate = mfilter ((/= pr) . fst) $ Pr.integrationCandidate state
 }
 
 -- Returns whether the message is an approval stamp for the given commit. The

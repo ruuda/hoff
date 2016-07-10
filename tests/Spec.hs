@@ -41,16 +41,18 @@ main = hspec $ do
       state `shouldSatisfy` existsPullRequest (PullRequestId 2)
 
     it "handles closing the integration candidate PR" $ do
-      let event  = PullRequestClosed (PullRequestId 1)
-          state  = emptyProjectState { integrationCandidate = Just $ PullRequestId 1 }
-          state' = handleEvent event state
+      let event     = PullRequestClosed (PullRequestId 1)
+          candidate = (PullRequestId 1, Sha "ea0")
+          state     = emptyProjectState { integrationCandidate = Just candidate }
+          state'    = handleEvent event state
       integrationCandidate state' `shouldBe` Nothing
 
     it "does not modify the integration candidate if a different PR was closed" $ do
-      let event  = PullRequestClosed (PullRequestId 1)
-          state  = emptyProjectState { integrationCandidate = Just $ PullRequestId 2 }
-          state' = handleEvent event state
-      integrationCandidate state' `shouldBe` (Just $ PullRequestId 2)
+      let event     = PullRequestClosed (PullRequestId 1)
+          candidate = (PullRequestId 2, Sha "ed0")
+          state     = emptyProjectState { integrationCandidate = Just candidate }
+          state'    = handleEvent event state
+      integrationCandidate state' `shouldBe` Just candidate
 
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
