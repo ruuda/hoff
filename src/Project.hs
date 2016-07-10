@@ -10,6 +10,7 @@
 module Project
 (
   BuildStatus (..),
+  IntegrationStatus (..),
   ProjectState (..),
   PullRequest (..),
   PullRequestId (..),
@@ -23,6 +24,7 @@ module Project
   saveProjectState,
   setApproval,
   setBuildStatus,
+  setIntegrationStatus,
   updatePullRequest
 )
 where
@@ -76,9 +78,7 @@ data PullRequest = PullRequest
 data ProjectState = ProjectState
   {
     pullRequests         :: IntMap PullRequest,
-    -- The candidate is the pull request from which a commit originated, and the
-    -- integration commit (which might be different due to a rebase or merge).
-    integrationCandidate :: Maybe (PullRequestId, Sha)
+    integrationCandidate :: Maybe PullRequestId
   }
   deriving (Eq, Show, Generic)
 
@@ -158,3 +158,8 @@ setApproval pr newApprovedBy = updatePullRequest pr changeApproval
 setBuildStatus :: PullRequestId -> BuildStatus -> ProjectState -> ProjectState
 setBuildStatus pr newStatus = updatePullRequest pr changeBuildStatus
   where changeBuildStatus pullRequest = pullRequest { buildStatus = newStatus }
+
+-- Sets the integration status for a pull request.
+setIntegrationStatus :: PullRequestId -> IntegrationStatus -> ProjectState -> ProjectState
+setIntegrationStatus pr newStatus = updatePullRequest pr changeIntegrationStatus
+  where changeIntegrationStatus pullRequest = pullRequest { integrationStatus = newStatus }

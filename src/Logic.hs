@@ -9,9 +9,10 @@
 module Logic (Action (..), Event (..), handleEvent) where
 
 import Control.Monad (mfilter)
-import Data.Maybe (maybe)
+import Data.Maybe (fromMaybe, maybe)
 import Data.Text (Text)
 import Project (BuildStatus (..))
+import Project (IntegrationStatus (..))
 import Project (ProjectState)
 import Project (PullRequestId (..))
 import Project (Sha (..))
@@ -54,7 +55,7 @@ handlePullRequestCommitChanged pr sha state =
 handlePullRequestClosed :: PullRequestId -> ProjectState -> ProjectState
 handlePullRequestClosed pr state = Pr.deletePullRequest pr state {
   -- If the PR was the current integration candidate, reset that to Nothing.
-  Pr.integrationCandidate = mfilter ((/= pr) . fst) $ Pr.integrationCandidate state
+  Pr.integrationCandidate = mfilter (/= pr) $ Pr.integrationCandidate state
 }
 
 -- Returns whether the message is an approval stamp for the given commit. The
@@ -78,13 +79,19 @@ handleCommentAdded pr author body = Pr.updatePullRequest pr update
 
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> ProjectState
 handleBuildStatusChanged buildSha newStatus state =
-  -- If there is an integration candidate, and its sha matches that of the
-  -- build, the update the corresponding pull request. Otherwise do nothing.
-  let update (pr, candidateSha) =
-        if buildSha == candidateSha
-          then Pr.setBuildStatus pr newStatus state
-          else state
-  in maybe state update $ Pr.integrationCandidate state
+  -- If there is an integration candidate, and its integration sha matches that
+  -- of the build, then update the build status for that pull request. Otherwise
+  -- do nothing.
+  let matchesBuild pr = case Pr.integrationStatus pr of
+        Integrated candidateSha -> candidateSha == buildSha
+        _                       -> False
+      newState = do
+        candidateId <- Pr.integrationCandidate state
+        -- Set the build status only if the build sha matches that of the
+        -- integration candidate.
+        _ <- mfilter matchesBuild $ Pr.lookupPullRequest candidateId state
+        return $ Pr.setBuildStatus candidateId newStatus state
+  in fromMaybe state newState
 
 data Action
   = Integrate PullRequestId

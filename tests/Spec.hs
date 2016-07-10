@@ -20,9 +20,9 @@ singlePullRequestState pr prSha prAuthor =
 
 candidateState :: PullRequestId -> Sha -> Text -> Sha -> ProjectState
 candidateState pr prSha prAuthor candidateSha =
-  (singlePullRequestState pr prSha prAuthor) {
-    integrationCandidate = Just (pr, candidateSha)
-  }
+  let state0 = singlePullRequestState pr prSha prAuthor
+      state1 = setIntegrationStatus pr (Integrated candidateSha) state0
+  in  state1 { integrationCandidate = Just pr }
 
 main :: IO ()
 main = hspec $ do
@@ -56,7 +56,7 @@ main = hspec $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 2) (Sha "a38") "franz" (Sha "ed0")
           state' = handleEvent event state
-      integrationCandidate state' `shouldBe` Just (PullRequestId 2, Sha "ed0")
+      integrationCandidate state' `shouldBe` (Just $ PullRequestId 2)
 
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
