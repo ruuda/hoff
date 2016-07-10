@@ -73,8 +73,27 @@ main = hspec $ do
       buildStatus pr2 `shouldBe` BuildNotStarted
 
     it "sets approval after a comment containing an approval stamp" $ do
-      let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "alice"
-      let event  = CommentAdded (PullRequestId 1) "marie" "LGTM 6412ef5"
+      let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "toby"
+          event  = CommentAdded (PullRequestId 1) "marie" "LGTM 6412ef5"
           state' = handleEvent event state
           pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
       approvedBy pr `shouldBe` Just "marie"
+
+    it "does not set approval after a random comment" $ do
+      let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "patrick"
+          -- Test coments with 2 words and more or less. (The stamp expects
+          -- exactly two words.)
+          event3 = CommentAdded (PullRequestId 1) "thomas" "We're up all night"
+          event2 = CommentAdded (PullRequestId 1) "guyman" "to get"
+          event1 = CommentAdded (PullRequestId 1) "thomas" "lucky."
+          state' = foldr handleEvent state [event1, event2, event3]
+          pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
+      approvedBy pr `shouldBe` Nothing
+
+    it "requires a long enough sha for approval" $ do
+      let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "sacha"
+          -- A 6-character sha is not long enough for approval.
+          event  = CommentAdded (PullRequestId 1) "richard" "LGTM 6412ef"
+          state' = handleEvent event state
+          pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
+      approvedBy pr `shouldBe` Nothing
