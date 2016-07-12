@@ -12,7 +12,9 @@ import Control.Applicative ((<|>))
 import Control.Monad (mfilter)
 import Data.Maybe (fromMaybe, maybe)
 import Data.Text (Text)
+import Data.Time.Clock.TAI (taiEpoch)
 import Project (BuildStatus (..))
+import Project (BuildRequestStatus (..))
 import Project (IntegrationStatus (..))
 import Project (ProjectState)
 import Project (PullRequestId (..))
@@ -111,7 +113,9 @@ tryStartBuild :: ProjectState -> Maybe (ProjectState, Action)
 tryStartBuild state =
   let startBuild (id, pr) = case (Pr.buildStatus pr, Pr.integrationStatus pr) of
         (BuildNotStarted, Integrated str) ->
-          Just (Pr.setBuildStatus id BuildQueued state, StartBuild)
+          -- TODO: Get time, don't use TAI epoch.
+          let buildStatus = (BuildPending (BuildRequested taiEpoch))
+          in  Just (Pr.setBuildStatus id buildStatus state, StartBuild)
         _ -> Nothing
   in Pr.getIntegrationCandidate state >>= startBuild
 
