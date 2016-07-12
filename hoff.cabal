@@ -34,19 +34,9 @@ library
 executable hoff
   default-language: Haskell2010
   main-is:          Main.hs
-  hs-source-dirs:   src
+  hs-source-dirs:   app
   ghc-options:      -Wall -fwarn-tabs
-  build-depends: aeson        >= 0.11.0 && < 0.12.0
-               , aeson-pretty >= 0.7    && < 0.9
-               , base         >= 4.9    && < 4.10
-               , bytestring   >= 0.10.8 && < 0.11.0
-               , containers   >= 0.5.7  && < 0.6.0
-               , free         >= 4.12   && < 5.0
-               , hoff
-               , process      >= 1.4    && < 2.0
-               , text         >= 1.2    && < 1.3
-               , time         >= 1.6    && < 2.0
-               , leapseconds-announced >= 2015
+  build-depends:    base >= 4.9 && < 4.10, hoff
 
 test-suite spec
   default-language: Haskell2010
