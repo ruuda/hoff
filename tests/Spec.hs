@@ -6,6 +6,8 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 
+import Control.Monad.Free (Free (..))
+import Data.Foldable (foldlM)
 import Data.Maybe (fromJust)
 import Data.Text (Text)
 import Data.Time.Clock.TAI (taiEpoch)
@@ -14,10 +16,12 @@ import Test.Hspec
 import Logic
 import Project
 
+-- Functions to prepare certain test states.
+
 singlePullRequestState :: PullRequestId -> Sha -> Text -> ProjectState
 singlePullRequestState pr prSha prAuthor =
   let event = PullRequestOpened pr prSha prAuthor
-  in  handleEvent event emptyProjectState
+  in  handleEventFlat event emptyProjectState
 
 candidateState :: PullRequestId -> Sha -> Text -> Sha -> ProjectState
 candidateState pr prSha prAuthor candidateSha =
@@ -25,13 +29,62 @@ candidateState pr prSha prAuthor candidateSha =
       state1 = setIntegrationStatus pr (Integrated candidateSha) state0
   in  state1 { integrationCandidate = Just pr }
 
+-- Types and functions to mock running an action without actually doing anything.
+
+data ActionFlat
+  = AFetchCommit Sha
+  | AFetchBranch Branch
+  | AForcePush Sha Branch
+  | APush Sha Branch
+  | ARebase Sha Branch
+  | ALeaveComment PullRequestId Text
+  deriving (Eq, Show)
+
+-- This function simulates running the actions, and returns the final state,
+-- together with a list of all actions that would have been performed. Some
+-- actions require input from the outside world. Simulating these actions will
+-- return the pushResult and rebaseResult passed in here.
+runActionWithInit :: PushResult -> Maybe Sha -> [ActionFlat] -> Action a -> (a, [ActionFlat])
+runActionWithInit pushResult rebaseResult as action =
+  let prepend cont as' a =
+        let (result, actions) = runActionWithInit pushResult rebaseResult as' cont
+        in  (result, a : actions)
+  in case action of
+    Pure result                   -> (result, [])
+    Free (FetchCommit sha x)      -> prepend x as $ AFetchCommit sha
+    Free (FetchBranch branch x)   -> prepend x as $ AFetchBranch branch
+    Free (ForcePush sha branch x) -> prepend x as $ AForcePush sha branch
+    Free (Push sha branch h)      -> prepend (h pushResult) as $ APush sha branch
+    Free (Rebase sha branch h)    -> prepend (h rebaseResult) as $ ARebase sha branch
+    Free (LeaveComment pr body x) -> prepend x as $ ALeaveComment pr body
+
+-- Simulates running the action. Pretends that a push always succeeds with
+-- PushOk, and pretends that a rebase always conflicts and fails with Nothing.
+runAction :: Action a -> (a, [ActionFlat])
+runAction = runActionWithInit PushOk Nothing []
+
+-- TODO: Do not ignore actions information, assert that certain events do not
+-- have undesirable side effects.
+getState :: Action ProjectState -> ProjectState
+getState = fst . runAction
+
+-- Handle an event and simulate its side effects, then ignore the side effects
+-- and return the new state.
+handleEventFlat :: Event -> ProjectState -> ProjectState
+handleEventFlat event state = getState $ handleEvent event state
+
+-- Handle events and simulate their side effects, then ignore the side effects
+-- and return the new state.
+handleEventsFlat :: [Event] -> ProjectState -> ProjectState
+handleEventsFlat events state = getState $ foldlM (flip handleEvent) state events
+
 main :: IO ()
 main = hspec $ do
   describe "Logic.handleEvent" $ do
 
     it "handles PullRequestOpened" $ do
       let event = PullRequestOpened (PullRequestId 3) (Sha "e0f") "lisa"
-          state = handleEvent event emptyProjectState
+          state = handleEventFlat event emptyProjectState
       state `shouldSatisfy` existsPullRequest (PullRequestId 3)
       let pr = fromJust $ lookupPullRequest (PullRequestId 3) state
       sha pr         `shouldBe` Sha "e0f"
@@ -43,27 +96,27 @@ main = hspec $ do
       let event1 = PullRequestOpened (PullRequestId 1) (Sha "abc") "peter"
           event2 = PullRequestOpened (PullRequestId 2) (Sha "def") "jack"
           event3 = PullRequestClosed (PullRequestId 1)
-          state  = foldr handleEvent emptyProjectState [event3, event2, event1]
+          state  = handleEventsFlat [event1, event2, event3] emptyProjectState
       state `shouldSatisfy` not . existsPullRequest (PullRequestId 1)
       state `shouldSatisfy` existsPullRequest (PullRequestId 2)
 
     it "handles closing the integration candidate PR" $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 1) (Sha "ea0") "frank" (Sha "cf4")
-          state' = handleEvent event state
+          state' = handleEventFlat event state
       integrationCandidate state' `shouldBe` Nothing
 
     it "does not modify the integration candidate if a different PR was closed" $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 2) (Sha "a38") "franz" (Sha "ed0")
-          state' = handleEvent event state
+          state' = handleEventFlat event state
       integrationCandidate state' `shouldBe` (Just $ PullRequestId 2)
 
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
           state0 = singlePullRequestState (PullRequestId 1) (Sha "abc") "alice"
           state1 = setApproval (PullRequestId 1) (Just "hatter") state0
-          state2 = handleEvent event state1
+          state2 = handleEventFlat event state1
           pr1    = fromJust $ lookupPullRequest (PullRequestId 1) state1
           pr2    = fromJust $ lookupPullRequest (PullRequestId 1) state2
       approvedBy pr1 `shouldBe` Just "hatter"
@@ -74,7 +127,7 @@ main = hspec $ do
           status = (BuildPending (BuildRequested taiEpoch))
           state0 = singlePullRequestState (PullRequestId 1) (Sha "abc") "thomas"
           state1 = setBuildStatus (PullRequestId 1) status state0
-          state2 = handleEvent event state1
+          state2 = handleEventFlat event state1
           pr1    = fromJust $ lookupPullRequest (PullRequestId 1) state1
           pr2    = fromJust $ lookupPullRequest (PullRequestId 1) state2
       buildStatus pr1 `shouldBe` status
@@ -83,7 +136,7 @@ main = hspec $ do
     it "sets approval after a comment containing an approval stamp" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "toby"
           event  = CommentAdded (PullRequestId 1) "marie" "LGTM 6412ef5"
-          state' = handleEvent event state
+          state' = handleEventFlat event state
           pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
       approvedBy pr `shouldBe` Just "marie"
 
@@ -91,10 +144,10 @@ main = hspec $ do
       let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "patrick"
           -- Test coments with 2 words and more or less. (The stamp expects
           -- exactly two words.)
-          event3 = CommentAdded (PullRequestId 1) "thomas" "We're up all night"
+          event1 = CommentAdded (PullRequestId 1) "thomas" "We're up all night"
           event2 = CommentAdded (PullRequestId 1) "guyman" "to get"
-          event1 = CommentAdded (PullRequestId 1) "thomas" "lucky."
-          state' = foldr handleEvent state [event1, event2, event3]
+          event3 = CommentAdded (PullRequestId 1) "thomas" "lucky."
+          state' = handleEventsFlat [event1, event2, event3] state
           pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
       approvedBy pr `shouldBe` Nothing
 
@@ -102,14 +155,14 @@ main = hspec $ do
       let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "sacha"
           -- A 6-character sha is not long enough for approval.
           event  = CommentAdded (PullRequestId 1) "richard" "LGTM 6412ef"
-          state' = handleEvent event state
+          state' = handleEventFlat event state
           pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
       approvedBy pr `shouldBe` Nothing
 
     it "handles a build status change of the integration candidate" $ do
       let event  = BuildStatusChanged (Sha "84c") (BuildSucceeded taiEpoch)
           state  = candidateState (PullRequestId 1) (Sha "a38") "johanna" (Sha "84c")
-          state' = handleEvent event state
+          state' = handleEventFlat event state
           pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
       buildStatus pr `shouldBe` (BuildSucceeded taiEpoch)
 
@@ -117,7 +170,7 @@ main = hspec $ do
       let event0 = PullRequestOpened (PullRequestId 2) (Sha "0ad") "harry"
           event1 = BuildStatusChanged (Sha "0ad") (BuildSucceeded taiEpoch)
           state  = candidateState (PullRequestId 1) (Sha "a38") "harry" (Sha "84c")
-          state' = handleEvent event1 $ handleEvent event0 state
+          state' = handleEventsFlat [event0, event1] state
           pr1    = fromJust $ lookupPullRequest (PullRequestId 1) state'
           pr2    = fromJust $ lookupPullRequest (PullRequestId 2) state'
       -- Even though the build status changed for "0ad" which is a known commit,

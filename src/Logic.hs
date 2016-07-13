@@ -7,14 +7,19 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Logic (Action (..), Event (..), handleEvent) where
+module Logic
+(
+  Action,
+  ActionFree (..),
+  Event (..),
+  PushResult (..),
+  handleEvent
+) where
 
-import Control.Applicative ((<|>))
 import Control.Monad (mfilter)
 import Control.Monad.Free (Free)
 import Data.Maybe (fromMaybe, maybe)
 import Data.Text (Text)
-import Data.Time.Clock.TAI (taiEpoch)
 import Project (Branch (..))
 import Project (BuildStatus (..))
 import Project (BuildRequestStatus (..))
@@ -27,19 +32,20 @@ import qualified Data.Text as Text
 import qualified Project as Pr
 
 data PushResult
-  = Pushed
-  | Rejected
+  = PushOk
+  | PushRejected
   deriving (Eq, Show)
 
-data GitOperationFree a
+data ActionFree a
   = FetchCommit Sha a
   | FetchBranch Branch a
   | ForcePush Sha Branch a
   | Push Sha Branch (PushResult -> a)
   | Rebase Sha Branch (Maybe Sha -> a)
+  | LeaveComment PullRequestId Text a
   deriving (Functor)
 
-type GitOperation = Free GitOperationFree
+type Action = Free ActionFree
 
 data Event
   -- GitHub events
@@ -50,7 +56,7 @@ data Event
   -- CI events
   | BuildStatusChanged Sha BuildStatus
 
-handleEvent :: Event -> ProjectState -> ProjectState
+handleEvent :: Event -> ProjectState -> Action ProjectState
 handleEvent event = case event of
   PullRequestOpened pr sha author -> handlePullRequestOpened pr sha author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
@@ -58,10 +64,10 @@ handleEvent event = case event of
   CommentAdded pr author body     -> handleCommentAdded pr author body
   BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
 
-handlePullRequestOpened :: PullRequestId -> Sha -> Text -> ProjectState -> ProjectState
-handlePullRequestOpened pr sha author = Pr.insertPullRequest pr sha author
+handlePullRequestOpened :: PullRequestId -> Sha -> Text -> ProjectState -> Action ProjectState
+handlePullRequestOpened pr sha author = return . Pr.insertPullRequest pr sha author
 
-handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> ProjectState
+handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> Action ProjectState
 handlePullRequestCommitChanged pr sha state =
   -- If the commit changes, pretend that the PR was closed. This forgets about
   -- approval and build status. Then pretend a new PR was opened, with the same
@@ -69,12 +75,12 @@ handlePullRequestCommitChanged pr sha state =
   let closedState = handlePullRequestClosed pr state
       update pullRequest =
         let author = Pr.author pullRequest
-        in  handlePullRequestOpened pr sha author closedState
+        in  closedState >>= handlePullRequestOpened pr sha author
   -- If the pull request was not present in the first place, do nothing.
-  in maybe state update $ Pr.lookupPullRequest pr state
+  in maybe (return state) update $ Pr.lookupPullRequest pr state
 
-handlePullRequestClosed :: PullRequestId -> ProjectState -> ProjectState
-handlePullRequestClosed pr state = Pr.deletePullRequest pr state {
+handlePullRequestClosed :: PullRequestId -> ProjectState -> Action ProjectState
+handlePullRequestClosed pr state = return $ Pr.deletePullRequest pr state {
   -- If the PR was the current integration candidate, reset that to Nothing.
   Pr.integrationCandidate = mfilter (/= pr) $ Pr.integrationCandidate state
 }
@@ -89,8 +95,8 @@ isApproval message (Sha target) =
     stamp : sha : [] -> (stamp == "LGTM") && (isGood sha)
     _                -> False
 
-handleCommentAdded :: PullRequestId -> Text -> Text -> ProjectState -> ProjectState
-handleCommentAdded pr author body = Pr.updatePullRequest pr update
+handleCommentAdded :: PullRequestId -> Text -> Text -> ProjectState -> Action ProjectState
+handleCommentAdded pr author body = return . Pr.updatePullRequest pr update
   -- If the message was a valid approval stamp for the sha of this pull request,
   -- then it was approved by the author of the stamp. Otherwise do nothing.
   where update pullRequest =
@@ -98,7 +104,7 @@ handleCommentAdded pr author body = Pr.updatePullRequest pr update
             then pullRequest { Pr.approvedBy = Just author }
             else pullRequest
 
-handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> ProjectState
+handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
 handleBuildStatusChanged buildSha newStatus state =
   -- If there is an integration candidate, and its integration sha matches that
   -- of the build, then update the build status for that pull request. Otherwise
@@ -112,40 +118,4 @@ handleBuildStatusChanged buildSha newStatus state =
         -- integration candidate.
         _ <- mfilter matchesBuild $ Pr.lookupPullRequest candidateId state
         return $ Pr.setBuildStatus candidateId newStatus state
-  in fromMaybe state newState
-
-data Action
-  = Integrate PullRequestId
-  | StartBuild
-
-nextAction :: ProjectState -> Maybe (ProjectState, Action)
-nextAction state =
-  -- "<|>" here means: first try the left-hand side. If it is Just, then return
-  -- it. If it is Nothing, return the right-hand side.
-  tryStartBuild state <|>
-  tryIntegrate state
-
--- If the integration candidate can be built but the build has not been started,
--- returns a StartBuild action and sets the build status to BuildQueued.
-tryStartBuild :: ProjectState -> Maybe (ProjectState, Action)
-tryStartBuild state =
-  let startBuild (id, pr) = case (Pr.buildStatus pr, Pr.integrationStatus pr) of
-        (BuildNotStarted, Integrated str) ->
-          -- TODO: Get time, don't use TAI epoch.
-          let buildStatus = (BuildPending (BuildRequested taiEpoch))
-          in  Just (Pr.setBuildStatus id buildStatus state, StartBuild)
-        _ -> Nothing
-  in Pr.getIntegrationCandidate state >>= startBuild
-
--- Picks the oldest (by pull request number) pull request that has been approved
--- and generates an Integrate action for it.
-tryIntegrate :: ProjectState -> Maybe (ProjectState, Action)
-tryIntegrate state = foldr pick Nothing $ Pr.approvedPullRequests state
-  where pick pr action = (integratePullRequest state pr) <|> action
-
--- Issues an Integrate action.
--- TODO: How do I deal with this situation where I need to do IO to know the
--- new sha, but that may take a while and it should be in a monad ... make
--- Action a monad?
-integratePullRequest :: ProjectState -> PullRequestId -> Maybe (ProjectState, Action)
-integratePullRequest state pr = Just (state, Integrate pr)
+  in return $ fromMaybe state newState

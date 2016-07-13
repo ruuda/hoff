@@ -63,7 +63,7 @@ data Sha = Sha Text deriving (Eq, Show)
 data PullRequestId = PullRequestId Int deriving (Eq, Show, Generic)
 
 -- A branch is identified by its name.
-data Branch = Branch Text
+data Branch = Branch Text deriving (Eq, Show, Generic)
 
 data BuildStatus
   = BuildNotStarted
