@@ -9,6 +9,7 @@
 
 module Project
 (
+  Branch (..),
   BuildStatus (..),
   BuildRequestStatus (..),
   IntegrationStatus (..),
@@ -60,6 +61,9 @@ data Sha = Sha Text deriving (Eq, Show)
 
 -- A pull request is identified by its number.
 data PullRequestId = PullRequestId Int deriving (Eq, Show, Generic)
+
+-- A branch is identified by its name.
+data Branch = Branch Text
 
 data BuildStatus
   = BuildNotStarted

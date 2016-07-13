@@ -4,15 +4,18 @@
 -- it under the terms of the GNU General Public License version 3. See
 -- the licence file in the root of the repository.
 
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Logic (Action (..), Event (..), handleEvent) where
 
 import Control.Applicative ((<|>))
 import Control.Monad (mfilter)
+import Control.Monad.Free (Free)
 import Data.Maybe (fromMaybe, maybe)
 import Data.Text (Text)
 import Data.Time.Clock.TAI (taiEpoch)
+import Project (Branch (..))
 import Project (BuildStatus (..))
 import Project (BuildRequestStatus (..))
 import Project (IntegrationStatus (..))
@@ -22,6 +25,21 @@ import Project (Sha (..))
 
 import qualified Data.Text as Text
 import qualified Project as Pr
+
+data PushResult
+  = Pushed
+  | Rejected
+  deriving (Eq, Show)
+
+data GitOperationFree a
+  = FetchCommit Sha a
+  | FetchBranch Branch a
+  | ForcePush Sha Branch a
+  | Push Sha Branch (PushResult -> a)
+  | Rebase Sha Branch (Maybe Sha -> a)
+  deriving (Functor)
+
+type GitOperation = Free GitOperationFree
 
 data Event
   -- GitHub events
