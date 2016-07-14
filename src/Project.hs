@@ -27,6 +27,7 @@ module Project
   saveProjectState,
   setApproval,
   setBuildStatus,
+  setIntegrationCandidate,
   setIntegrationStatus,
   updatePullRequest
 )
@@ -176,6 +177,11 @@ getIntegrationCandidate state = do
   pullRequestId <- integrationCandidate state
   candidate     <- lookupPullRequest pullRequestId state
   return (pullRequestId, candidate)
+
+setIntegrationCandidate :: PullRequestId -> ProjectState  -> ProjectState
+setIntegrationCandidate pr state = state {
+  integrationCandidate = Just pr
+}
 
 -- Returns the pull requests that have been approved, in order of ascending id.
 approvedPullRequests :: ProjectState -> [PullRequestId]
