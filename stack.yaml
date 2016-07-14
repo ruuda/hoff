@@ -2,6 +2,3 @@ resolver: nightly-2016-07-09
 
 packages:
   - '.'
-
-extra-deps:
-  - leapseconds-announced-2015.0.0.1

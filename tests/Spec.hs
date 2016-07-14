@@ -10,7 +10,6 @@ import Control.Monad.Free (Free (..))
 import Data.Foldable (foldlM)
 import Data.Maybe (fromJust)
 import Data.Text (Text)
-import Data.Time.Clock.TAI (taiEpoch)
 import Test.Hspec
 
 import Logic
@@ -124,13 +123,12 @@ main = hspec $ do
 
     it "resets the build status after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
-          status = (BuildPending (BuildRequested taiEpoch))
           state0 = singlePullRequestState (PullRequestId 1) (Sha "abc") "thomas"
-          state1 = setBuildStatus (PullRequestId 1) status state0
+          state1 = setBuildStatus (PullRequestId 1) BuildPending state0
           state2 = handleEventFlat event state1
           pr1    = fromJust $ lookupPullRequest (PullRequestId 1) state1
           pr2    = fromJust $ lookupPullRequest (PullRequestId 1) state2
-      buildStatus pr1 `shouldBe` status
+      buildStatus pr1 `shouldBe` BuildPending
       buildStatus pr2 `shouldBe` BuildNotStarted
 
     it "sets approval after a comment containing an approval stamp" $ do
@@ -160,15 +158,15 @@ main = hspec $ do
       approvedBy pr `shouldBe` Nothing
 
     it "handles a build status change of the integration candidate" $ do
-      let event  = BuildStatusChanged (Sha "84c") (BuildSucceeded taiEpoch)
+      let event  = BuildStatusChanged (Sha "84c") BuildSucceeded
           state  = candidateState (PullRequestId 1) (Sha "a38") "johanna" (Sha "84c")
           state' = handleEventFlat event state
           pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
-      buildStatus pr `shouldBe` (BuildSucceeded taiEpoch)
+      buildStatus pr `shouldBe` BuildSucceeded
 
     it "ignores a build status change of random shas" $ do
       let event0 = PullRequestOpened (PullRequestId 2) (Sha "0ad") "harry"
-          event1 = BuildStatusChanged (Sha "0ad") (BuildSucceeded taiEpoch)
+          event1 = BuildStatusChanged (Sha "0ad") BuildSucceeded
           state  = candidateState (PullRequestId 1) (Sha "a38") "harry" (Sha "84c")
           state' = handleEventsFlat [event0, event1] state
           pr1    = fromJust $ lookupPullRequest (PullRequestId 1) state'

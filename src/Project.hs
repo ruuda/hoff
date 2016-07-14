@@ -11,7 +11,6 @@ module Project
 (
   Branch (..),
   BuildStatus (..),
-  BuildRequestStatus (..),
   IntegrationStatus (..),
   ProjectState (..),
   PullRequest (..),
@@ -41,20 +40,10 @@ import Data.ByteString.Lazy (writeFile)
 import Data.IntMap (IntMap)
 import Data.Maybe (isJust)
 import Data.Text (Text)
-import Data.Time.Clock.TAI (AbsoluteTime, utcToTAITime, taiToUTCTime)
-import Data.Time.Clock (UTCTime)
 import GHC.Generics
 import Prelude hiding (readFile, writeFile)
 
 import qualified Data.IntMap as IntMap
-import qualified Data.Time.Clock.AnnouncedLeapSeconds as LeapSeconds
-
--- Utility functions for dealing with time.
-toUtcTime :: AbsoluteTime -> UTCTime
-toUtcTime = taiToUTCTime LeapSeconds.lst
-
-toAbsoluteTime :: UTCTime -> AbsoluteTime
-toAbsoluteTime = utcToTAITime LeapSeconds.lst
 
 -- A commit hash is stored as its hexadecimal representation.
 data Sha = Sha Text deriving (Eq, Show)
@@ -67,16 +56,9 @@ data Branch = Branch Text deriving (Eq, Show, Generic)
 
 data BuildStatus
   = BuildNotStarted
-  | BuildPending   BuildRequestStatus
-  | BuildSucceeded AbsoluteTime
-  | BuildFailed    AbsoluteTime
-  deriving (Eq, Show, Generic)
-
-data BuildRequestStatus
-  = BuildRequested AbsoluteTime
-  | BuildAccepted  AbsoluteTime
-  | BuildQueued    AbsoluteTime
-  | BuildStarted   AbsoluteTime
+  | BuildPending
+  | BuildSucceeded
+  | BuildFailed
   deriving (Eq, Show, Generic)
 
 -- When attempting to integrated changes, there can be three states: no attempt
@@ -113,23 +95,15 @@ instance FromJSON Sha where
 instance ToJSON Sha where
   toJSON (Sha str) = String str
 
-instance FromJSON AbsoluteTime where
-  parseJSON = fmap toAbsoluteTime . parseJSON
-
-instance ToJSON AbsoluteTime where
-  toJSON = toJSON . toUtcTime
-
 -- TODO: These default instances produce ugly json. Write a custom
 -- implementation. For now this will suffice.
 instance FromJSON BuildStatus
-instance FromJSON BuildRequestStatus
 instance FromJSON IntegrationStatus
 instance FromJSON ProjectState
 instance FromJSON PullRequest
 instance FromJSON PullRequestId
 
 instance ToJSON BuildStatus where toEncoding = genericToEncoding defaultOptions
-instance ToJSON BuildRequestStatus where toEncoding = genericToEncoding defaultOptions
 instance ToJSON IntegrationStatus where toEncoding = genericToEncoding defaultOptions
 instance ToJSON ProjectState where toEncoding = genericToEncoding defaultOptions
 instance ToJSON PullRequest where toEncoding = genericToEncoding defaultOptions
