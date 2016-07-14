@@ -16,7 +16,7 @@ module Project
   PullRequest (..),
   PullRequestId (..),
   Sha (..),
-  approvedPullRequests,
+  candidatePullRequests,
   deletePullRequest,
   existsPullRequest,
   emptyProjectState,
@@ -38,6 +38,7 @@ import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString (readFile)
 import Data.ByteString.Lazy (writeFile)
 import Data.IntMap (IntMap)
+import Data.List (intersect)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import GHC.Generics
@@ -181,3 +182,26 @@ approvedPullRequests :: ProjectState -> [PullRequestId]
 approvedPullRequests =
   fmap PullRequestId . IntMap.keys . IntMap.filter approved . pullRequests
   where approved = isJust . approvedBy
+
+-- Returns the pull requests that have not been integrated yet, in order of
+-- ascending id.
+unintegratedPullRequests :: ProjectState -> [PullRequestId]
+unintegratedPullRequests =
+  fmap PullRequestId . IntMap.keys . IntMap.filter notIntegrated . pullRequests
+  where notIntegrated = (== NotIntegrated) . integrationStatus
+
+-- Returns the pull requests that have not been built yet, in order of ascending
+-- id.
+unbuiltPullRequests :: ProjectState -> [PullRequestId]
+unbuiltPullRequests =
+  fmap PullRequestId . IntMap.keys . IntMap.filter notBuilt . pullRequests
+  where notBuilt = (== BuildNotStarted) . buildStatus
+
+-- Returns the pull requests that have been approved, but for which integration
+-- and building has not yet been attempted.
+candidatePullRequests :: ProjectState -> [PullRequestId]
+candidatePullRequests state =
+  let approved     = approvedPullRequests state
+      unintegrated = unintegratedPullRequests state
+      unbuilt      = unbuiltPullRequests state
+  in  approved `intersect` unintegrated `intersect` unbuilt
