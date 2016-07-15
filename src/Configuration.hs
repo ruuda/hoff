@@ -16,10 +16,11 @@ import Prelude hiding (readFile)
 
 data Configuration = Configuration
   {
-    owner      :: Text, -- The GitHub user or organization who owns the repo.
-    repository :: Text, -- The name of the repository.
-    branch     :: Text, -- The branch to guard and integrate commits into.
-    port       :: Int   -- The port to listen on for webhooks.
+    owner      :: Text,    -- The GitHub user or organization who owns the repo.
+    repository :: Text,    -- The name of the repository.
+    branch     :: Text,    -- The branch to guard and integrate commits into.
+    port       :: Int,     -- The port to listen on for webhooks.
+    checkout   :: FilePath -- The path to a local checkout of the repository.
   }
   deriving (Generic, Show)
 
