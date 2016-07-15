@@ -20,7 +20,7 @@ module Logic
 
 import Control.Monad (mfilter)
 import Control.Monad.Free (Free, liftF)
-import Data.Maybe (fromMaybe, maybe)
+import Data.Maybe (fromJust, fromMaybe, maybe)
 import Data.Text (Text)
 import Project (Branch (..))
 import Project (BuildStatus (..))
@@ -151,7 +151,8 @@ proceed state = case Pr.getIntegrationCandidate state of
     -- Found a new candidate, try to integrate it.
     pr : _ -> tryIntegratePullRequest (Branch "TODO") (Branch "TODO") pr state
 
--- Integrates proposed changes into the target branch.
+-- Integrates proposed changes into the target branch. The pull request must
+-- exist in the project.
 tryIntegratePullRequest :: Branch -> Branch -> PullRequestId -> ProjectState -> Action ProjectState
 tryIntegratePullRequest targetBranch integrationBranch pr state =
   let integrate pullRequest = do
@@ -174,6 +175,5 @@ tryIntegratePullRequest targetBranch integrationBranch pr state =
               Pr.setIntegrationStatus pr (Integrated sha) $
               Pr.setBuildStatus pr BuildPending $
               Pr.setIntegrationCandidate pr $ state
-  -- Only do all of the above if the pull request actually exists, if it doesn't
-  -- exist, don't change the state and don't perform any actions.
-  in maybe (return state) integrate $ Pr.lookupPullRequest pr state
+  -- It is assumed that the pull request exists, so we can use fromJust here.
+  in integrate $ fromJust $ Pr.lookupPullRequest pr state
