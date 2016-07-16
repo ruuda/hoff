@@ -139,6 +139,15 @@ main = hspec $ do
       buildStatus pr1 `shouldBe` BuildPending
       buildStatus pr2 `shouldBe` BuildNotStarted
 
+    it "ignores false positive commit changed events" $ do
+      let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "000")
+          state0 = singlePullRequestState (PullRequestId 1) (Sha "000") "cindy"
+          state1 = setApproval (PullRequestId 1) (Just "daniel") state0
+          state2 = setBuildStatus (PullRequestId 1) BuildPending state1
+          state3 = handleEventFlat event state2
+      state3 `shouldBe` state2
+      -- TODO: Also assert that no actions are performed.
+
     it "sets approval after a comment containing an approval stamp" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "toby"
           event  = CommentAdded (PullRequestId 1) "marie" "LGTM 6412ef5"

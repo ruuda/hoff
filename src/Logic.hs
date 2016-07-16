@@ -57,6 +57,9 @@ pushNewHead newHead = liftF $ PushNewHead newHead id
 data Event
   -- GitHub events
   = PullRequestOpened PullRequestId Sha Text   -- PR, sha, author.
+  -- The commit changed event may contain false positives: it may be received
+  -- even if the commit did not really change. This is because GitHub just
+  -- sends a "something changed" event along with the new state.
   | PullRequestCommitChanged PullRequestId Sha -- PR, new sha.
   | PullRequestClosed PullRequestId            -- PR.
   | CommentAdded PullRequestId Text Text       -- PR, author and body.
@@ -75,14 +78,17 @@ handlePullRequestOpened :: PullRequestId -> Sha -> Text -> ProjectState -> Actio
 handlePullRequestOpened pr sha author = return . Pr.insertPullRequest pr sha author
 
 handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> Action ProjectState
-handlePullRequestCommitChanged pr sha state =
+handlePullRequestCommitChanged pr newSha state =
   -- If the commit changes, pretend that the PR was closed. This forgets about
   -- approval and build status. Then pretend a new PR was opened, with the same
   -- author as the original one, but with the new sha.
   let closedState = handlePullRequestClosed pr state
       update pullRequest =
-        let author = Pr.author pullRequest
-        in  closedState >>= handlePullRequestOpened pr sha author
+        let oldSha   = Pr.sha pullRequest
+            author   = Pr.author pullRequest
+            newState = closedState >>= handlePullRequestOpened pr newSha author
+            -- If the change notification was a false positive, ignore it.
+        in  if oldSha == newSha then return state else newState
   -- If the pull request was not present in the first place, do nothing.
   in maybe (return state) update $ Pr.lookupPullRequest pr state
 
