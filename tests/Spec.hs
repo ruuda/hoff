@@ -194,6 +194,7 @@ main = hspec $ do
       prId                          `shouldBe` PullRequestId 1
       buildStatus pullRequest       `shouldBe` BuildPending
       integrationStatus pullRequest `shouldBe` Integrated (Sha "38c")
+      actions `shouldBe` [ATryIntegrate (Sha "f34")]
 
   describe "GitHub.PullRequestPayload" $ do
 
