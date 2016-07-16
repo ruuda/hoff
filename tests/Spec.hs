@@ -12,6 +12,7 @@ import Data.Maybe (fromJust)
 import Data.Text (Text)
 import Test.Hspec
 
+import Git (Sha (..))
 import Logic
 import Project
 
@@ -31,11 +32,7 @@ candidateState pr prSha prAuthor candidateSha =
 -- Types and functions to mock running an action without actually doing anything.
 
 data ActionFlat
-  = AFetchCommit Sha
-  | AFetchBranch Branch
-  | AForcePush Sha Branch
-  | APush Sha Branch
-  | ARebase Sha Branch
+  = ATryIntegrate Sha
   | ALeaveComment PullRequestId Text
   deriving (Eq, Show)
 
@@ -43,24 +40,19 @@ data ActionFlat
 -- together with a list of all actions that would have been performed. Some
 -- actions require input from the outside world. Simulating these actions will
 -- return the pushResult and rebaseResult passed in here.
-runActionWithInit :: PushResult -> Maybe Sha -> [ActionFlat] -> Action a -> (a, [ActionFlat])
-runActionWithInit pushResult rebaseResult as action =
-  let prepend cont as' a =
-        let (result, actions) = runActionWithInit pushResult rebaseResult as' cont
-        in  (result, a : actions)
+runActionWithInit :: Maybe Sha -> [ActionFlat] -> Action a -> (a, [ActionFlat])
+runActionWithInit integrateResult actions action =
+  let prepend cont act =
+        let (result, acts') = runActionWithInit integrateResult actions cont
+        in  (result, act : acts')
   in case action of
     Pure result                   -> (result, [])
-    Free (FetchCommit sha x)      -> prepend x as $ AFetchCommit sha
-    Free (FetchBranch branch x)   -> prepend x as $ AFetchBranch branch
-    Free (ForcePush sha branch x) -> prepend x as $ AForcePush sha branch
-    Free (Push sha branch h)      -> prepend (h pushResult) as $ APush sha branch
-    Free (Rebase sha branch h)    -> prepend (h rebaseResult) as $ ARebase sha branch
-    Free (LeaveComment pr body x) -> prepend x as $ ALeaveComment pr body
+    Free (TryIntegrate trySha h)  -> prepend (h integrateResult) $ ATryIntegrate trySha
+    Free (LeaveComment pr body x) -> prepend x $ ALeaveComment pr body
 
--- Simulates running the action. Pretends that a push always succeeds with
--- PushOk, and pretends that a rebase always conflicts and fails with Nothing.
+-- Simulates running the action. Pretends that integration always conflicts.
 runAction :: Action a -> (a, [ActionFlat])
-runAction = runActionWithInit PushOk Nothing []
+runAction = runActionWithInit Nothing []
 
 -- TODO: Do not ignore actions information, assert that certain events do not
 -- have undesirable side effects.

@@ -16,18 +16,18 @@ module Logic
   handleEvent,
   proceed,
   tryIntegratePullRequest
-) where
+)
+where
 
 import Control.Monad (mfilter)
 import Control.Monad.Free (Free, liftF)
 import Data.Maybe (fromJust, fromMaybe, maybe)
 import Data.Text (Text)
-import Project (Branch (..))
+import Git (Branch (..), Sha (..))
 import Project (BuildStatus (..))
 import Project (IntegrationStatus (..))
 import Project (ProjectState)
 import Project (PullRequestId (..))
-import Project (Sha (..))
 
 import qualified Data.Text as Text
 import qualified Project as Pr
@@ -38,24 +38,14 @@ data PushResult
   deriving (Eq, Show)
 
 data ActionFree a
-  = FetchCommit Sha a
-  | FetchBranch Branch a
-  | ForcePush Sha Branch a
-  | Push Sha Branch (PushResult -> a)
-  | Rebase Sha Branch (Maybe Sha -> a)
+  = TryIntegrate Sha (Maybe Sha -> a)
   | LeaveComment PullRequestId Text a
   deriving (Functor)
 
 type Action = Free ActionFree
 
-fetchBranch :: Branch -> Action ()
-fetchBranch remoteBranch = liftF $ FetchBranch remoteBranch ()
-
-forcePush :: Sha -> Branch -> Action ()
-forcePush sha remoteBranch = liftF $ ForcePush sha remoteBranch ()
-
-rebase :: Sha -> Branch -> Action (Maybe Sha)
-rebase sha ontoBranch = liftF $ Rebase sha ontoBranch id
+tryIntegrate :: Sha -> Action (Maybe Sha)
+tryIntegrate candidate = liftF $ TryIntegrate candidate id
 
 data Event
   -- GitHub events
@@ -149,31 +139,19 @@ proceed state = case Pr.getIntegrationCandidate state of
     -- No pull requests eligible, do nothing.
     []     -> return state
     -- Found a new candidate, try to integrate it.
-    pr : _ -> tryIntegratePullRequest (Branch "TODO") (Branch "TODO") pr state
+    pr : _ -> tryIntegratePullRequest pr state
 
--- Integrates proposed changes into the target branch. The pull request must
--- exist in the project.
-tryIntegratePullRequest :: Branch -> Branch -> PullRequestId -> ProjectState -> Action ProjectState
-tryIntegratePullRequest targetBranch integrationBranch pr state =
-  let integrate pullRequest = do
-        -- Make sure the target branch is up to date. (If something is pushed
-        -- before we push the integrated changes, we will try again later, until
-        -- it doesn't fail.)
-        fetchBranch targetBranch
-        -- Rebase the pull request commits onto the target branch.
-        rebaseResult <- rebase (Pr.sha pullRequest) targetBranch
-        case rebaseResult of
-          -- If the rebase failed, perform no further actions but do set the
-          -- state to conflicted. (TODO: leave a comment on the PR?)
-          Nothing  -> return $ Pr.setIntegrationStatus pr Conflicted state
-          Just sha -> do
-            -- If the rebase succeeded, then this is our new integration
-            -- candidate. Push it to the remote integration branch to trigger a
-            -- build.
-            forcePush sha integrationBranch
-            return $
-              Pr.setIntegrationStatus pr (Integrated sha) $
-              Pr.setBuildStatus pr BuildPending $
-              Pr.setIntegrationCandidate pr $ state
-  -- It is assumed that the pull request exists, so we can use fromJust here.
-  in integrate $ fromJust $ Pr.lookupPullRequest pr state
+-- Integrates proposed changes from the pull request into the target branch.
+-- The pull request must exist in the project.
+tryIntegratePullRequest :: PullRequestId -> ProjectState -> Action ProjectState
+tryIntegratePullRequest pr state = fmap handleResult $ tryIntegrate candidateSha
+  where candidateSha = Pr.sha $ fromJust $ Pr.lookupPullRequest pr state
+        -- If integrating failed, perform no further actions but do set the
+        -- state to conflicted. (TODO: leave a comment on the PR?) If it
+        -- succeeded, update the integration candidate, and set the build
+        -- to pending, as pushing should have triggered a build.
+        handleResult result = case result of
+          Nothing  -> Pr.setIntegrationStatus pr Conflicted state
+          Just sha -> Pr.setIntegrationStatus pr (Integrated sha)
+                    $ Pr.setBuildStatus pr BuildPending
+                    $ Pr.setIntegrationCandidate pr state

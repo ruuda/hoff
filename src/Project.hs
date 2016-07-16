@@ -9,13 +9,11 @@
 
 module Project
 (
-  Branch (..),
   BuildStatus (..),
   IntegrationStatus (..),
   ProjectState (..),
   PullRequest (..),
   PullRequestId (..),
-  Sha (..),
   candidatePullRequests,
   deletePullRequest,
   existsPullRequest,
@@ -33,7 +31,6 @@ module Project
 )
 where
 
-import Control.Monad (mzero)
 import Data.Aeson
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString (readFile)
@@ -43,18 +40,13 @@ import Data.List (intersect)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import GHC.Generics
+import Git (Sha (..))
 import Prelude hiding (readFile, writeFile)
 
 import qualified Data.IntMap as IntMap
 
--- A commit hash is stored as its hexadecimal representation.
-data Sha = Sha Text deriving (Eq, Show)
-
 -- A pull request is identified by its number.
 data PullRequestId = PullRequestId Int deriving (Eq, Show, Generic)
-
--- A branch is identified by its name.
-data Branch = Branch Text deriving (Eq, Show, Generic)
 
 data BuildStatus
   = BuildNotStarted
@@ -89,13 +81,6 @@ data ProjectState = ProjectState
     integrationCandidate :: Maybe PullRequestId
   }
   deriving (Eq, Show, Generic)
-
-instance FromJSON Sha where
-  parseJSON (String str) = return (Sha str)
-  parseJSON _            = mzero
-
-instance ToJSON Sha where
-  toJSON (Sha str) = String str
 
 -- TODO: These default instances produce ugly json. Write a custom
 -- implementation. For now this will suffice.
