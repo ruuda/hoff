@@ -33,6 +33,7 @@ candidateState pr prSha prAuthor candidateSha =
 
 data ActionFlat
   = ATryIntegrate Sha
+  | APushNewHead Sha
   | ALeaveComment PullRequestId Text
   deriving (Eq, Show)
 
@@ -40,19 +41,21 @@ data ActionFlat
 -- together with a list of all actions that would have been performed. Some
 -- actions require input from the outside world. Simulating these actions will
 -- return the pushResult and rebaseResult passed in here.
-runActionWithInit :: Maybe Sha -> [ActionFlat] -> Action a -> (a, [ActionFlat])
-runActionWithInit integrateResult actions action =
+runActionWithInit :: Maybe Sha -> PushResult -> [ActionFlat] -> Action a -> (a, [ActionFlat])
+runActionWithInit integrateResult pushResult actions action =
   let prepend cont act =
-        let (result, acts') = runActionWithInit integrateResult actions cont
+        let (result, acts') = runActionWithInit integrateResult pushResult actions cont
         in  (result, act : acts')
   in case action of
     Pure result                   -> (result, [])
     Free (TryIntegrate trySha h)  -> prepend (h integrateResult) $ ATryIntegrate trySha
+    Free (PushNewHead headSha h)  -> prepend (h pushResult) $ APushNewHead headSha
     Free (LeaveComment pr body x) -> prepend x $ ALeaveComment pr body
 
 -- Simulates running the action. Pretends that integration always conflicts.
+-- Pretends that pushing is always successful.
 runAction :: Action a -> (a, [ActionFlat])
-runAction = runActionWithInit Nothing []
+runAction = runActionWithInit Nothing PushOk []
 
 -- TODO: Do not ignore actions information, assert that certain events do not
 -- have undesirable side effects.
@@ -68,6 +71,12 @@ handleEventFlat event state = getState $ handleEvent event state
 -- and return the new state.
 handleEventsFlat :: [Event] -> ProjectState -> ProjectState
 handleEventsFlat events state = getState $ foldlM (flip handleEvent) state events
+
+-- Proceed with a state until a fixed point, simulate and collect the side
+-- effects.
+proceedUntilFixedPointFlat :: Maybe Sha -> PushResult -> ProjectState -> (ProjectState, [ActionFlat])
+proceedUntilFixedPointFlat integrateResult pushResult state =
+  runActionWithInit integrateResult pushResult [] $ proceedUntilFixedPoint state
 
 main :: IO ()
 main = hspec $ do
@@ -167,3 +176,14 @@ main = hspec $ do
       -- only the build status of the integration candidate can be changed.
       buildStatus pr1 `shouldBe` BuildNotStarted
       buildStatus pr2 `shouldBe` BuildNotStarted
+
+  describe "Logic.proceedUntilFixedPoint" $ do
+
+    it "finds a new candidate" $ do
+      let state = setApproval (PullRequestId 1) (Just "fred") $
+                  singlePullRequestState (PullRequestId 1) (Sha "f34") "sally"
+          (state', actions)  = proceedUntilFixedPointFlat (Just (Sha "38c")) PushRejected state
+          (prId, pullRequest) = fromJust $ getIntegrationCandidate state'
+      prId                          `shouldBe` PullRequestId 1
+      buildStatus pullRequest       `shouldBe` BuildPending
+      integrationStatus pullRequest `shouldBe` Integrated (Sha "38c")
