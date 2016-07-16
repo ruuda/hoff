@@ -15,6 +15,7 @@ module Logic
   PushResult (..),
   handleEvent,
   proceed,
+  proceedUntilFixedPoint,
   tryIntegratePullRequest
 )
 where
@@ -23,7 +24,7 @@ import Control.Monad (mfilter)
 import Control.Monad.Free (Free, liftF)
 import Data.Maybe (fromJust, fromMaybe, maybe)
 import Data.Text (Text)
-import Git (Branch (..), Sha (..))
+import Git (Sha (..))
 import Project (BuildStatus (..))
 import Project (IntegrationStatus (..))
 import Project (ProjectState)
@@ -155,3 +156,13 @@ tryIntegratePullRequest pr state = fmap handleResult $ tryIntegrate candidateSha
           Just sha -> Pr.setIntegrationStatus pr (Integrated sha)
                     $ Pr.setBuildStatus pr BuildPending
                     $ Pr.setIntegrationCandidate pr state
+
+-- Keep doing a proceed step until the state doesn't change any more. For this
+-- to work properly, it is essential that "proceed" does not have any side
+-- effects if it does not change the state.
+proceedUntilFixedPoint :: ProjectState -> Action ProjectState
+proceedUntilFixedPoint state = do
+  newState <- proceed state
+  if newState == state
+    then return state
+    else proceedUntilFixedPoint state
