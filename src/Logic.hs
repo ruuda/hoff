@@ -20,14 +20,16 @@ module Logic
 )
 where
 
+import Control.Exception (assert)
 import Control.Monad (mfilter)
 import Control.Monad.Free (Free, liftF)
-import Data.Maybe (fromJust, fromMaybe, maybe)
+import Data.Maybe (fromJust, fromMaybe, isJust, maybe)
 import Data.Text (Text)
 import Git (Sha (..))
 import Project (BuildStatus (..))
 import Project (IntegrationStatus (..))
 import Project (ProjectState)
+import Project (PullRequest)
 import Project (PullRequestId (..))
 
 import qualified Data.Text as Text
@@ -40,6 +42,7 @@ data PushResult
 
 data ActionFree a
   = TryIntegrate Sha (Maybe Sha -> a)
+  | PushNewHead Sha (PushResult -> a)
   | LeaveComment PullRequestId Text a
   deriving (Functor)
 
@@ -47,6 +50,9 @@ type Action = Free ActionFree
 
 tryIntegrate :: Sha -> Action (Maybe Sha)
 tryIntegrate candidate = liftF $ TryIntegrate candidate id
+
+pushNewHead :: Sha -> Action PushResult
+pushNewHead newHead = liftF $ PushNewHead newHead id
 
 data Event
   -- GitHub events
@@ -134,13 +140,24 @@ proceed state = case Pr.getIntegrationCandidate state of
   -- answer is "do as much as possible here" because the events are ephemeral,
   -- but the state can be persisted to disk, so the process can continue after a
   -- restart.
-  Just _  -> return state
+  Just candidate -> proceedCandidate candidate state
   -- No current integration candidate, find the next one.
   Nothing -> case Pr.candidatePullRequests state of
     -- No pull requests eligible, do nothing.
     []     -> return state
     -- Found a new candidate, try to integrate it.
     pr : _ -> tryIntegratePullRequest pr state
+
+-- TODO: Get rid of the tuple; just pass the ID and do the lookup with fromJust.
+proceedCandidate :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
+proceedCandidate (pullRequestId, pullRequest) state =
+  case Pr.buildStatus pullRequest of
+    BuildNotStarted -> error "integration candidate build should at least be pending"
+    BuildPending    -> return state
+    BuildSucceeded  -> pushCandidate (pullRequestId, pullRequest) state
+    -- If the build failed, this is no longer a candidate.
+    -- TODO: Leave a comment on the pull request, perhaps post to chatroom.
+    BuildFailed     -> return $ Pr.setIntegrationCandidate Nothing state
 
 -- Integrates proposed changes from the pull request into the target branch.
 -- The pull request must exist in the project.
@@ -155,7 +172,33 @@ tryIntegratePullRequest pr state = fmap handleResult $ tryIntegrate candidateSha
           Nothing  -> Pr.setIntegrationStatus pr Conflicted state
           Just sha -> Pr.setIntegrationStatus pr (Integrated sha)
                     $ Pr.setBuildStatus pr BuildPending
-                    $ Pr.setIntegrationCandidate pr state
+                    $ Pr.setIntegrationCandidate (Just pr) state
+
+-- Pushes the integrated commits of the given candidate pull request to the
+-- target branch. If the push fails, restarts the integration cycle for the
+-- candidate.
+-- TODO: Get rid of the tuple; just pass the ID and do the lookup with fromJust.
+pushCandidate :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
+pushCandidate (pullRequestId, pullRequest) state = do
+  -- Look up the sha that will be pushed to the target branch. Also assert that
+  -- the pull request has really been approved and built successfully. If it was
+  -- not, there is a bug in the program.
+  let approved  = isJust $ Pr.approvedBy pullRequest
+      succeeded = Pr.buildStatus pullRequest == BuildSucceeded
+      status    = Pr.integrationStatus pullRequest
+      newHead   = assert (approved && succeeded) $ case status of
+        Integrated sha -> sha
+        _              -> error "inconsistent state: build succeeded for non-integrated pull request"
+  pushResult <- pushNewHead newHead
+  case pushResult of
+    -- If the push worked, then this was the final stage of the pull
+    -- request; reset the integration candidate.
+    -- TODO: Leave a comment? And close the PR via the API.
+    PushOk -> return $ Pr.setIntegrationCandidate Nothing state
+    -- If something was pushed to the target branch while the candidate was
+    -- being tested, try to integrate again and hope that next time the push
+    -- succeeds.
+    PushRejected -> tryIntegratePullRequest pullRequestId state
 
 -- Keep doing a proceed step until the state doesn't change any more. For this
 -- to work properly, it is essential that "proceed" does not have any side

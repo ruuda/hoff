@@ -163,9 +163,9 @@ getIntegrationCandidate state = do
   candidate     <- lookupPullRequest pullRequestId state
   return (pullRequestId, candidate)
 
-setIntegrationCandidate :: PullRequestId -> ProjectState  -> ProjectState
+setIntegrationCandidate :: Maybe PullRequestId -> ProjectState  -> ProjectState
 setIntegrationCandidate pr state = state {
-  integrationCandidate = Just pr
+  integrationCandidate = pr
 }
 
 -- Returns the pull requests that have been approved, in order of ascending id.
