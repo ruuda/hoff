@@ -208,4 +208,4 @@ proceedUntilFixedPoint state = do
   newState <- proceed state
   if newState == state
     then return state
-    else proceedUntilFixedPoint state
+    else proceedUntilFixedPoint newState
