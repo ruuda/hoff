@@ -5,16 +5,23 @@
 -- the licence file in the root of the repository.
 
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
 import Control.Monad.Free (Free (..))
+import Data.Aeson (decode)
+import Data.ByteString.Lazy (readFile)
 import Data.Foldable (foldlM)
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, isJust)
 import Data.Text (Text)
+import Prelude hiding (readFile)
 import Test.Hspec
 
 import Git (Sha (..))
+import GitHub (PullRequestPayload)
 import Logic
 import Project
+
+import qualified GitHub
 
 -- Functions to prepare certain test states.
 
@@ -187,3 +194,24 @@ main = hspec $ do
       prId                          `shouldBe` PullRequestId 1
       buildStatus pullRequest       `shouldBe` BuildPending
       integrationStatus pullRequest `shouldBe` Integrated (Sha "38c")
+
+  describe "GitHub.PullRequestPayload" $ do
+
+    it "should be parsed correctly" $ do
+      examplePayload <- readFile "tests/data/pull-request-payload.json"
+      let maybePayload :: Maybe PullRequestPayload
+          maybePayload = decode examplePayload
+      maybePayload `shouldSatisfy` isJust
+      let payload    = fromJust maybePayload
+          action     = GitHub.action     (payload :: PullRequestPayload)
+          owner      = GitHub.owner      (payload :: PullRequestPayload)
+          repository = GitHub.repository (payload :: PullRequestPayload)
+          number     = GitHub.number     (payload :: PullRequestPayload)
+          headSha    = GitHub.sha        (payload :: PullRequestPayload)
+          prAuthor   = GitHub.author     (payload :: PullRequestPayload)
+      action     `shouldBe` GitHub.Opened
+      owner      `shouldBe` "baxterthehacker"
+      repository `shouldBe` "public-repo"
+      number     `shouldBe` 1
+      headSha    `shouldBe` (Sha "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c")
+      prAuthor   `shouldBe` "baxterthehacker2"

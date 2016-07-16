@@ -5,6 +5,7 @@
 -- the licence file in the root of the repository.
 
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module GitHub
 (
@@ -16,6 +17,9 @@ module GitHub
 )
 where
 
+import Control.Monad (mzero)
+import Data.Aeson (FromJSON (parseJSON), Object, Value (Object, String), (.:))
+import Data.Aeson.Types (Parser)
 import Data.Text (Text)
 import Git (Sha (..))
 
@@ -24,31 +28,62 @@ data PullRequestAction
   | Closed
   | Reopened
   | Synchronize
+  deriving (Eq, Show)
 
 data PullRequestCommentAction
   = Created
   | Edited
   | Deleted
+  deriving (Eq, Show)
 
 data PullRequestPayload = PullRequestPayload {
+  action     :: PullRequestAction, -- Corresponds to "action".
   owner      :: Text, -- Corresponds to "pull_request.base.repo.owner.login".
   repository :: Text, -- Corresponds to "pull_request.base.repo.name".
   number     :: Int,  -- Corresponds to "pull_request.number".
   sha        :: Sha,  -- Corresponds to "pull_request.head.sha".
   author     :: Text  -- Corresponds to "pull_request.user.login".
-}
+} deriving (Eq, Show)
 
 data PullRequestCommentPayload = PullRequestCommentPayload {
+  action     :: PullRequestCommentAction, -- Corresponds to "action".
   owner      :: Text, -- Corresponds to "repository.owner.login".
   repository :: Text, -- Corresponds to "repository.name".
   number     :: Int,  -- Corresponds to "issue.number".
   author     :: Text, -- Corresponds to "sender.login".
   body       :: Text  -- Corresponds to "comment.body".
-}
+} deriving (Eq, Show)
+
+instance FromJSON PullRequestAction where
+  parseJSON (String "opened")      = return Opened
+  parseJSON (String "closed")      = return Closed
+  parseJSON (String "reopened")    = return Opened
+  parseJSON (String "synchronize") = return Synchronize
+  parseJSON _                      = mzero
+
+-- A helper function to parse nested fields in json.
+getNested :: FromJSON a => Object -> [Text] -> Parser a
+getNested rootObject fields =
+  -- Build object parsers for every field except the last one. The last field is
+  -- different, as it needs a parser of type "a", not "Object".
+  let parsers :: [Object -> Parser Object]
+      parsers = fmap (\ field -> (.: field)) (init fields)
+      object  = foldl (>>=) (return rootObject) parsers
+  in  object >>= (.: (last fields))
+
+instance FromJSON PullRequestPayload where
+  parseJSON (Object v) = PullRequestPayload
+    <$> (v .: "action")
+    <*> getNested v ["pull_request", "base", "repo", "owner", "login"]
+    <*> getNested v ["pull_request", "base", "repo", "name"]
+    <*> getNested v ["pull_request", "number"]
+    <*> getNested v ["pull_request", "head", "sha"]
+    <*> getNested v ["pull_request", "user", "login"]
+  parseJSON _ = mzero
 
 -- Note that GitHub calls pull requests "issues" for the sake of comments: the
 -- pull request comment event is actually "issue_comment".
 data WebhookEvent
   = Ping
-  | PullRequest PullRequestAction PullRequestPayload
-  | PullRequestComment PullRequestCommentAction PullRequestCommentPayload
+  | PullRequest PullRequestPayload
+  | PullRequestComment PullRequestCommentPayload
