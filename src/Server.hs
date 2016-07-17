@@ -8,10 +8,10 @@
 
 module Server (runServer) where
 
+import GitHub (PullRequestPayload)
 import Network.HTTP.Types (status400, status404)
 import Network.Wai.Handler.Warp (run)
-
-import Web.Scotty (ActionM, ScottyM, get, notFound, post, scottyApp, status, text)
+import Web.Scotty (ActionM, ScottyM, get, jsonData, notFound, post, scottyApp, status, text)
 
 -- Router for the web server.
 router :: ScottyM ()
@@ -22,7 +22,9 @@ router = do
   notFound            serveNotFound
 
 serveGitHubWebhook :: ActionM ()
-serveGitHubWebhook = text "hook received"
+serveGitHubWebhook = do
+  payload <- jsonData :: ActionM PullRequestPayload
+  text "hook received"
 
 serveWebhookDocs :: ActionM ()
 serveWebhookDocs = do
