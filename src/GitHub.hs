@@ -9,15 +9,19 @@
 
 module GitHub
 (
+  EventQueue,
   PullRequestAction (..),
   PullRequestCommentAction (..),
   PullRequestPayload (..),
   PullRequestCommentPayload (..),
-  WebhookEvent (..)
+  WebhookEvent (..),
+  newEventQueue
 )
 where
 
+import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue)
 import Control.Monad (mzero)
+import Control.Monad.STM (atomically)
 import Data.Aeson (FromJSON (parseJSON), Object, Value (Object, String), (.:))
 import Data.Aeson.Types (Parser)
 import Data.Text (Text)
@@ -87,3 +91,9 @@ data WebhookEvent
   = Ping
   | PullRequest PullRequestPayload
   | PullRequestComment PullRequestCommentPayload
+
+type EventQueue = TBQueue WebhookEvent
+
+-- Creates a new event queue with the given maximum capacity.
+newEventQueue :: Int -> IO EventQueue
+newEventQueue capacity = atomically $ newTBQueue capacity
