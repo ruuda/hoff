@@ -15,6 +15,8 @@ module GitHub
   PullRequestPayload (..),
   PullRequestCommentPayload (..),
   WebhookEvent (..),
+  eventRepository,
+  eventRepositoryOwner,
   newEventQueue
 )
 where
@@ -92,6 +94,20 @@ data WebhookEvent
   | PullRequest PullRequestPayload
   | PullRequestComment PullRequestCommentPayload
   deriving (Eq, Show)
+
+-- Returns the owner of the repository for which the webhook was triggered.
+eventRepositoryOwner :: WebhookEvent -> Text
+eventRepositoryOwner event = case event of
+  Ping -> "" -- TODO: Does the ping event have a owner/repository payload?
+  PullRequest payload        -> owner (payload :: PullRequestPayload)
+  PullRequestComment payload -> owner (payload :: PullRequestCommentPayload)
+
+-- Returns the name of the repository for which the webhook was triggered.
+eventRepository :: WebhookEvent -> Text
+eventRepository event = case event of
+  Ping -> "" -- TODO: Does the ping event have a owner/repository payload?
+  PullRequest payload        -> repository (payload :: PullRequestPayload)
+  PullRequestComment payload -> repository (payload :: PullRequestCommentPayload)
 
 type EventQueue = TBQueue WebhookEvent
 

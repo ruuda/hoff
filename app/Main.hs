@@ -10,18 +10,25 @@ module Main where
 
 import Control.Concurrent (forkIO)
 
-import Configuration (loadConfiguration)
+import Configuration (Configuration)
 import EventLoop (runGitHubEventLoop)
 import GitHub (newEventQueue)
 import Project (emptyProjectState, saveProjectState)
 import Server (runServer)
 
-main :: IO ()
-main = do
-  maybeConfig <- loadConfiguration "config.json"
+import qualified Configuration as Config
+
+withConfig :: (Configuration -> IO ()) -> IO ()
+withConfig handler = do
+  maybeConfig <- Config.loadConfiguration "config.json"
   case maybeConfig of
-    Just config -> putStrLn $ show config
     Nothing     -> putStrLn "failed to load configuration"
+    Just config -> do
+      putStrLn $ "configuration: " ++ (show config)
+      handler config
+
+main :: IO ()
+main = withConfig $ \ config -> do
   saveProjectState "project.json" emptyProjectState
 
   -- Create an event queue for GitHub webhook events. The server enqueues events
@@ -33,7 +40,10 @@ main = do
   -- Git operation), so the queue is expected to be empty most of the time.
   ghQueue <- newEventQueue 10
 
-  -- Start a worker thread to handle the GitHub webhook events.
-  _ <- forkIO $ runGitHubEventLoop ghQueue
+  -- Start a worker thread to handle the GitHub webhook events. Discard events
+  -- that are not intended for the configured repository.
+  let owner      = Config.owner config
+      repository = Config.repository config
+  _ <- forkIO $ runGitHubEventLoop owner repository ghQueue
 
   runServer 3000 ghQueue

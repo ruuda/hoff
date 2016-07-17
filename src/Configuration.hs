@@ -6,7 +6,12 @@
 
 {-# LANGUAGE DeriveGeneric #-}
 
-module Configuration (Configuration, loadConfiguration) where
+module Configuration
+(
+  Configuration (..),
+  loadConfiguration
+)
+where
 
 import Data.Aeson (FromJSON, decodeStrict')
 import Data.ByteString (readFile)

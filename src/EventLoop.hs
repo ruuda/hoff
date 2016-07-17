@@ -11,8 +11,10 @@ module EventLoop (runGitHubEventLoop) where
 
 import Control.Concurrent.STM.TBQueue
 import Control.Monad.STM (atomically)
+import Data.Text (Text)
 
 import GitHub (PullRequestPayload, PullRequestCommentPayload, WebhookEvent (..))
+import GitHub (eventRepository, eventRepositoryOwner)
 import Project (PullRequestId (..))
 
 import qualified GitHub
@@ -49,8 +51,17 @@ convertGitHubEvent event = case event of
   PullRequest payload        -> Just $ eventFromPullRequestPayload payload
   PullRequestComment payload -> eventFromPullRequestCommentPayload payload
 
-runGitHubEventLoop :: GitHub.EventQueue -> IO ()
-runGitHubEventLoop ghQueue = do
-  ghEvent <- atomically $ readTBQueue ghQueue
-  putStrLn $ "received event: " ++ (show $ convertGitHubEvent ghEvent)
-  runGitHubEventLoop ghQueue
+-- The event loop that converts GitHub webhook events into logic events.
+runGitHubEventLoop :: Text -> Text -> GitHub.EventQueue -> IO ()
+runGitHubEventLoop owner repository ghQueue = runLoop
+  where
+    shouldHandle ghEvent =
+      (eventRepository ghEvent == repository) &&
+      (eventRepositoryOwner ghEvent == owner)
+    runLoop = do
+      ghEvent <- atomically $ readTBQueue ghQueue
+      -- Listen only to events for the configured repository.
+      if shouldHandle ghEvent
+        then putStrLn $ "received event: " ++ (show $ convertGitHubEvent ghEvent)
+        else return ()
+      runLoop
