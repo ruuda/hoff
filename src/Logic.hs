@@ -65,6 +65,7 @@ data Event
   | CommentAdded PullRequestId Text Text       -- PR, author and body.
   -- CI events
   | BuildStatusChanged Sha BuildStatus
+  deriving (Eq, Show)
 
 handleEvent :: Event -> ProjectState -> Action ProjectState
 handleEvent event = case event of
