@@ -91,6 +91,7 @@ data WebhookEvent
   = Ping
   | PullRequest PullRequestPayload
   | PullRequestComment PullRequestCommentPayload
+  deriving (Eq, Show)
 
 type EventQueue = TBQueue WebhookEvent
 

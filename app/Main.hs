@@ -8,7 +8,10 @@
 
 module Main where
 
+import Control.Concurrent (forkIO)
+
 import Configuration (loadConfiguration)
+import EventLoop (runGitHubEventLoop)
 import GitHub (newEventQueue)
 import Project (emptyProjectState, saveProjectState)
 import Server (runServer)
@@ -29,5 +32,8 @@ main = do
   -- should be fast (a few milliseconds, or perhaps a few seconds for a heavy
   -- Git operation), so the queue is expected to be empty most of the time.
   ghQueue <- newEventQueue 10
+
+  -- Start a worker thread to handle the GitHub webhook events.
+  _ <- forkIO $ runGitHubEventLoop ghQueue
 
   runServer 3000 ghQueue
