@@ -10,6 +10,7 @@ module Main where
 
 import Configuration (loadConfiguration)
 import Project (emptyProjectState, saveProjectState)
+import Server (runServer)
 
 main :: IO ()
 main = do
@@ -18,3 +19,4 @@ main = do
     Just config -> putStrLn $ show config
     Nothing     -> putStrLn "failed to load configuration"
   saveProjectState "project.json" emptyProjectState
+  runServer 3000
