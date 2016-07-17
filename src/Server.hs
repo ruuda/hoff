@@ -8,42 +8,39 @@
 
 module Server (runServer) where
 
-import Data.ByteString (ByteString)
-import Network.HTTP.Types (methodPost, status200, status400, status404)
-import Network.HTTP.Types.Header (HeaderName, hContentType)
-import Network.Wai (Application, requestMethod, responseLBS, pathInfo)
+import Network.HTTP.Types (status400, status404)
 import Network.Wai.Handler.Warp (run)
 
-plainTextHeaders :: [(HeaderName, ByteString)]
-plainTextHeaders = [(hContentType, "text/plain")]
+import Web.Scotty (ActionM, ScottyM, get, notFound, post, scottyApp, status, text)
 
--- Router for the web server:
---  * The GitHub webhook endpoint is at /hook/github.
---  * The webinterface is at /.
-router :: Application
-router request = case pathInfo request of
-  "hook" : "github" : [] -> githubWebhook request
-  []                     -> webInterface request
-  _                      -> notFound request
+-- Router for the web server.
+router :: ScottyM ()
+router = do
+  post "/hook/github" serveGitHubWebhook
+  get  "/hook/github" serveWebhookDocs
+  get  "/"            serveWebInterface
+  notFound            serveNotFound
 
--- Serves the GitHub webhook endpoint.
-githubWebhook :: Application
-githubWebhook request f = case requestMethod request of
-  m | m == methodPost  -> f $ responseLBS status200 plainTextHeaders "hook received"
-  _ | otherwise        -> f $ responseLBS status400 plainTextHeaders "expecting POST request at /hook/github"
+serveGitHubWebhook :: ActionM ()
+serveGitHubWebhook = text "hook received"
 
--- Serves the webinterface.
-webInterface :: Application
-webInterface _request f =
-  f $ responseLBS status200 plainTextHeaders "not yet implemented"
+serveWebhookDocs :: ActionM ()
+serveWebhookDocs = do
+  status status400
+  text "expecting POST request at /hook/github"
 
--- Fallback if no route matched.
-notFound :: Application
-notFound _request f =
-  f $ responseLBS status404 plainTextHeaders "not found"
+serveWebInterface :: ActionM ()
+serveWebInterface = do
+  text "not yet implemented"
+
+serveNotFound :: ActionM ()
+serveNotFound = do
+  status status404
+  text "not found"
 
 -- Runs a webserver at the specified port.
 runServer :: Int -> IO ()
 runServer port = do
   putStrLn $ "Listening for webhooks on port " ++ (show port)
-  run port router
+  app <- scottyApp router
+  run port app
