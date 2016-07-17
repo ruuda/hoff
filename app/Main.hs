@@ -46,4 +46,5 @@ main = withConfig $ \ config -> do
       repository = Config.repository config
   _ <- forkIO $ runGitHubEventLoop owner repository ghQueue
 
-  runServer 3000 ghQueue
+  let port = Config.port config
+  runServer port ghQueue
