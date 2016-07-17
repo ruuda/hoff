@@ -18,7 +18,7 @@ import Test.Hspec
 
 import Git (Sha (..))
 import GitHub (PullRequestPayload)
-import Logic
+import Logic hiding (runAction)
 import Project
 
 import qualified GitHub

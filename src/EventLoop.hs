@@ -7,7 +7,12 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module EventLoop (runGitHubEventLoop) where
+module EventLoop
+(
+  runGitHubEventLoop,
+  runLogicEventLoop
+)
+where
 
 import Control.Concurrent.STM.TBQueue
 import Control.Monad.STM (atomically)
@@ -15,7 +20,7 @@ import Data.Text (Text)
 
 import GitHub (PullRequestPayload, PullRequestCommentPayload, WebhookEvent (..))
 import GitHub (eventRepository, eventRepositoryOwner)
-import Project (PullRequestId (..))
+import Project (PullRequestId (..), emptyProjectState, saveProjectState)
 
 import qualified GitHub
 import qualified Logic
@@ -65,3 +70,16 @@ runGitHubEventLoop owner repository ghQueue = runLoop
         then putStrLn $ "received event: " ++ (show $ convertGitHubEvent ghEvent)
         else return ()
       runLoop
+
+runLogicEventLoop :: Logic.EventQueue -> IO ()
+runLogicEventLoop queue = runLoop emptyProjectState -- TODO: Load previous state from disk?
+  where
+    runLoop state0 = do
+      -- Take one event off the queue (block if there is none), handle it, and
+      -- then perform any additional required actions until the state reaches a
+      -- fixed point (when there are no further actions to perform).
+      event  <- atomically $ readTBQueue queue
+      state1 <- Logic.runAction $ Logic.handleEvent event state0
+      state2 <- Logic.runAction $ Logic.proceedUntilFixedPoint state1
+      saveProjectState "project.json" state2
+      runLoop state2

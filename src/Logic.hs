@@ -12,17 +12,21 @@ module Logic
   Action,
   ActionFree (..),
   Event (..),
+  EventQueue,
   PushResult (..),
   handleEvent,
+  runAction,
   proceed,
   proceedUntilFixedPoint,
   tryIntegratePullRequest
 )
 where
 
+import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue)
 import Control.Exception (assert)
 import Control.Monad (mfilter)
-import Control.Monad.Free (Free, liftF)
+import Control.Monad.Free (Free (..), liftF)
+import Control.Monad.STM (atomically)
 import Data.Maybe (fromJust, fromMaybe, isJust, maybe)
 import Data.Text (Text)
 import Git (Sha (..))
@@ -54,6 +58,14 @@ tryIntegrate candidate = liftF $ TryIntegrate candidate id
 pushNewHead :: Sha -> Action PushResult
 pushNewHead newHead = liftF $ PushNewHead newHead id
 
+-- Temporary dummy interpreter for testing. TODO: Real interpreter.
+runAction :: Action a -> IO a
+runAction action = case action of
+  Pure x                        -> return x
+  Free (TryIntegrate sha h)     -> (putStrLn $ "TryIntegrate " ++ (show sha)) >> runAction (h Nothing)
+  Free (PushNewHead sha h)      -> (putStrLn $ "PushNewHead " ++ (show sha)) >> runAction (h PushOk)
+  Free (LeaveComment pr body x) -> (putStrLn $ "LeaveComment " ++ (show pr) ++ " " ++ (show body)) >> runAction x
+
 data Event
   -- GitHub events
   = PullRequestOpened PullRequestId Sha Text   -- PR, sha, author.
@@ -66,6 +78,12 @@ data Event
   -- CI events
   | BuildStatusChanged Sha BuildStatus
   deriving (Eq, Show)
+
+type EventQueue = TBQueue Event
+
+-- Creates a new event queue with the given maximum capacity.
+newEventQueue :: Int -> IO EventQueue
+newEventQueue capacity = atomically $ newTBQueue capacity
 
 handleEvent :: Event -> ProjectState -> Action ProjectState
 handleEvent event = case event of
