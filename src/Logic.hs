@@ -15,6 +15,7 @@ module Logic
   EventQueue,
   PushResult (..),
   handleEvent,
+  newEventQueue,
   runAction,
   proceed,
   proceedUntilFixedPoint,

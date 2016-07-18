@@ -57,17 +57,21 @@ convertGitHubEvent event = case event of
   PullRequestComment payload -> eventFromPullRequestCommentPayload payload
 
 -- The event loop that converts GitHub webhook events into logic events.
-runGitHubEventLoop :: Text -> Text -> GitHub.EventQueue -> IO ()
-runGitHubEventLoop owner repository ghQueue = runLoop
+runGitHubEventLoop :: Text -> Text -> GitHub.EventQueue -> Logic.EventQueue -> IO ()
+runGitHubEventLoop owner repository ghQueue sinkQueue = runLoop
   where
     shouldHandle ghEvent =
       (eventRepository ghEvent == repository) &&
       (eventRepositoryOwner ghEvent == owner)
+    -- Enqueues an event, blocks if the queue is full.
+    enqueue event = atomically $ writeTBQueue sinkQueue event
     runLoop = do
       ghEvent <- atomically $ readTBQueue ghQueue
+      putStrLn $ "github loop received event: " ++ (show ghEvent)
       -- Listen only to events for the configured repository.
       if shouldHandle ghEvent
-        then putStrLn $ "received event: " ++ (show $ convertGitHubEvent ghEvent)
+        -- If conversion yielded an event, enqueue it.
+        then maybe (return ()) enqueue $ convertGitHubEvent ghEvent
         else return ()
       runLoop
 
@@ -79,7 +83,10 @@ runLogicEventLoop queue = runLoop emptyProjectState -- TODO: Load previous state
       -- then perform any additional required actions until the state reaches a
       -- fixed point (when there are no further actions to perform).
       event  <- atomically $ readTBQueue queue
+      putStrLn $ "logic loop received event: " ++ (show event)
+      putStrLn $ "state before: " ++ (show state0)
       state1 <- Logic.runAction $ Logic.handleEvent event state0
       state2 <- Logic.runAction $ Logic.proceedUntilFixedPoint state1
       saveProjectState "project.json" state2
+      putStrLn $ "state after: " ++ (show state2)
       runLoop state2
