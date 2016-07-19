@@ -22,10 +22,9 @@ module Github
 where
 
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue)
-import Control.Monad (mzero)
 import Control.Monad.STM (atomically)
 import Data.Aeson (FromJSON (parseJSON), Object, Value (Object, String), (.:))
-import Data.Aeson.Types (Parser)
+import Data.Aeson.Types (Parser, typeMismatch)
 import Data.Text (Text)
 import Git (Sha (..))
 
@@ -65,7 +64,13 @@ instance FromJSON PullRequestAction where
   parseJSON (String "closed")      = return Closed
   parseJSON (String "reopened")    = return Opened
   parseJSON (String "synchronize") = return Synchronize
-  parseJSON _                      = mzero
+  parseJSON _                      = fail "unexpected pull_request action"
+
+instance FromJSON CommentAction where
+  parseJSON (String "created") = return Created
+  parseJSON (String "edited")  = return Edited
+  parseJSON (String "deleted") = return Deleted
+  parseJSON _                  = fail "unexpected issue_comment action"
 
 -- A helper function to parse nested fields in json.
 getNested :: FromJSON a => Object -> [Text] -> Parser a
@@ -85,7 +90,17 @@ instance FromJSON PullRequestPayload where
     <*> getNested v ["pull_request", "number"]
     <*> getNested v ["pull_request", "head", "sha"]
     <*> getNested v ["pull_request", "user", "login"]
-  parseJSON _ = mzero
+  parseJSON nonObject = typeMismatch "pull_request payload" nonObject
+
+instance FromJSON CommentPayload where
+  parseJSON (Object v) = CommentPayload
+    <$> (v .: "action")
+    <*> getNested v ["repository", "owner", "login"]
+    <*> getNested v ["repository", "name"]
+    <*> getNested v ["issue", "number"]
+    <*> getNested v ["sender", "login"]
+    <*> getNested v ["comment", "body"]
+  parseJSON nonObject = typeMismatch "issue_comment payload" nonObject
 
 -- Note that GitHub calls pull requests "issues" for the sake of comments: the
 -- pull request comment event is actually "issue_comment".

@@ -17,7 +17,7 @@ import Prelude hiding (readFile)
 import Test.Hspec
 
 import Git (Sha (..))
-import Github (PullRequestPayload)
+import Github (CommentPayload, PullRequestPayload)
 import Logic hiding (runAction)
 import Project
 
@@ -225,3 +225,24 @@ main = hspec $ do
       number     `shouldBe` 1
       headSha    `shouldBe` (Sha "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c")
       prAuthor   `shouldBe` "baxterthehacker2"
+
+  describe "Github.CommentPayload" $ do
+
+    it "should be parsed correctly" $ do
+      examplePayload <- readFile "tests/data/issue-comment-payload.json"
+      let maybePayload :: Maybe CommentPayload
+          maybePayload = decode examplePayload
+      maybePayload `shouldSatisfy` isJust
+      let payload       = fromJust maybePayload
+          action        = Github.action     (payload :: CommentPayload)
+          owner         = Github.owner      (payload :: CommentPayload)
+          repository    = Github.repository (payload :: CommentPayload)
+          number        = Github.number     (payload :: CommentPayload)
+          commentAuthor = Github.author     (payload :: CommentPayload)
+          commentBody   = Github.body       (payload :: CommentPayload)
+      action        `shouldBe` Github.Created
+      owner         `shouldBe` "baxterthehacker"
+      repository    `shouldBe` "public-repo"
+      number        `shouldBe` 2
+      commentAuthor `shouldBe` "baxterthehacker2"
+      commentBody   `shouldBe` "You are totally right! I'll get this fixed right away."

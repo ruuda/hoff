@@ -35,10 +35,11 @@ serveGithubWebhook ghQueue = do
   eventName <- header "X-GitHub-Event"
   case eventName of
     Just "pull_request" -> do
-      payload  <- jsonData :: ActionM Github.PullRequestPayload
+      payload <- jsonData :: ActionM Github.PullRequestPayload
       serveEnqueueEvent ghQueue $ Github.PullRequest payload
     Just "issue_comment" -> do
-      text "not yet implemented"
+      payload <- jsonData :: ActionM Github.CommentPayload
+      serveEnqueueEvent ghQueue $ Github.Comment payload
     _ -> do
       text "hook ignored, X-GitHub-Event does not match expected value"
 
