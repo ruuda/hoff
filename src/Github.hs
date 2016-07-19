@@ -9,11 +9,11 @@
 
 module Github
 (
+  CommentAction (..),
+  CommentPayload (..),
   EventQueue,
   PullRequestAction (..),
-  PullRequestCommentAction (..),
   PullRequestPayload (..),
-  PullRequestCommentPayload (..),
   WebhookEvent (..),
   eventRepository,
   eventRepositoryOwner,
@@ -36,7 +36,7 @@ data PullRequestAction
   | Synchronize
   deriving (Eq, Show)
 
-data PullRequestCommentAction
+data CommentAction
   = Created
   | Edited
   | Deleted
@@ -51,8 +51,8 @@ data PullRequestPayload = PullRequestPayload {
   author     :: Text  -- Corresponds to "pull_request.user.login".
 } deriving (Eq, Show)
 
-data PullRequestCommentPayload = PullRequestCommentPayload {
-  action     :: PullRequestCommentAction, -- Corresponds to "action".
+data CommentPayload = CommentPayload {
+  action     :: CommentAction, -- Corresponds to "action".
   owner      :: Text, -- Corresponds to "repository.owner.login".
   repository :: Text, -- Corresponds to "repository.name".
   number     :: Int,  -- Corresponds to "issue.number".
@@ -92,7 +92,7 @@ instance FromJSON PullRequestPayload where
 data WebhookEvent
   = Ping
   | PullRequest PullRequestPayload
-  | PullRequestComment PullRequestCommentPayload
+  | Comment CommentPayload
   deriving (Eq, Show)
 
 -- Returns the owner of the repository for which the webhook was triggered.
@@ -100,14 +100,14 @@ eventRepositoryOwner :: WebhookEvent -> Text
 eventRepositoryOwner event = case event of
   Ping -> "" -- TODO: Does the ping event have a owner/repository payload?
   PullRequest payload        -> owner (payload :: PullRequestPayload)
-  PullRequestComment payload -> owner (payload :: PullRequestCommentPayload)
+  Comment payload -> owner (payload :: CommentPayload)
 
 -- Returns the name of the repository for which the webhook was triggered.
 eventRepository :: WebhookEvent -> Text
 eventRepository event = case event of
   Ping -> "" -- TODO: Does the ping event have a owner/repository payload?
   PullRequest payload        -> repository (payload :: PullRequestPayload)
-  PullRequestComment payload -> repository (payload :: PullRequestCommentPayload)
+  Comment payload -> repository (payload :: CommentPayload)
 
 type EventQueue = TBQueue WebhookEvent
 

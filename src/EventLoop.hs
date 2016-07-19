@@ -18,7 +18,7 @@ import Control.Concurrent.STM.TBQueue
 import Control.Monad.STM (atomically)
 import Data.Text (Text)
 
-import Github (PullRequestPayload, PullRequestCommentPayload, WebhookEvent (..))
+import Github (PullRequestPayload, CommentPayload, WebhookEvent (..))
 import Github (eventRepository, eventRepositoryOwner)
 import Project (PullRequestId (..), emptyProjectState, saveProjectState)
 
@@ -36,12 +36,12 @@ eventFromPullRequestPayload payload =
     Github.Closed      -> Logic.PullRequestClosed (PullRequestId number)
     Github.Synchronize -> Logic.PullRequestCommitChanged (PullRequestId number) sha
 
-eventFromPullRequestCommentPayload :: PullRequestCommentPayload -> Maybe Logic.Event
-eventFromPullRequestCommentPayload payload =
-  let number = Github.number (payload :: PullRequestCommentPayload) -- TODO: Use PullRequestId wrapper from beginning.
-      author = Github.author (payload :: PullRequestCommentPayload) -- TODO: Wrapper type
-      body   = Github.body   (payload :: PullRequestCommentPayload)
-  in case Github.action (payload :: PullRequestCommentPayload) of
+eventFromCommentPayload :: CommentPayload -> Maybe Logic.Event
+eventFromCommentPayload payload =
+  let number = Github.number (payload :: CommentPayload) -- TODO: Use PullRequestId wrapper from beginning.
+      author = Github.author (payload :: CommentPayload) -- TODO: Wrapper type
+      body   = Github.body   (payload :: CommentPayload)
+  in case Github.action (payload :: CommentPayload) of
     Github.Created -> Just $ Logic.CommentAdded (PullRequestId number) author body
     -- Do not bother with edited and deleted comments, as it would tremendously
     -- complicate handling of approval. Once approved, this cannot be undone.
@@ -52,9 +52,9 @@ eventFromPullRequestCommentPayload payload =
 
 convertGithubEvent :: Github.WebhookEvent -> Maybe Logic.Event
 convertGithubEvent event = case event of
-  Ping                       -> Nothing -- TODO: What to do with this one?
-  PullRequest payload        -> Just $ eventFromPullRequestPayload payload
-  PullRequestComment payload -> eventFromPullRequestCommentPayload payload
+  Ping                -> Nothing -- TODO: What to do with this one?
+  PullRequest payload -> Just $ eventFromPullRequestPayload payload
+  Comment payload     -> eventFromCommentPayload payload
 
 -- The event loop that converts GitHub webhook events into logic events.
 runGithubEventLoop :: Text -> Text -> Github.EventQueue -> Logic.EventQueue -> IO ()
