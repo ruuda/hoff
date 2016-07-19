@@ -113,16 +113,16 @@ data WebhookEvent
 -- Returns the owner of the repository for which the webhook was triggered.
 eventRepositoryOwner :: WebhookEvent -> Text
 eventRepositoryOwner event = case event of
-  Ping -> "" -- TODO: Does the ping event have a owner/repository payload?
-  PullRequest payload        -> owner (payload :: PullRequestPayload)
-  Comment payload -> owner (payload :: CommentPayload)
+  Ping                -> error "ping event must not be processed"
+  PullRequest payload -> owner (payload :: PullRequestPayload)
+  Comment payload     -> owner (payload :: CommentPayload)
 
 -- Returns the name of the repository for which the webhook was triggered.
 eventRepository :: WebhookEvent -> Text
 eventRepository event = case event of
-  Ping -> "" -- TODO: Does the ping event have a owner/repository payload?
-  PullRequest payload        -> repository (payload :: PullRequestPayload)
-  Comment payload -> repository (payload :: CommentPayload)
+  Ping                -> error "ping event must not be processed"
+  PullRequest payload -> repository (payload :: PullRequestPayload)
+  Comment payload     -> repository (payload :: CommentPayload)
 
 type EventQueue = TBQueue WebhookEvent
 

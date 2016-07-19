@@ -40,6 +40,8 @@ serveGithubWebhook ghQueue = do
     Just "issue_comment" -> do
       payload <- jsonData :: ActionM Github.CommentPayload
       serveEnqueueEvent ghQueue $ Github.Comment payload
+    Just "ping" -> do
+      serveEnqueueEvent ghQueue $ Github.Ping
     _ -> do
       text "hook ignored, X-GitHub-Event does not match expected value"
 

@@ -61,6 +61,7 @@ runGithubEventLoop :: Text -> Text -> Github.EventQueue -> Logic.EventQueue -> I
 runGithubEventLoop owner repository ghQueue sinkQueue = runLoop
   where
     shouldHandle ghEvent =
+      (ghEvent /= Ping) &&
       (eventRepository ghEvent == repository) &&
       (eventRepositoryOwner ghEvent == owner)
     -- Enqueues an event, blocks if the queue is full.
