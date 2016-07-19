@@ -15,7 +15,7 @@ import Network.HTTP.Types (status400, status404, status503)
 import Network.Wai.Handler.Warp (run)
 import Web.Scotty (ActionM, ScottyM, get, jsonData, notFound, post, scottyApp, status, text)
 
-import qualified GitHub
+import qualified Github
 import qualified Control.Monad.STM as STM
 
 -- Helper to perform an STM operation from within a Scotty action.
@@ -23,17 +23,17 @@ atomically :: STM a -> ActionM a
 atomically = liftIO . STM.atomically
 
 -- Router for the web server.
-router :: GitHub.EventQueue -> ScottyM ()
+router :: Github.EventQueue -> ScottyM ()
 router ghQueue = do
-  post "/hook/github" $ serveGitHubWebhook ghQueue
+  post "/hook/github" $ serveGithubWebhook ghQueue
   get  "/hook/github" $ serveWebhookDocs
   get  "/"            $ serveWebInterface
   notFound            $ serveNotFound
 
-serveGitHubWebhook :: GitHub.EventQueue -> ActionM ()
-serveGitHubWebhook ghQueue = do
-  payload  <- jsonData :: ActionM GitHub.PullRequestPayload
-  let event = GitHub.PullRequest payload
+serveGithubWebhook :: Github.EventQueue -> ActionM ()
+serveGithubWebhook ghQueue = do
+  payload  <- jsonData :: ActionM Github.PullRequestPayload
+  let event = Github.PullRequest payload
   -- Enqueue the event if the queue is not full. Normally writeTBQueue would
   -- block if the queue is full, but instead we don't want to enqueue the event
   -- and tell the client to retry in a while.
@@ -64,7 +64,7 @@ serveNotFound = do
 
 -- Runs a webserver at the specified port. When GitHub webhooks are received,
 -- an event will be added to the event queue.
-runServer :: Int -> GitHub.EventQueue -> IO ()
+runServer :: Int -> Github.EventQueue -> IO ()
 runServer port ghQueue = do
   putStrLn $ "Listening for webhooks on port " ++ (show port)
   app <- scottyApp $ router ghQueue

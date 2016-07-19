@@ -11,12 +11,12 @@ module Main where
 import Control.Concurrent (forkIO)
 
 import Configuration (Configuration)
-import EventLoop (runGitHubEventLoop, runLogicEventLoop)
+import EventLoop (runGithubEventLoop, runLogicEventLoop)
 import Project (emptyProjectState, saveProjectState)
 import Server (runServer)
 
 import qualified Configuration as Config
-import qualified GitHub
+import qualified Github
 import qualified Logic
 
 withConfig :: (Configuration -> IO ()) -> IO ()
@@ -39,7 +39,7 @@ main = withConfig $ \ config -> do
   -- low-volume (in the range of ~once per minute) and processing events
   -- should be fast (a few milliseconds, or perhaps a few seconds for a heavy
   -- Git operation), so the queue is expected to be empty most of the time.
-  ghQueue <- GitHub.newEventQueue 10
+  ghQueue <- Github.newEventQueue 10
 
   -- Events do not stay in the webhook queue for long: they are converted into
   -- logic events and put in the main queue, where the main event loop will
@@ -52,7 +52,7 @@ main = withConfig $ \ config -> do
   -- Discard events that are not intended for the configured repository.
   let owner      = Config.owner config
       repository = Config.repository config
-  _ <- forkIO $ runGitHubEventLoop owner repository ghQueue mainQueue
+  _ <- forkIO $ runGithubEventLoop owner repository ghQueue mainQueue
 
   -- Start a worker thread to run the main event loop.
   _ <- forkIO $ runLogicEventLoop mainQueue

@@ -7,7 +7,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module GitHub
+module Github
 (
   EventQueue,
   PullRequestAction (..),

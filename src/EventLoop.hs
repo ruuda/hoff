@@ -9,7 +9,7 @@
 
 module EventLoop
 (
-  runGitHubEventLoop,
+  runGithubEventLoop,
   runLogicEventLoop
 )
 where
@@ -18,47 +18,47 @@ import Control.Concurrent.STM.TBQueue
 import Control.Monad.STM (atomically)
 import Data.Text (Text)
 
-import GitHub (PullRequestPayload, PullRequestCommentPayload, WebhookEvent (..))
-import GitHub (eventRepository, eventRepositoryOwner)
+import Github (PullRequestPayload, PullRequestCommentPayload, WebhookEvent (..))
+import Github (eventRepository, eventRepositoryOwner)
 import Project (PullRequestId (..), emptyProjectState, saveProjectState)
 
-import qualified GitHub
+import qualified Github
 import qualified Logic
 
 eventFromPullRequestPayload :: PullRequestPayload -> Logic.Event
 eventFromPullRequestPayload payload =
-  let number = GitHub.number (payload :: PullRequestPayload) -- TODO: Use PullRequestId wrapper from beginning.
-      author = GitHub.author (payload :: PullRequestPayload) -- TODO: Wrapper type
-      sha    = GitHub.sha    (payload :: PullRequestPayload)
-  in case GitHub.action (payload :: PullRequestPayload) of
-    GitHub.Opened      -> Logic.PullRequestOpened (PullRequestId number) sha author
-    GitHub.Reopened    -> Logic.PullRequestOpened (PullRequestId number) sha author
-    GitHub.Closed      -> Logic.PullRequestClosed (PullRequestId number)
-    GitHub.Synchronize -> Logic.PullRequestCommitChanged (PullRequestId number) sha
+  let number = Github.number (payload :: PullRequestPayload) -- TODO: Use PullRequestId wrapper from beginning.
+      author = Github.author (payload :: PullRequestPayload) -- TODO: Wrapper type
+      sha    = Github.sha    (payload :: PullRequestPayload)
+  in case Github.action (payload :: PullRequestPayload) of
+    Github.Opened      -> Logic.PullRequestOpened (PullRequestId number) sha author
+    Github.Reopened    -> Logic.PullRequestOpened (PullRequestId number) sha author
+    Github.Closed      -> Logic.PullRequestClosed (PullRequestId number)
+    Github.Synchronize -> Logic.PullRequestCommitChanged (PullRequestId number) sha
 
 eventFromPullRequestCommentPayload :: PullRequestCommentPayload -> Maybe Logic.Event
 eventFromPullRequestCommentPayload payload =
-  let number = GitHub.number (payload :: PullRequestCommentPayload) -- TODO: Use PullRequestId wrapper from beginning.
-      author = GitHub.author (payload :: PullRequestCommentPayload) -- TODO: Wrapper type
-      body   = GitHub.body   (payload :: PullRequestCommentPayload)
-  in case GitHub.action (payload :: PullRequestCommentPayload) of
-    GitHub.Created -> Just $ Logic.CommentAdded (PullRequestId number) author body
+  let number = Github.number (payload :: PullRequestCommentPayload) -- TODO: Use PullRequestId wrapper from beginning.
+      author = Github.author (payload :: PullRequestCommentPayload) -- TODO: Wrapper type
+      body   = Github.body   (payload :: PullRequestCommentPayload)
+  in case Github.action (payload :: PullRequestCommentPayload) of
+    Github.Created -> Just $ Logic.CommentAdded (PullRequestId number) author body
     -- Do not bother with edited and deleted comments, as it would tremendously
     -- complicate handling of approval. Once approved, this cannot be undone.
     -- And if approval undo is desired, it would be better implemented as a
     -- separate magic comment, rather than editing the approval comment.
-    GitHub.Edited  -> Nothing
-    GitHub.Deleted -> Nothing
+    Github.Edited  -> Nothing
+    Github.Deleted -> Nothing
 
-convertGitHubEvent :: GitHub.WebhookEvent -> Maybe Logic.Event
-convertGitHubEvent event = case event of
+convertGithubEvent :: Github.WebhookEvent -> Maybe Logic.Event
+convertGithubEvent event = case event of
   Ping                       -> Nothing -- TODO: What to do with this one?
   PullRequest payload        -> Just $ eventFromPullRequestPayload payload
   PullRequestComment payload -> eventFromPullRequestCommentPayload payload
 
 -- The event loop that converts GitHub webhook events into logic events.
-runGitHubEventLoop :: Text -> Text -> GitHub.EventQueue -> Logic.EventQueue -> IO ()
-runGitHubEventLoop owner repository ghQueue sinkQueue = runLoop
+runGithubEventLoop :: Text -> Text -> Github.EventQueue -> Logic.EventQueue -> IO ()
+runGithubEventLoop owner repository ghQueue sinkQueue = runLoop
   where
     shouldHandle ghEvent =
       (eventRepository ghEvent == repository) &&
@@ -71,7 +71,7 @@ runGitHubEventLoop owner repository ghQueue sinkQueue = runLoop
       -- Listen only to events for the configured repository.
       if shouldHandle ghEvent
         -- If conversion yielded an event, enqueue it.
-        then maybe (return ()) enqueue $ convertGitHubEvent ghEvent
+        then maybe (return ()) enqueue $ convertGithubEvent ghEvent
         else return ()
       runLoop
 

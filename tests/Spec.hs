@@ -17,11 +17,11 @@ import Prelude hiding (readFile)
 import Test.Hspec
 
 import Git (Sha (..))
-import GitHub (PullRequestPayload)
+import Github (PullRequestPayload)
 import Logic hiding (runAction)
 import Project
 
-import qualified GitHub
+import qualified Github
 
 -- Functions to prepare certain test states.
 
@@ -205,7 +205,7 @@ main = hspec $ do
       integrationStatus pullRequest `shouldBe` Integrated (Sha "38c")
       actions `shouldBe` [ATryIntegrate (Sha "f34")]
 
-  describe "GitHub.PullRequestPayload" $ do
+  describe "Github.PullRequestPayload" $ do
 
     it "should be parsed correctly" $ do
       examplePayload <- readFile "tests/data/pull-request-payload.json"
@@ -213,13 +213,13 @@ main = hspec $ do
           maybePayload = decode examplePayload
       maybePayload `shouldSatisfy` isJust
       let payload    = fromJust maybePayload
-          action     = GitHub.action     (payload :: PullRequestPayload)
-          owner      = GitHub.owner      (payload :: PullRequestPayload)
-          repository = GitHub.repository (payload :: PullRequestPayload)
-          number     = GitHub.number     (payload :: PullRequestPayload)
-          headSha    = GitHub.sha        (payload :: PullRequestPayload)
-          prAuthor   = GitHub.author     (payload :: PullRequestPayload)
-      action     `shouldBe` GitHub.Opened
+          action     = Github.action     (payload :: PullRequestPayload)
+          owner      = Github.owner      (payload :: PullRequestPayload)
+          repository = Github.repository (payload :: PullRequestPayload)
+          number     = Github.number     (payload :: PullRequestPayload)
+          headSha    = Github.sha        (payload :: PullRequestPayload)
+          prAuthor   = Github.author     (payload :: PullRequestPayload)
+      action     `shouldBe` Github.Opened
       owner      `shouldBe` "baxterthehacker"
       repository `shouldBe` "public-repo"
       number     `shouldBe` 1
