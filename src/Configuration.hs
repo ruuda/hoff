@@ -35,4 +35,4 @@ instance FromJSON Configuration
 -- Reads and parses the configuration. Returns Nothing if parsing failed, but
 -- crashes if the file could not be read.
 loadConfiguration :: FilePath -> IO (Maybe Configuration)
-loadConfiguration = (fmap decodeStrict') . readFile
+loadConfiguration = fmap decodeStrict' . readFile

@@ -40,9 +40,9 @@ serveGithubWebhook ghQueue = do
     Just "issue_comment" -> do
       payload <- jsonData :: ActionM Github.CommentPayload
       serveEnqueueEvent ghQueue $ Github.Comment payload
-    Just "ping" -> do
+    Just "ping" ->
       serveEnqueueEvent ghQueue $ Github.Ping
-    _ -> do
+    _ ->
       text "hook ignored, X-GitHub-Event does not match expected value"
 
 -- Handles replying to the client when a GitHub webhook is received.
@@ -68,8 +68,7 @@ serveWebhookDocs = do
   text "expecting POST request at /hook/github"
 
 serveWebInterface :: ActionM ()
-serveWebInterface = do
-  text "not yet implemented"
+serveWebInterface = text "not yet implemented"
 
 serveNotFound :: ActionM ()
 serveNotFound = do

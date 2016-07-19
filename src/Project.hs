@@ -99,7 +99,7 @@ instance ToJSON PullRequestId where toEncoding = genericToEncoding defaultOption
 -- Reads and parses the state. Returns Nothing if parsing failed, but crashes if
 -- the file could not be read.
 loadProjectState :: FilePath -> IO (Maybe ProjectState)
-loadProjectState = (fmap decodeStrict') . readFile
+loadProjectState = fmap decodeStrict' . readFile
 
 saveProjectState :: FilePath -> ProjectState -> IO ()
 saveProjectState fname state = writeFile fname $ encodePretty state

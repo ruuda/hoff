@@ -15,6 +15,7 @@ module EventLoop
 where
 
 import Control.Concurrent.STM.TBQueue
+import Control.Monad (when)
 import Control.Monad.STM (atomically)
 import Data.Text (Text)
 
@@ -70,10 +71,9 @@ runGithubEventLoop owner repository ghQueue sinkQueue = runLoop
       ghEvent <- atomically $ readTBQueue ghQueue
       putStrLn $ "github loop received event: " ++ (show ghEvent)
       -- Listen only to events for the configured repository.
-      if shouldHandle ghEvent
+      when (shouldHandle ghEvent) $
         -- If conversion yielded an event, enqueue it.
-        then maybe (return ()) enqueue $ convertGithubEvent ghEvent
-        else return ()
+        maybe (return ()) enqueue $ convertGithubEvent ghEvent
       runLoop
 
 runLogicEventLoop :: Logic.EventQueue -> IO ()

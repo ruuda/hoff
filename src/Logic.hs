@@ -63,9 +63,9 @@ pushNewHead newHead = liftF $ PushNewHead newHead id
 runAction :: Action a -> IO a
 runAction action = case action of
   Pure x                        -> return x
-  Free (TryIntegrate sha h)     -> (putStrLn $ "TryIntegrate " ++ (show sha)) >> runAction (h Nothing)
-  Free (PushNewHead sha h)      -> (putStrLn $ "PushNewHead " ++ (show sha)) >> runAction (h PushOk)
-  Free (LeaveComment pr body x) -> (putStrLn $ "LeaveComment " ++ (show pr) ++ " " ++ (show body)) >> runAction x
+  Free (TryIntegrate sha h)     -> putStrLn ("TryIntegrate " ++ (show sha)) >> runAction (h Nothing)
+  Free (PushNewHead sha h)      -> putStrLn ("PushNewHead " ++ (show sha)) >> runAction (h PushOk)
+  Free (LeaveComment pr body x) -> putStrLn ("LeaveComment " ++ (show pr) ++ " " ++ (show body)) >> runAction x
 
 data Event
   -- GitHub events
@@ -125,8 +125,8 @@ isApproval :: Text -> Sha -> Bool
 isApproval message (Sha target) =
   let isGood sha = (Text.length sha >= 7) && (sha `Text.isPrefixOf` target)
   in case Text.words message of
-    stamp : sha : [] -> (stamp == "LGTM") && (isGood sha)
-    _                -> False
+    [stamp, sha] -> (stamp == "LGTM") && (isGood sha)
+    _            -> False
 
 handleCommentAdded :: PullRequestId -> Text -> Text -> ProjectState -> Action ProjectState
 handleCommentAdded pr author body = return . Pr.updatePullRequest pr update
