@@ -9,16 +9,20 @@
 module Git
 (
   Branch (..),
+  GitOperation,
+  PushResult (..),
   Sha (..),
   fetchBranch,
   forcePush,
+  push,
   rebase,
+  runGit,
   tryIntegrate
 )
 where
 
 import Control.Monad (mzero)
-import Control.Monad.Free (Free, liftF)
+import Control.Monad.Free (Free (Free, Pure), liftF)
 import Data.Aeson
 import Data.Text (Text)
 
@@ -35,9 +39,15 @@ instance FromJSON Sha where
 instance ToJSON Sha where
   toJSON (Sha str) = String str
 
+data PushResult
+  = PushOk
+  | PushRejected
+  deriving (Eq, Show)
+
 data GitOperationFree a
   = FetchBranch Branch a
   | ForcePush Sha Branch a
+  | Push Sha Branch (PushResult -> a)
   | Rebase Sha Branch (Maybe Sha -> a)
   deriving (Functor)
 
@@ -49,8 +59,29 @@ fetchBranch remoteBranch = liftF $ FetchBranch remoteBranch ()
 forcePush :: Sha -> Branch -> GitOperation ()
 forcePush sha remoteBranch = liftF $ ForcePush sha remoteBranch ()
 
+push :: Sha -> Branch -> GitOperation PushResult
+push sha remoteBranch = liftF $ Push sha remoteBranch id
+
 rebase :: Sha -> Branch -> GitOperation (Maybe Sha)
 rebase sha ontoBranch = liftF $ Rebase sha ontoBranch id
+
+-- Temporary interpreter for the GitOperation free monad that simply prints to
+-- the console.
+runGit :: GitOperation a -> IO a
+runGit operation = case operation of
+  Pure x -> return x
+  Free (FetchBranch branch x) -> do
+    putStrLn $ "runGit: should fetch branch " ++ (show branch)
+    runGit x
+  Free (ForcePush sha branch x) -> do
+    putStrLn $ "runGit: should force-push " ++ (show sha) ++ " to " ++ (show branch)
+    runGit x
+  Free (Push sha branch h) -> do
+    putStrLn $ "runGit: should push " ++ (show sha) ++ " to " ++ (show branch)
+    runGit (h PushRejected)
+  Free (Rebase sha branch h) -> do
+    putStrLn $ "runGit: should rebase " ++ (show sha) ++ " onto " ++ (show branch)
+    runGit (h Nothing)
 
 -- Fetches the target branch, rebases the candidate on top of the target branch,
 -- and if that was successfull, force-pushses the resulting commits to the test

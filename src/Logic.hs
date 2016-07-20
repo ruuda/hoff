@@ -13,7 +13,6 @@ module Logic
   ActionFree (..),
   Event (..),
   EventQueue,
-  PushResult (..),
   handleEvent,
   newEventQueue,
   runAction,
@@ -30,20 +29,20 @@ import Control.Monad.Free (Free (..), liftF)
 import Control.Monad.STM (atomically)
 import Data.Maybe (fromJust, fromMaybe, isJust, maybe)
 import Data.Text (Text)
-import Git (Sha (..))
+
+import qualified Data.Text as Text
+
+import Configuration (Configuration)
+import Git (Sha (..), GitOperation, PushResult (..))
 import Project (BuildStatus (..))
 import Project (IntegrationStatus (..))
 import Project (ProjectState)
 import Project (PullRequest)
 import Project (PullRequestId (..))
 
-import qualified Data.Text as Text
+import qualified Git
 import qualified Project as Pr
-
-data PushResult
-  = PushOk
-  | PushRejected
-  deriving (Eq, Show)
+import qualified Configuration as Config
 
 data ActionFree a
   = TryIntegrate Sha (Maybe Sha -> a)
@@ -59,13 +58,20 @@ tryIntegrate candidate = liftF $ TryIntegrate candidate id
 pushNewHead :: Sha -> Action PushResult
 pushNewHead newHead = liftF $ PushNewHead newHead id
 
--- Temporary dummy interpreter for testing. TODO: Real interpreter.
-runAction :: Action a -> IO a
-runAction action = case action of
-  Pure x                        -> return x
-  Free (TryIntegrate sha h)     -> putStrLn ("TryIntegrate " ++ (show sha)) >> runAction (h Nothing)
-  Free (PushNewHead sha h)      -> putStrLn ("PushNewHead " ++ (show sha)) >> runAction (h PushOk)
-  Free (LeaveComment pr body x) -> putStrLn ("LeaveComment " ++ (show pr) ++ " " ++ (show body)) >> runAction x
+-- Interpreter that translates high-level actions into more low-level ones.
+runAction :: Configuration -> Action a -> GitOperation a
+runAction config action = case action of
+  Pure x -> return x
+  Free (TryIntegrate sha h) -> do
+    -- TODO: Change types in config to be 'Branch', not 'Text'.
+    maybeSha <- Git.tryIntegrate sha (Git.Branch $ Config.branch config) (Git.Branch $ Config.testBranch config)
+    runAction config $ h maybeSha
+  Free (PushNewHead sha h) -> do
+    pushResult <- Git.push sha (Git.Branch $ Config.branch config)
+    runAction config $ h pushResult
+  Free (LeaveComment _pr _body x) ->
+    -- TODO: Implement GitHub API.
+    runAction config x
 
 data Event
   -- GitHub events

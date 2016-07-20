@@ -19,6 +19,8 @@ import Control.Monad (when)
 import Control.Monad.STM (atomically)
 import Data.Text (Text)
 
+import Git (runGit)
+import Configuration (Configuration)
 import Github (PullRequestPayload, CommentPayload, WebhookEvent (..))
 import Github (eventRepository, eventRepositoryOwner)
 import Project (PullRequestId (..), emptyProjectState, saveProjectState)
@@ -76,8 +78,8 @@ runGithubEventLoop owner repository ghQueue sinkQueue = runLoop
         maybe (return ()) enqueue $ convertGithubEvent ghEvent
       runLoop
 
-runLogicEventLoop :: Logic.EventQueue -> IO ()
-runLogicEventLoop queue = runLoop emptyProjectState -- TODO: Load previous state from disk?
+runLogicEventLoop :: Configuration -> Logic.EventQueue -> IO ()
+runLogicEventLoop config queue = runLoop emptyProjectState -- TODO: Load previous state from disk?
   where
     runLoop state0 = do
       -- Take one event off the queue (block if there is none), handle it, and
@@ -86,8 +88,8 @@ runLogicEventLoop queue = runLoop emptyProjectState -- TODO: Load previous state
       event  <- atomically $ readTBQueue queue
       putStrLn $ "logic loop received event: " ++ (show event)
       putStrLn $ "state before: " ++ (show state0)
-      state1 <- Logic.runAction $ Logic.handleEvent event state0
-      state2 <- Logic.runAction $ Logic.proceedUntilFixedPoint state1
+      state1 <- runGit $ Logic.runAction config $ Logic.handleEvent event state0
+      state2 <- runGit $ Logic.runAction config $ Logic.proceedUntilFixedPoint state1
       saveProjectState "project.json" state2
       putStrLn $ "state after: " ++ (show state2)
       runLoop state2

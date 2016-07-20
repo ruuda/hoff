@@ -16,7 +16,7 @@ import Data.Text (Text)
 import Prelude hiding (readFile)
 import Test.Hspec
 
-import Git (Sha (..))
+import Git (PushResult(..), Sha (..))
 import Github (CommentPayload, PullRequestPayload)
 import Logic hiding (runAction)
 import Project
