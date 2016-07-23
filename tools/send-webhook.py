@@ -12,7 +12,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 
-def send_webhook(event_name, payload):
+def send_webhook(event_name: str, payload: dict):
     url = 'http://localhost:5261/hook/github'
     headers = {'X-GitHub-Event': event_name}
     payload_bytes = dumps(payload).encode('utf8')
@@ -26,48 +26,57 @@ def send_webhook(event_name, payload):
     print('{}: {}'.format(response.code, response.read().decode('utf8')))
 
 
+def send_pull_request_hook(action: str, number: int, sha: str):
+    assert action in ('opened', 'closed', 'reopened', 'synchronize')
+    payload = {
+        'action': action,
+        'pull_request': {
+            'base': {
+                'repo': {
+                    'owner': {'login': 'baxterthehacker'},
+                    'name': 'public-repo'
+                }
+            },
+            'number': number,
+            'head': {'sha': sha},
+            'user': {'login': 'johnthenitter'}
+        }
+    }
+    send_webhook('pull_request', payload)
+
+
+def send_issue_comment_hook(action: str, number: int, author: str, body: str):
+    assert action in ('created', 'edited', 'deleted')
+    payload = {
+        'action': action,
+        'repository': {
+            'owner': {'login': 'baxterthehacker'},
+            'name': 'public-repo'
+        },
+        'issue': {'number': number},
+        'sender': {'login': author},
+        'comment': {'body': body}
+    }
+    send_webhook('issue_comment', payload)
+
+
 def main():
     """
     usage: tools/send-webhook.py <event_name> [<args>]
     events:
       pull_request <action> <number> <sha>
-      issue_comment <action> <number> <body>
+      issue_comment <action> <number> <author> <body>
     """
     if argv[1] == 'pull_request':
         action = argv[2]
         number = int(argv[3])
         sha = argv[4]
-        payload = {
-            'action': action,
-            'pull_request': {
-                'base': {
-                    'repo': {
-                        'owner': {'login': 'baxterthehacker'},
-                        'name': 'public-repo'
-                    }
-                },
-                'number': number,
-                'head': {'sha': sha},
-                'user': {'login': 'johnthenitter'}
-            }
-        }
-        send_webhook('pull_request', payload)
-
+        send_pull_request_hook(action, number, sha)
     if argv[1] == 'issue_comment':
         action = argv[2]
         number = int(argv[3])
-        body = argv[4]
-        payload = {
-            'action': action,
-            'repository': {
-                'owner': {'login': 'baxterthehacker'},
-                'name': 'public-repo'
-            },
-            'issue': {'number': number},
-            'sender': {'login': 'johnthenitter'},
-            'comment': {'body': body}
-        }
-        send_webhook('issue_comment', payload)
-
+        author = argv[4]
+        body = argv[5]
+        send_issue_comment_hook(action, number, author, body)
 
 main()
