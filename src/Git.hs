@@ -101,13 +101,16 @@ runGit repoDir operation = case operation of
   Free (ForcePush sha branch cont) -> do
     -- TODO: Make Sha and Branch constructors sanitize data, otherwise this
     -- could run unintended Git commands.
-    result <- callGitInRepo ["push", "--force", "origin", (show sha) ++ ":" ++ (show branch)]
+    -- Note: the remote branch is prefixed with 'refs/heads/' to specify the
+    -- branch unambiguously. This will make Git create the branch if it does
+    -- not exist.
+    result <- callGitInRepo ["push", "--force", "origin", (show sha) ++ ":refs/heads/" ++ (show branch)]
     case result of
       Left  _ -> putStrLn "warning: git push --force failed"
       Right _ -> return ()
     continueWith cont
   Free (Push sha branch cont) -> do
-    result <- callGitInRepo ["push", "origin", (show sha) ++ ":" ++ (show branch)]
+    result <- callGitInRepo ["push", "origin", (show sha) ++ ":refs/heads/" ++ (show branch)]
     let pushResult = case result of
           Left  _ -> PushRejected
           Right _ -> PushOk
