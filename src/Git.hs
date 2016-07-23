@@ -24,7 +24,10 @@ where
 import Control.Monad (mzero)
 import Control.Monad.Free (Free (Free, Pure), liftF)
 import Data.Aeson
+import Data.List (intersperse)
 import Data.Text (Text)
+import System.Exit (ExitCode (ExitSuccess))
+import System.Process (readProcessWithExitCode)
 
 -- A branch is identified by its name.
 data Branch = Branch Text deriving (Eq, Show)
@@ -65,23 +68,50 @@ push sha remoteBranch = liftF $ Push sha remoteBranch id
 rebase :: Sha -> Branch -> GitOperation (Maybe Sha)
 rebase sha ontoBranch = liftF $ Rebase sha ontoBranch id
 
--- Temporary interpreter for the GitOperation free monad that simply prints to
--- the console.
-runGit :: GitOperation a -> IO a
-runGit operation = case operation of
-  Pure x -> return x
-  Free (FetchBranch branch x) -> do
-    putStrLn $ "runGit: should fetch branch " ++ (show branch)
-    runGit x
-  Free (ForcePush sha branch x) -> do
-    putStrLn $ "runGit: should force-push " ++ (show sha) ++ " to " ++ (show branch)
-    runGit x
-  Free (Push sha branch h) -> do
-    putStrLn $ "runGit: should push " ++ (show sha) ++ " to " ++ (show branch)
-    runGit (h PushRejected)
-  Free (Rebase sha branch h) -> do
-    putStrLn $ "runGit: should rebase " ++ (show sha) ++ " onto " ++ (show branch)
-    runGit (h Nothing)
+-- Invokes Git with the given arguments. Returns its output on success, or the
+-- exit code and stderr on error.
+callGit :: [String] -> IO (Either (ExitCode, String) String)
+callGit args = do
+  putStrLn $ "executing git " ++ concat (intersperse " " args)
+  (exitCode, output, errors) <- readProcessWithExitCode "git" args ""
+  if exitCode == ExitSuccess
+    then return $ Right output
+    else return $ Left (exitCode, errors)
+
+-- Interpreter for the GitOperation free monad that starts Git processes and
+-- parses its output.
+runGit :: FilePath -> GitOperation a -> IO a
+runGit repoDir operation = case operation of
+  Pure result -> return result
+  Free (FetchBranch branch cont) -> do
+    result <- callGitInRepo ["fetch", "origin", show branch]
+    case result of
+      Left  _ -> putStrLn "Warning: git fetch failed"
+      Right _ -> return ()
+    continueWith cont
+  Free (ForcePush sha branch cont) -> do
+    -- TODO: Make Sha and Branch constructors sanitize data, otherwise this
+    -- could run unintended Git commands.
+    result <- callGitInRepo ["push", "--force", "origin", (show sha) ++ ":" ++ (show branch)]
+    case result of
+      Left  _ -> putStrLn "Warning: git push --force failed"
+      Right _ -> return ()
+    continueWith cont
+  Free (Push sha branch cont) -> do
+    result <- callGitInRepo ["push", "origin", (show sha) ++ ":" ++ (show branch)]
+    let pushResult = case result of
+          Left  _ -> PushRejected
+          Right _ -> PushOk
+    continueWith $ cont pushResult
+  Free (Rebase sha branch cont) -> do
+    _result <- callGitInRepo ["rebase", show branch, show sha]
+    -- TODO: Parse output and find new sha.
+    continueWith $ cont Nothing
+  where
+    -- Pass the -C /path/to/checkout option to Git, to run operations in the
+    -- repository without having to change the working directory.
+    callGitInRepo args = callGit $ ["-C", repoDir] ++ args
+    continueWith       = runGit repoDir
 
 -- Fetches the target branch, rebases the candidate on top of the target branch,
 -- and if that was successfull, force-pushses the resulting commits to the test

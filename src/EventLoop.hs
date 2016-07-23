@@ -25,6 +25,7 @@ import Github (PullRequestPayload, CommentPayload, WebhookEvent (..))
 import Github (eventRepository, eventRepositoryOwner)
 import Project (PullRequestId (..), emptyProjectState, saveProjectState)
 
+import qualified Configuration as Config
 import qualified Github
 import qualified Logic
 
@@ -81,6 +82,7 @@ runGithubEventLoop owner repository ghQueue sinkQueue = runLoop
 runLogicEventLoop :: Configuration -> Logic.EventQueue -> IO ()
 runLogicEventLoop config queue = runLoop emptyProjectState -- TODO: Load previous state from disk?
   where
+    repoDir        = Config.checkout config
     runLoop state0 = do
       -- Take one event off the queue (block if there is none), handle it, and
       -- then perform any additional required actions until the state reaches a
@@ -88,8 +90,8 @@ runLogicEventLoop config queue = runLoop emptyProjectState -- TODO: Load previou
       event  <- atomically $ readTBQueue queue
       putStrLn $ "logic loop received event: " ++ (show event)
       putStrLn $ "state before: " ++ (show state0)
-      state1 <- runGit $ Logic.runAction config $ Logic.handleEvent event state0
-      state2 <- runGit $ Logic.runAction config $ Logic.proceedUntilFixedPoint state1
+      state1 <- runGit repoDir $ Logic.runAction config $ Logic.handleEvent event state0
+      state2 <- runGit repoDir $ Logic.runAction config $ Logic.proceedUntilFixedPoint state1
       saveProjectState "project.json" state2
       putStrLn $ "state after: " ++ (show state2)
       runLoop state2
