@@ -5,6 +5,7 @@
 -- the licence file in the root of the repository.
 
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Git
 (
@@ -27,13 +28,21 @@ import Data.Aeson
 import Data.List (intersperse)
 import Data.Text (Text)
 import System.Exit (ExitCode (ExitSuccess))
-import System.Process (readProcessWithExitCode)
+import System.Process.Text (readProcessWithExitCode)
+
+import qualified Data.Text as Text
 
 -- A branch is identified by its name.
-data Branch = Branch Text deriving (Eq, Show)
+data Branch = Branch Text deriving (Eq)
 
 -- A commit hash is stored as its hexadecimal representation.
-data Sha = Sha Text deriving (Eq, Show)
+data Sha = Sha Text deriving (Eq)
+
+instance Show Branch where
+  show (Branch branch) = Text.unpack branch
+
+instance Show Sha where
+  show (Sha sha) = Text.unpack sha
 
 instance FromJSON Sha where
   parseJSON (String str) = return (Sha str)
@@ -70,7 +79,7 @@ rebase sha ontoBranch = liftF $ Rebase sha ontoBranch id
 
 -- Invokes Git with the given arguments. Returns its output on success, or the
 -- exit code and stderr on error.
-callGit :: [String] -> IO (Either (ExitCode, String) String)
+callGit :: [String] -> IO (Either (ExitCode, Text) Text)
 callGit args = do
   putStrLn $ "executing git " ++ concat (intersperse " " args)
   (exitCode, output, errors) <- readProcessWithExitCode "git" args ""
@@ -86,7 +95,7 @@ runGit repoDir operation = case operation of
   Free (FetchBranch branch cont) -> do
     result <- callGitInRepo ["fetch", "origin", show branch]
     case result of
-      Left  _ -> putStrLn "Warning: git fetch failed"
+      Left  _ -> putStrLn "warning: git fetch failed"
       Right _ -> return ()
     continueWith cont
   Free (ForcePush sha branch cont) -> do
@@ -94,7 +103,7 @@ runGit repoDir operation = case operation of
     -- could run unintended Git commands.
     result <- callGitInRepo ["push", "--force", "origin", (show sha) ++ ":" ++ (show branch)]
     case result of
-      Left  _ -> putStrLn "Warning: git push --force failed"
+      Left  _ -> putStrLn "warning: git push --force failed"
       Right _ -> return ()
     continueWith cont
   Free (Push sha branch cont) -> do
@@ -104,9 +113,17 @@ runGit repoDir operation = case operation of
           Right _ -> PushOk
     continueWith $ cont pushResult
   Free (Rebase sha branch cont) -> do
-    _result <- callGitInRepo ["rebase", show branch, show sha]
-    -- TODO: Parse output and find new sha.
-    continueWith $ cont Nothing
+    result <- callGitInRepo ["rebase", show branch, show sha]
+    case result of
+      -- Rebase failed, call the continuation with no rebased sha.
+      Left  _ -> continueWith $ cont Nothing
+      Right _ -> do
+        revResult <- callGitInRepo ["rev-parse", "@"]
+        case revResult of
+          Left  _   -> do
+            putStrLn "warning: git rev-parse failed"
+            continueWith $ cont Nothing
+          Right newSha -> continueWith $ cont $ Just $ Sha $ Text.strip newSha
   where
     -- Pass the -C /path/to/checkout option to Git, to run operations in the
     -- repository without having to change the working directory.
