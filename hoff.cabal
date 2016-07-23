@@ -56,3 +56,18 @@ test-suite spec
                , hspec      >= 2.2    && < 3.0
                , hspec-core >= 2.2    && < 3.0
                , text       >= 1.2    && < 1.3
+
+test-suite full-system
+  default-language: Haskell2010
+  type:           exitcode-stdio-1.0
+  main-is:        FullSystem.hs
+  hs-source-dirs: tests
+  ghc-options:    -Wall -fwarn-tabs -threaded
+
+  build-depends: base       >= 4.9 && < 4.10
+               , filepath   >= 1.4 && < 2.0
+               , hoff
+               , hspec      >= 2.2 && < 3.0
+               , hspec-core >= 2.2 && < 3.0
+               , process    >= 1.4 && < 2.0
+               , text       >= 1.2 && < 1.3
