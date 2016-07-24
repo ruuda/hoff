@@ -144,7 +144,7 @@ withMainLoop body = do
   -- Like the actual application, start a worker thread to run the main event
   -- loop.
   -- TODO: Non-global config?
-  threadId <- forkIO $ EventLoop.runLogicEventLoop config mainQueue
+  threadId <- forkIO $ void $ EventLoop.runLogicEventLoop config mainQueue
   body mainQueue
   killThread threadId
 

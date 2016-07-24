@@ -84,6 +84,8 @@ data Event
   | CommentAdded PullRequestId Text Text       -- PR, author and body.
   -- CI events
   | BuildStatusChanged Sha BuildStatus
+  -- Control events
+  | QuitLoop
   deriving (Eq, Show)
 
 type EventQueue = TBQueue Event
@@ -99,6 +101,10 @@ handleEvent event = case event of
   PullRequestClosed pr            -> handlePullRequestClosed pr
   CommentAdded pr author body     -> handleCommentAdded pr author body
   BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
+  -- The quit loop message is not handled at all here, it is a signal to the
+  -- event loop. Note that 'return' is the monadic identity function, it has
+  -- nothing to do with 'return' in imperative languages.
+  QuitLoop                        -> return
 
 handlePullRequestOpened :: PullRequestId -> Sha -> Text -> ProjectState -> Action ProjectState
 handlePullRequestOpened pr sha author = return . Pr.insertPullRequest pr sha author
