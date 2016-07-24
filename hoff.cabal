@@ -66,8 +66,8 @@ test-suite full-system
 
   build-depends: base       >= 4.9 && < 4.10
                , filepath   >= 1.4 && < 2.0
+               , directory  >= 1.2 && < 2.0
                , hoff
                , hspec      >= 2.2 && < 3.0
                , hspec-core >= 2.2 && < 3.0
-               , process    >= 1.4 && < 2.0
                , text       >= 1.2 && < 1.3

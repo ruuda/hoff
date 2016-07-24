@@ -8,8 +8,8 @@
 
 import Control.Monad (void)
 import Data.Text (Text)
+import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive)
 import System.FilePath ((</>))
-import System.Process (callProcess)
 
 import Configuration (Configuration (..))
 import Git (Sha (..))
@@ -109,13 +109,14 @@ populateRepo dir =
 -- origin repository is set as the "origin" remote in the cloned repository.
 initializeRepo :: IO ()
 initializeRepo = do
-  callProcess "mkdir" ["-p", originDir]
+  -- Create the directory for the origin repository, and parent directories.
+  createDirectoryIfMissing True originDir
   populateRepo originDir
   callGit ["clone", "file://" ++ originDir, repoDir]
   return ()
 
 cleanupRepo :: IO ()
-cleanupRepo = callProcess "rm" ["-fr", testDir]
+cleanupRepo = removeDirectoryRecursive testDir
 
 main :: IO ()
 main = do
