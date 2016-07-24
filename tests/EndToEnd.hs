@@ -6,6 +6,7 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 
+import Control.Concurrent (forkIO, killThread)
 import Control.Monad (void)
 import Data.Text (Text)
 import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive)
@@ -17,7 +18,9 @@ import Git (Sha (..))
 
 import qualified Configuration as Config
 import qualified Data.Text as Text
-import qualified Git as Git
+import qualified EventLoop
+import qualified Git
+import qualified Logic
 
 -- To run these tests, a real repository has to be made somewhere. Do that in
 -- /tmp because it can be mounted as a ramdisk, so it is fast and we don't
@@ -55,8 +58,8 @@ callGit args = fmap (either undefined id) $ Git.callGit args
 --                \
 --                 `-- c3'       <-- alternative
 --
-populateRepo :: FilePath -> IO [Sha]
-populateRepo dir =
+populateRepository :: FilePath -> IO [Sha]
+populateRepository dir =
   let git args            = callGit $ ["-C", dir] ++ args
       gitInit             = void $ git ["init"]
       gitConfig key value = void $ git ["config", key, value]
@@ -108,26 +111,53 @@ populateRepo dir =
 -- Sets up two repositories: one with a few commits in the origin directory, and
 -- a clone of that in the repository directory. The clone ensures that the
 -- origin repository is set as the "origin" remote in the cloned repository.
-initializeRepo :: IO ()
-initializeRepo = do
+initializeRepository :: IO [Sha]
+initializeRepository = do
   -- Create the directory for the origin repository, and parent directories.
   createDirectoryIfMissing True originDir
-  populateRepo originDir
+  shas <- populateRepository originDir
   callGit ["clone", "file://" ++ originDir, repoDir]
-  return ()
+  return shas
 
-cleanupRepo :: IO ()
-cleanupRepo = removeDirectoryRecursive testDir
+cleanupRepository :: IO ()
+cleanupRepository = removeDirectoryRecursive testDir
 
-withTestRepository :: (FilePath -> IO ()) -> IO ()
+-- Creates and populates a test repository, runs the body and provides to it the
+-- shas of the test commits as shown in populateRepository. Then removes the
+-- test repository again.
+withTestRepository :: ([Sha] -> IO ()) -> IO ()
 withTestRepository body = do
-  initializeRepo
-  body repoDir -- TODO: Generate new repo dir with uuid for every test.
-  cleanupRepo
+  -- TODO: Generate new repo dir with uuid for every test.
+  shas <- initializeRepository
+  body shas
+  cleanupRepository
+
+-- Starts a new thread that runs the main event loop. Then runs the body and
+-- provides to it the queue that the main loop pops from. Finally stops the
+-- forked thread.
+withMainLoop :: (Logic.EventQueue -> IO ()) -> IO ()
+withMainLoop body = do
+  mainQueue <- Logic.newEventQueue 10
+  -- Like the actual application, start a worker thread to run the main event
+  -- loop.
+  -- TODO: Non-global config?
+  threadId <- forkIO $ EventLoop.runLogicEventLoop config mainQueue
+  body mainQueue
+  killThread threadId
+
+withTestEnv :: (([Sha], Logic.EventQueue) -> IO ()) -> IO ()
+withTestEnv body =
+  withTestRepository $ \ shas ->
+  withMainLoop $ \ mainQueue ->
+  body (shas, mainQueue)
 
 main :: IO ()
 main = hspec $ do
   describe "The main event loop" $ do
 
-    it "handles a fast-forwardable pull request" $ withTestRepository $ \ repo -> do
-      putStrLn $ "TODO: write real test, repo dir is " ++ repo
+    it "handles a fast-forwardable pull request" $ withTestEnv $ \ (shas, queue) -> do
+      let [c0, c1, c2, c3, c3', c4, c5] = shas
+      putStrLn $ "c0: " ++ (show c0)
+      putStrLn $ "c1: " ++ (show c1)
+      putStrLn $ "c2: " ++ (show c2)
+      putStrLn $ "c3: " ++ (show c3)
