@@ -45,6 +45,7 @@ import Prelude hiding (readFile, writeFile)
 
 import qualified Data.IntMap as IntMap
 
+-- TODO: Move to Github module?
 -- A pull request is identified by its number.
 data PullRequestId = PullRequestId Int deriving (Eq, Show, Generic)
 

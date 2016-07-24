@@ -7,6 +7,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import Control.Concurrent (forkIO, killThread)
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TBQueue
 import Control.Monad (void)
 import Data.Text (Text)
 import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive)
@@ -15,6 +17,7 @@ import Test.Hspec
 
 import Configuration (Configuration (..))
 import Git (Sha (..))
+import Project (PullRequestId (..))
 
 import qualified Configuration as Config
 import qualified Data.Text as Text
@@ -157,7 +160,6 @@ main = hspec $ do
 
     it "handles a fast-forwardable pull request" $ withTestEnv $ \ (shas, queue) -> do
       let [c0, c1, c2, c3, c3', c4, c5] = shas
-      putStrLn $ "c0: " ++ (show c0)
-      putStrLn $ "c1: " ++ (show c1)
-      putStrLn $ "c2: " ++ (show c2)
-      putStrLn $ "c3: " ++ (show c3)
+          sendEvent event = atomically $ writeTBQueue queue event
+      sendEvent $ Logic.PullRequestOpened (PullRequestId 1) c3 "decker"
+      sendEvent $ Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c3)
