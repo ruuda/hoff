@@ -43,6 +43,8 @@ populateRepo :: IO ()
 populateRepo = do
   callProcess "mkdir" ["-p", originDir]
   gitOrigin ["init"]
+  gitOrigin ["config", "user.email", "testsuite@example.com"]
+  gitOrigin ["config", "user.name", "Testbot"]
 
   writeFile (originDir </> "tyrell.txt") "I'm surprised you didn't come here sooner.\n"
   gitOrigin ["add", "tyrell.txt"]
