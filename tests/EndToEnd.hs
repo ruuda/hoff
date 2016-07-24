@@ -10,6 +10,7 @@ import Control.Monad (void)
 import Data.Text (Text)
 import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive)
 import System.FilePath ((</>))
+import Test.Hspec
 
 import Configuration (Configuration (..))
 import Git (Sha (..))
@@ -118,7 +119,15 @@ initializeRepo = do
 cleanupRepo :: IO ()
 cleanupRepo = removeDirectoryRecursive testDir
 
-main :: IO ()
-main = do
+withTestRepository :: (FilePath -> IO ()) -> IO ()
+withTestRepository body = do
   initializeRepo
+  body repoDir -- TODO: Generate new repo dir with uuid for every test.
   cleanupRepo
+
+main :: IO ()
+main = hspec $ do
+  describe "The main event loop" $ do
+
+    it "handles a fast-forwardable pull request" $ withTestRepository $ \ repo -> do
+      putStrLn $ "TODO: write real test, repo dir is " ++ repo
