@@ -6,7 +6,7 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 
-import Control.Concurrent (forkIO, killThread)
+import Control.Concurrent (forkIO, killThread, threadDelay)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue
 import Control.Monad (void)
@@ -141,6 +141,12 @@ withTestEnv body = do
   -- events.
   let enqueueEvent = Logic.enqueueEvent queue
   body shas enqueueEvent
+
+  -- Tell the worker thread to stop after it has processed all events. Then wait
+  -- for it to exit. TODO: Use proper synchronization with an MVar instead of
+  -- a delay. Or perhaps use the "async" package.
+  Logic.enqueueStopSignal queue
+  threadDelay 5000000 -- Wait five seconds.
 
   -- Stop the worker thread and clean up the test directory.
   killThread threadId
