@@ -115,7 +115,7 @@ buildConfig repoDir = Configuration {
 -- Sets up a test environment with an actual Git repository on the file system,
 -- and a thread running the main event loop. Then invokes the body, and tears
 -- down the test environment afterwards.
-withTestEnv :: ([Sha] -> Logic.EventQueue -> IO ()) -> IO ()
+withTestEnv :: ([Sha] -> (Logic.Event -> IO ()) -> IO ()) -> IO ()
 withTestEnv body = do
   -- To run these tests, a real repository has to be made somewhere. Do that in
   -- /tmp because it can be mounted as a ramdisk, so it is fast and we don't
@@ -137,8 +137,10 @@ withTestEnv body = do
   threadId <- forkIO $ void $ EventLoop.runLogicEventLoop config queue
 
   -- Run the actual test code inside the environment that we just set up,
-  -- provide it with the commit shas and the queue so it can send events.
-  body shas queue
+  -- provide it with the commit shas and an enqueue function so it can send
+  -- events.
+  let enqueueEvent = Logic.enqueueEvent queue
+  body shas enqueueEvent
 
   -- Stop the worker thread and clean up the test directory.
   killThread threadId
@@ -148,8 +150,7 @@ main :: IO ()
 main = hspec $ do
   describe "The main event loop" $ do
 
-    it "handles a fast-forwardable pull request" $ withTestEnv $ \ shas queue -> do
+    it "handles a fast-forwardable pull request" $ withTestEnv $ \ shas enqueueEvent -> do
       let [c0, c1, c2, c3, c3', c4, c5] = shas
-          sendEvent event = atomically $ writeTBQueue queue event
-      sendEvent $ Logic.PullRequestOpened (PullRequestId 1) c3 "decker"
-      sendEvent $ Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c3)
+      enqueueEvent $ Logic.PullRequestOpened (PullRequestId 1) c3 "decker"
+      enqueueEvent $ Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c3)

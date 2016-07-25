@@ -61,39 +61,43 @@ convertGithubEvent event = case event of
   Comment payload     -> eventFromCommentPayload payload
 
 -- The event loop that converts GitHub webhook events into logic events.
-runGithubEventLoop :: Text -> Text -> Github.EventQueue -> Logic.EventQueue -> IO ()
-runGithubEventLoop owner repository ghQueue sinkQueue = runLoop
+runGithubEventLoop :: Text -> Text -> Github.EventQueue -> (Logic.Event -> IO ()) -> IO ()
+runGithubEventLoop owner repository ghQueue enqueueEvent = runLoop
   where
     shouldHandle ghEvent =
       (ghEvent /= Ping) &&
       (eventRepository ghEvent == repository) &&
       (eventRepositoryOwner ghEvent == owner)
-    -- Enqueues an event, blocks if the queue is full.
-    enqueue event = atomically $ writeTBQueue sinkQueue event
     runLoop = do
       ghEvent <- atomically $ readTBQueue ghQueue
       putStrLn $ "github loop received event: " ++ (show ghEvent)
       -- Listen only to events for the configured repository.
       when (shouldHandle ghEvent) $
-        -- If conversion yielded an event, enqueue it.
-        maybe (return ()) enqueue $ convertGithubEvent ghEvent
+        -- If conversion yielded an event, enqueue it. Block if the
+        -- queue is full.
+        maybe (return ()) enqueueEvent $ convertGithubEvent ghEvent
       runLoop
 
 runLogicEventLoop :: Configuration -> Logic.EventQueue -> IO ProjectState
 runLogicEventLoop config queue = runLoop emptyProjectState -- TODO: Load previous state from disk?
   where
-    repoDir        = Config.checkout config
-    runLoop state0 = do
-      -- Take one event off the queue (block if there is none), handle it, and
-      -- then perform any additional required actions until the state reaches a
-      -- fixed point (when there are no further actions to perform).
-      event  <- atomically $ readTBQueue queue
+    repoDir = Config.checkout config
+    handleAndContinue state0 event = do
+      -- Handle the event and then perform any additional required actions until
+      -- the state reaches a fixed point (when there are no further actions to
+      -- perform).
       putStrLn $ "logic loop received event: " ++ (show event)
       putStrLn $ "state before: " ++ (show state0)
       state1 <- runGit repoDir $ Logic.runAction config $ Logic.handleEvent event state0
       state2 <- runGit repoDir $ Logic.runAction config $ Logic.proceedUntilFixedPoint state1
       saveProjectState "project.json" state2
       putStrLn $ "state after: " ++ (show state2)
-      if event == Logic.QuitLoop
-        then return state2
-        else runLoop state2
+      runLoop state2
+    runLoop state = do
+      -- Take one event off the queue, block if there is none.
+      eventOrStopSignal <- atomically $ readTBQueue queue
+      -- Queue items are of type 'Maybe Event'; 'Nothing' signals loop
+      -- termination. If there was an event, run one iteration and recurse.
+      case eventOrStopSignal of
+        Just event -> handleAndContinue state event
+        Nothing    -> return state

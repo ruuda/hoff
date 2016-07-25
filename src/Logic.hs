@@ -13,6 +13,8 @@ module Logic
   ActionFree (..),
   Event (..),
   EventQueue,
+  enqueueEvent,
+  enqueueStopSignal,
   handleEvent,
   newEventQueue,
   runAction,
@@ -22,7 +24,7 @@ module Logic
 )
 where
 
-import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue)
+import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, writeTBQueue)
 import Control.Exception (assert)
 import Control.Monad (mfilter)
 import Control.Monad.Free (Free (..), liftF)
@@ -84,15 +86,22 @@ data Event
   | CommentAdded PullRequestId Text Text       -- PR, author and body.
   -- CI events
   | BuildStatusChanged Sha BuildStatus
-  -- Control events
-  | QuitLoop
   deriving (Eq, Show)
 
-type EventQueue = TBQueue Event
+type EventQueue = TBQueue (Maybe Event)
 
 -- Creates a new event queue with the given maximum capacity.
 newEventQueue :: Int -> IO EventQueue
 newEventQueue capacity = atomically $ newTBQueue capacity
+
+-- Enqueues an event, blocks if the queue is full.
+enqueueEvent :: EventQueue -> Event -> IO ()
+enqueueEvent queue event = atomically $ writeTBQueue queue $ Just event
+
+-- Signals the event loop to stop after processing all events
+-- currently in the queue.
+enqueueStopSignal :: EventQueue -> IO ()
+enqueueStopSignal queue = atomically $ writeTBQueue queue Nothing
 
 handleEvent :: Event -> ProjectState -> Action ProjectState
 handleEvent event = case event of
@@ -101,10 +110,6 @@ handleEvent event = case event of
   PullRequestClosed pr            -> handlePullRequestClosed pr
   CommentAdded pr author body     -> handleCommentAdded pr author body
   BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
-  -- The quit loop message is not handled at all here, it is a signal to the
-  -- event loop. Note that 'return' is the monadic identity function, it has
-  -- nothing to do with 'return' in imperative languages.
-  QuitLoop                        -> return
 
 handlePullRequestOpened :: PullRequestId -> Sha -> Text -> ProjectState -> Action ProjectState
 handlePullRequestOpened pr sha author = return . Pr.insertPullRequest pr sha author

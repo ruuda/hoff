@@ -51,12 +51,16 @@ main = withConfig $ \ config -> do
 
   -- Start a worker thread to put the GitHub webhook events in the main queue.
   -- Discard events that are not intended for the configured repository.
-  let owner      = Config.owner config
-      repository = Config.repository config
-  _ <- forkIO $ runGithubEventLoop owner repository ghQueue mainQueue
+  let owner        = Config.owner config
+      repository   = Config.repository config
+      enqueueEvent = Logic.enqueueEvent mainQueue
+  _ <- forkIO $ runGithubEventLoop owner repository ghQueue enqueueEvent
 
   -- Start a worker thread to run the main event loop.
   _ <- forkIO $ void $ runLogicEventLoop config mainQueue
 
   let port = Config.port config
   runServer port ghQueue
+
+  -- Note that a stop signal is never enqueued. The application just runs until
+  -- it is killed.
