@@ -11,8 +11,10 @@ import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue
 import Control.Monad (void)
 import Data.Text (Text)
-import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive)
+import Data.UUID (UUID)
+import System.Directory (createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive)
 import System.FilePath ((</>))
+import System.Random (randomIO)
 import Test.Hspec
 
 import Configuration (Configuration (..))
@@ -24,29 +26,6 @@ import qualified Data.Text as Text
 import qualified EventLoop
 import qualified Git
 import qualified Logic
-
--- To run these tests, a real repository has to be made somewhere. Do that in
--- /tmp because it can be mounted as a ramdisk, so it is fast and we don't
--- unnecessarily wear out SSDs. Put a guid in there to ensure we don't overwrite
--- somebody else's files.
-testDir :: FilePath
-testDir = "/tmp/testsuite-389614a8-edeb-4993-978b-425cda85a090"
-
-repoDir :: FilePath
-repoDir = testDir </> "repo"
-
-originDir :: FilePath
-originDir = testDir </> "repo-remote"
-
-config :: Configuration
-config = Configuration {
-  Config.owner      = "ruuda",
-  Config.repository = "blog",
-  Config.branch     = "master",
-  Config.testBranch = "integration",
-  Config.port       = 5261,
-  Config.checkout   = testDir
-}
 
 -- Invokes Git with the given arguments, returns its stdout. Crashes if invoking
 -- Git failed.
@@ -114,51 +93,62 @@ populateRepository dir =
 -- Sets up two repositories: one with a few commits in the origin directory, and
 -- a clone of that in the repository directory. The clone ensures that the
 -- origin repository is set as the "origin" remote in the cloned repository.
-initializeRepository :: IO [Sha]
-initializeRepository = do
+initializeRepository :: FilePath -> FilePath -> IO [Sha]
+initializeRepository originDir repoDir = do
   -- Create the directory for the origin repository, and parent directories.
   createDirectoryIfMissing True originDir
   shas <- populateRepository originDir
-  callGit ["clone", "file://" ++ originDir, repoDir]
+  _    <- callGit ["clone", "file://" ++ originDir, repoDir]
   return shas
 
-cleanupRepository :: IO ()
-cleanupRepository = removeDirectoryRecursive testDir
+-- Generate a configuration to be used in the test environment.
+buildConfig :: FilePath -> Configuration
+buildConfig repoDir = Configuration {
+  Config.owner      = "ruuda",
+  Config.repository = "blog",
+  Config.branch     = "master",
+  Config.testBranch = "integration",
+  Config.port       = 5261,
+  Config.checkout   = repoDir
+}
 
--- Creates and populates a test repository, runs the body and provides to it the
--- shas of the test commits as shown in populateRepository. Then removes the
--- test repository again.
-withTestRepository :: ([Sha] -> IO ()) -> IO ()
-withTestRepository body = do
-  -- TODO: Generate new repo dir with uuid for every test.
-  shas <- initializeRepository
-  body shas
-  cleanupRepository
+-- Sets up a test environment with an actual Git repository on the file system,
+-- and a thread running the main event loop. Then invokes the body, and tears
+-- down the test environment afterwards.
+withTestEnv :: ([Sha] -> Logic.EventQueue -> IO ()) -> IO ()
+withTestEnv body = do
+  -- To run these tests, a real repository has to be made somewhere. Do that in
+  -- /tmp because it can be mounted as a ramdisk, so it is fast and we don't
+  -- unnecessarily wear out SSDs. Put a uuid in there to ensure we don't
+  -- overwrite somebody else's files, and to ensure that the tests do not affect
+  -- eachother.
+  uuid       <- randomIO :: IO UUID
+  tmpBaseDir <- getTemporaryDirectory
+  let testDir   = tmpBaseDir </> ("testsuite-" ++ (show uuid))
+      originDir = testDir </> "repo-origin"
+      repoDir   = testDir </> "repo-local"
+  -- Create and populate a test repository with a local remote "origin". Record
+  -- the shas of the commits as documented in populateRepository.
+  shas <- initializeRepository originDir repoDir
 
--- Starts a new thread that runs the main event loop. Then runs the body and
--- provides to it the queue that the main loop pops from. Finally stops the
--- forked thread.
-withMainLoop :: (Logic.EventQueue -> IO ()) -> IO ()
-withMainLoop body = do
-  mainQueue <- Logic.newEventQueue 10
-  -- Like the actual application, start a worker thread to run the main event
-  -- loop.
-  -- TODO: Non-global config?
-  threadId <- forkIO $ void $ EventLoop.runLogicEventLoop config mainQueue
-  body mainQueue
+  -- Like the actual application, start a new thread to run the main event loop.
+  let config = buildConfig repoDir
+  queue    <- Logic.newEventQueue 10
+  threadId <- forkIO $ void $ EventLoop.runLogicEventLoop config queue
+
+  -- Run the actual test code inside the environment that we just set up,
+  -- provide it with the commit shas and the queue so it can send events.
+  body shas queue
+
+  -- Stop the worker thread and clean up the test directory.
   killThread threadId
-
-withTestEnv :: (([Sha], Logic.EventQueue) -> IO ()) -> IO ()
-withTestEnv body =
-  withTestRepository $ \ shas ->
-  withMainLoop $ \ mainQueue ->
-  body (shas, mainQueue)
+  removeDirectoryRecursive testDir
 
 main :: IO ()
 main = hspec $ do
   describe "The main event loop" $ do
 
-    it "handles a fast-forwardable pull request" $ withTestEnv $ \ (shas, queue) -> do
+    it "handles a fast-forwardable pull request" $ withTestEnv $ \ shas queue -> do
       let [c0, c1, c2, c3, c3', c4, c5] = shas
           sendEvent event = atomically $ writeTBQueue queue event
       sendEvent $ Logic.PullRequestOpened (PullRequestId 1) c3 "decker"
