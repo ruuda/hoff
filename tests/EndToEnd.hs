@@ -6,9 +6,7 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 
-import Control.Concurrent (forkIO, killThread, threadDelay)
-import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TBQueue
+import Control.Concurrent.Async (async, wait)
 import Control.Monad (void)
 import Data.Text (Text)
 import Data.UUID (UUID)
@@ -132,9 +130,11 @@ withTestEnv body = do
   shas <- initializeRepository originDir repoDir
 
   -- Like the actual application, start a new thread to run the main event loop.
+  -- Use 'async' here, a higher-level wrapper around 'forkIO', to wait for the
+  -- thread to stop later.
   let config = buildConfig repoDir
-  queue    <- Logic.newEventQueue 10
-  threadId <- forkIO $ void $ EventLoop.runLogicEventLoop config queue
+  queue           <- Logic.newEventQueue 10
+  finalStateAsync <- async $ EventLoop.runLogicEventLoop config queue
 
   -- Run the actual test code inside the environment that we just set up,
   -- provide it with the commit shas and an enqueue function so it can send
@@ -143,13 +143,9 @@ withTestEnv body = do
   body shas enqueueEvent
 
   -- Tell the worker thread to stop after it has processed all events. Then wait
-  -- for it to exit. TODO: Use proper synchronization with an MVar instead of
-  -- a delay. Or perhaps use the "async" package.
+  -- for it to exit. Also clean up the test directory.
   Logic.enqueueStopSignal queue
-  threadDelay 5000000 -- Wait five seconds.
-
-  -- Stop the worker thread and clean up the test directory.
-  killThread threadId
+  finalState <- wait finalStateAsync
   removeDirectoryRecursive testDir
 
 main :: IO ()
