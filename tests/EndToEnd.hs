@@ -32,10 +32,10 @@ callGit args = fmap (either undefined id) $ Git.callGit args
 
 -- Populates the repository with the following history:
 --
---                 .-- c4 -- c5  <-- intro
+--                 .-- c5 -- c6  <-- intro
 --                /
---   c0 -- c1 -- c2 -- c3        <-- master
---                \
+--   c0 -- c1 -- c2 -- c3 -- c4  <-- ahead
+--                \     ^----------- master
 --                 `-- c3'       <-- alternative
 --
 populateRepository :: FilePath -> IO [Sha]
@@ -45,6 +45,7 @@ populateRepository dir =
       gitConfig key value = void $ git ["config", key, value]
       gitAdd file         = void $ git ["add", file]
       gitBranch name sha  = void $ git ["checkout", "-b", name, show sha]
+      gitCheckout brname  = void $ git ["checkout", brname]
       -- Commits with the given message and returns the sha of the new commit.
       gitCommit message   = do
         void $ git ["commit", "-m", message]
@@ -70,6 +71,13 @@ populateRepository dir =
       gitAdd "roy.txt"
       c3 <- gitCommit "Add new Roy quote"
 
+      -- Create a branch "ahead", one commit ahead of master.
+      gitBranch "ahead" c3
+      appendFile (dir </> "tyrell.txt") "Would you like to be modified?\n"
+      gitAdd "tyrell.txt"
+      c4 <- gitCommit "Add Tyrell  response"
+      gitCheckout "master"
+
       -- Now make an alternative commit that conflicts with c3.
       gitBranch "alternative" c2
       appendFile (dir </> "roy.txt") "You could make me a sandwich.\n"
@@ -80,13 +88,13 @@ populateRepository dir =
       gitBranch "intro" c2
       writeFile (dir </> "leon.txt") "What do you mean, I'm not helping?\n"
       gitAdd "leon.txt"
-      c4 <- gitCommit "Add more characters"
+      c5 <- gitCommit "Add more characters"
 
       writeFile (dir </> "holden.txt") "I mean, you're not helping! Why is that, Leon?\n"
       gitAdd "holden.txt"
-      c5 <- gitCommit "Add response"
+      c6 <- gitCommit "Add response"
 
-      return [c0, c1, c2, c3, c3', c4, c5]
+      return [c0, c1, c2, c3, c3', c4, c5, c6]
 
 -- Sets up two repositories: one with a few commits in the origin directory, and
 -- a clone of that in the repository directory. The clone ensures that the
@@ -153,6 +161,9 @@ main = hspec $ do
   describe "The main event loop" $ do
 
     it "handles a fast-forwardable pull request" $ withTestEnv $ \ shas enqueueEvent -> do
-      let [c0, c1, c2, c3, c3', c4, c5] = shas
-      enqueueEvent $ Logic.PullRequestOpened (PullRequestId 1) c3 "decker"
-      enqueueEvent $ Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c3)
+      let [c0, c1, c2, c3, c3', c4, c5, c6] = shas
+      -- Commit c4 is one commit ahead of master, so integrating it can be done
+      -- with a fast-forward merge.
+      enqueueEvent $ Logic.PullRequestOpened (PullRequestId 1) c4 "decker"
+      enqueueEvent $ Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c4)
+      -- TODO: Validate output repository.
