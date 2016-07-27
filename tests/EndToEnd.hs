@@ -9,10 +9,9 @@
 import Control.Concurrent.Async (async, wait)
 import Control.Monad (void)
 import Data.Text (Text)
-import Data.UUID (UUID)
+import Data.UUID.V4 (nextRandom)
 import System.Directory (createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive)
 import System.FilePath ((</>))
-import System.Random (randomIO)
 import Test.Hspec
 
 import Configuration (Configuration (..))
@@ -128,7 +127,7 @@ withTestEnv body = do
   -- unnecessarily wear out SSDs. Put a uuid in there to ensure we don't
   -- overwrite somebody else's files, and to ensure that the tests do not affect
   -- eachother.
-  uuid       <- randomIO :: IO UUID
+  uuid       <- nextRandom
   tmpBaseDir <- getTemporaryDirectory
   let testDir   = tmpBaseDir </> ("testsuite-" ++ (show uuid))
       originDir = testDir </> "repo-origin"
