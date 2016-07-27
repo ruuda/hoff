@@ -117,7 +117,7 @@ runGit repoDir operation = case operation of
           Right _ -> PushOk
     continueWith $ cont pushResult
   Free (Rebase sha branch cont) -> do
-    result <- callGitInRepo ["rebase", show branch, show sha]
+    result <- callGitInRepo ["rebase", "origin/" ++ (show branch), show sha]
     case result of
       -- Rebase failed, call the continuation with no rebased sha.
       Left  _ -> continueWith $ cont Nothing
