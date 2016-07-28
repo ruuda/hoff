@@ -17,7 +17,7 @@ import Prelude hiding (readFile)
 import Test.Hspec
 
 import Git (PushResult(..), Sha (..))
-import Github (CommentPayload, PullRequestPayload)
+import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
 import Logic hiding (runAction)
 import Project
 
@@ -246,3 +246,22 @@ main = hspec $ do
       number        `shouldBe` 2
       commentAuthor `shouldBe` "baxterthehacker2"
       commentBody   `shouldBe` "You are totally right! I'll get this fixed right away."
+
+  describe "Github.CommitStatusPayload" $ do
+
+    it "should be parsed correctly" $ do
+      examplePayload <- readFile "tests/data/status-payload.json"
+      let maybePayload :: Maybe CommitStatusPayload
+          maybePayload = decode examplePayload
+      maybePayload `shouldSatisfy` isJust
+      let payload       = fromJust maybePayload
+          owner         = Github.owner      (payload :: CommitStatusPayload)
+          repository    = Github.repository (payload :: CommitStatusPayload)
+          status        = Github.status     (payload :: CommitStatusPayload)
+          url           = Github.url        (payload :: CommitStatusPayload)
+          commitSha     = Github.sha        (payload :: CommitStatusPayload)
+      owner      `shouldBe` "baxterthehacker"
+      repository `shouldBe` "public-repo"
+      status     `shouldBe` Github.Success
+      url        `shouldBe` Nothing
+      commitSha  `shouldBe` (Sha "9049f1265b7d61be4a8904a9a27120d2064dab3b")
