@@ -16,7 +16,7 @@ import Test.Hspec
 
 import Configuration (Configuration (..))
 import Git (Sha (..))
-import Project (PullRequestId (..))
+import Project (BuildStatus (BuildSucceeded), PullRequestId (..))
 
 import qualified Configuration as Config
 import qualified Data.Text as Text
@@ -165,4 +165,6 @@ main = hspec $ do
       -- with a fast-forward merge.
       enqueueEvent $ Logic.PullRequestOpened (PullRequestId 1) c4 "decker"
       enqueueEvent $ Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c4)
+      -- TODO: validate that the rebase is a fast-forward.
+      enqueueEvent $ Logic.BuildStatusChanged c4 BuildSucceeded
       -- TODO: Validate output repository.
