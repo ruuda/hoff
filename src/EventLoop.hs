@@ -56,9 +56,10 @@ eventFromCommentPayload payload =
 
 convertGithubEvent :: Github.WebhookEvent -> Maybe Logic.Event
 convertGithubEvent event = case event of
-  Ping                -> Nothing -- TODO: What to do with this one?
-  PullRequest payload -> Just $ eventFromPullRequestPayload payload
-  Comment payload     -> eventFromCommentPayload payload
+  Ping                 -> Nothing -- TODO: What to do with this one?
+  PullRequest payload  -> Just $ eventFromPullRequestPayload payload
+  Comment payload      -> eventFromCommentPayload payload
+  CommitStatus _pload  -> Nothing -- TODO: Handle this one.
 
 -- The event loop that converts GitHub webhook events into logic events.
 runGithubEventLoop :: Text -> Text -> Github.EventQueue -> (Logic.Event -> IO ()) -> IO ()
