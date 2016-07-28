@@ -21,13 +21,14 @@ import Data.Text (Text)
 
 import Git (runGit)
 import Configuration (Configuration)
-import Github (PullRequestPayload, CommentPayload, WebhookEvent (..))
+import Github (PullRequestPayload, CommentPayload, CommitStatusPayload, WebhookEvent (..))
 import Github (eventRepository, eventRepositoryOwner)
 import Project (ProjectState, PullRequestId (..), emptyProjectState, saveProjectState)
 
 import qualified Configuration as Config
 import qualified Github
 import qualified Logic
+import qualified Project
 
 eventFromPullRequestPayload :: PullRequestPayload -> Logic.Event
 eventFromPullRequestPayload payload =
@@ -54,12 +55,25 @@ eventFromCommentPayload payload =
     Github.Edited  -> Nothing
     Github.Deleted -> Nothing
 
+mapCommitStatus :: Github.CommitStatus -> Project.BuildStatus
+mapCommitStatus status = case status of
+  Github.Pending -> Project.BuildPending
+  Github.Success -> Project.BuildSucceeded
+  Github.Failure -> Project.BuildFailed
+  Github.Error   -> Project.BuildFailed
+
+eventFromCommitStatusPayload :: CommitStatusPayload -> Logic.Event
+eventFromCommitStatusPayload payload =
+  let sha    = Github.sha    (payload :: CommitStatusPayload)
+      status = Github.status (payload :: CommitStatusPayload)
+  in  Logic.BuildStatusChanged sha (mapCommitStatus status)
+
 convertGithubEvent :: Github.WebhookEvent -> Maybe Logic.Event
 convertGithubEvent event = case event of
   Ping                 -> Nothing -- TODO: What to do with this one?
   PullRequest payload  -> Just $ eventFromPullRequestPayload payload
+  CommitStatus payload -> Just $ eventFromCommitStatusPayload payload
   Comment payload      -> eventFromCommentPayload payload
-  CommitStatus _pload  -> Nothing -- TODO: Handle this one.
 
 -- The event loop that converts GitHub webhook events into logic events.
 runGithubEventLoop :: Text -> Text -> Github.EventQueue -> (Logic.Event -> IO ()) -> IO ()
