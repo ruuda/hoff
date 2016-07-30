@@ -119,9 +119,11 @@ buildConfig repoDir = Configuration {
 
 -- Sets up a test environment with an actual Git repository on the file system,
 -- and a thread running the main event loop. Then invokes the body, and tears
--- down the test environment afterwards.
-withTestEnv :: ([Sha] -> (Logic.Event -> IO ()) -> IO ()) -> IO ()
-withTestEnv body = do
+-- down the test environment afterwards. The body is provided with the shas of
+-- the test repository and an enqueue function, and it must return the expected
+-- shas of the remote master and integration branch.
+withTestEnvExpect :: ([Sha] -> (Logic.Event -> IO ()) -> IO (Sha, Sha)) -> IO ()
+withTestEnvExpect body = do
   -- To run these tests, a real repository has to be made somewhere. Do that in
   -- /tmp because it can be mounted as a ramdisk, so it is fast and we don't
   -- unnecessarily wear out SSDs. Put a uuid in there to ensure we don't
@@ -147,24 +149,39 @@ withTestEnv body = do
   -- provide it with the commit shas and an enqueue function so it can send
   -- events.
   let enqueueEvent = Logic.enqueueEvent queue
-  body shas enqueueEvent
+  (expectedMaster, expectedIntegration) <- body shas enqueueEvent
 
   -- Tell the worker thread to stop after it has processed all events. Then wait
-  -- for it to exit. Also clean up the test directory.
+  -- for it to exit.
   Logic.enqueueStopSignal queue
-  finalState <- wait finalStateAsync
+  _finalState <- wait finalStateAsync
+
+  -- Intspect the state of the remote repository, then clean up the entire test
+  -- directory.
+  masterSha      <- callGit ["-C", originDir, "rev-parse", "master"]
+  integrationSha <- callGit ["-C", originDir, "rev-parse", "integration"]
   removeDirectoryRecursive testDir
+
+  -- Assert that the expected shas match the actual ones.
+  expectedMaster      `shouldBe` (Sha $ Text.strip masterSha)
+  expectedIntegration `shouldBe` (Sha $ Text.strip integrationSha)
 
 main :: IO ()
 main = hspec $ do
   describe "The main event loop" $ do
 
-    it "handles a fast-forwardable pull request" $ withTestEnv $ \ shas enqueueEvent -> do
-      let [c0, c1, c2, c3, c3', c4, c5, c6] = shas
-      -- Commit c4 is one commit ahead of master, so integrating it can be done
-      -- with a fast-forward merge.
-      enqueueEvent $ Logic.PullRequestOpened (PullRequestId 1) c4 "decker"
-      enqueueEvent $ Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c4)
-      -- TODO: validate that the rebase is a fast-forward.
-      enqueueEvent $ Logic.BuildStatusChanged c4 BuildSucceeded
-      -- TODO: Validate output repository.
+    it "handles a fast-forwardable pull request" $
+      withTestEnvExpect $ \ shas enqueueEvent -> do
+        let [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6] = shas
+        -- Commit c4 is one commit ahead of master, so integrating it can be done
+        -- with a fast-forward merge.
+        enqueueEvent $ Logic.PullRequestOpened (PullRequestId 1) c4 "decker"
+        enqueueEvent $ Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c4)
+        enqueueEvent $ Logic.BuildStatusChanged c4 BuildSucceeded
+
+        -- The remote master branch is expected to be at c4: after the build
+        -- succeeded, the commit should have been pushed. The 'integration'
+        -- branch should be at c4 too, because that commit was last tested.
+        -- TODO: Is there a more intuitive way to write this test, where the
+        -- `shouldBe` is not hidden in a wrapper?
+        return (c4, c4)
