@@ -10,6 +10,7 @@ module Main where
 
 import Control.Concurrent (forkIO)
 import Control.Monad (void)
+import Control.Monad.Logger (runStdoutLoggingT)
 
 import Configuration (Configuration)
 import EventLoop (runGithubEventLoop, runLogicEventLoop)
@@ -57,7 +58,7 @@ main = withConfig $ \ config -> do
   _ <- forkIO $ runGithubEventLoop owner repository ghQueue enqueueEvent
 
   -- Start a worker thread to run the main event loop.
-  _ <- forkIO $ void $ runLogicEventLoop config mainQueue
+  _ <- forkIO $ void $ runStdoutLoggingT $ runLogicEventLoop config mainQueue
 
   let port = Config.port config
   runServer port ghQueue

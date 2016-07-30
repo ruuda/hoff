@@ -8,8 +8,10 @@
 
 import Control.Concurrent.Async (async, wait)
 import Control.Monad (void)
+import Control.Monad.Logger (runNoLoggingT)
 import Data.Text (Text)
 import Data.UUID.V4 (nextRandom)
+import Prelude hiding (appendFile, writeFile)
 import System.Directory (createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive)
 import System.FilePath ((</>))
 import Test.Hspec
@@ -23,11 +25,12 @@ import qualified Data.Text as Text
 import qualified EventLoop
 import qualified Git
 import qualified Logic
+import qualified Prelude
 
 -- Invokes Git with the given arguments, returns its stdout. Crashes if invoking
--- Git failed.
+-- Git failed. Discards all logging.
 callGit :: [String] -> IO Text
-callGit args = fmap (either undefined id) $ Git.callGit args
+callGit args = fmap (either undefined id) $ runNoLoggingT $ Git.callGit args
 
 -- Populates the repository with the following history:
 --
@@ -39,58 +42,60 @@ callGit args = fmap (either undefined id) $ Git.callGit args
 --
 populateRepository :: FilePath -> IO [Sha]
 populateRepository dir =
-  let git args            = callGit $ ["-C", dir] ++ args
-      gitInit             = void $ git ["init"]
-      gitConfig key value = void $ git ["config", key, value]
-      gitAdd file         = void $ git ["add", file]
-      gitBranch name sha  = void $ git ["checkout", "-b", name, show sha]
-      gitCheckout brname  = void $ git ["checkout", brname]
-      getHeadSha          = fmap (Sha . Text.strip) $ git ["rev-parse", "@"]
+  let git args             = callGit $ ["-C", dir] ++ args
+      gitInit              = void $ git ["init"]
+      gitConfig key value  = void $ git ["config", key, value]
+      gitAdd file          = void $ git ["add", file]
+      gitBranch name sha   = void $ git ["checkout", "-b", name, show sha]
+      gitCheckout brname   = void $ git ["checkout", brname]
+      getHeadSha           = fmap (Sha . Text.strip) $ git ["rev-parse", "@"]
       -- Commits with the given message and returns the sha of the new commit.
-      gitCommit message   = git ["commit", "-m", message] >> getHeadSha
+      gitCommit message    = git ["commit", "-m", message] >> getHeadSha
       -- Rebases the commits and returns the sha of the rebased commits.
-      gitRebase onto sha  = git ["rebase", onto, show sha] >> getHeadSha
+      gitRebase onto sha   = git ["rebase", onto, show sha] >> getHeadSha
+      writeFile fname msg  = Prelude.writeFile (dir </> fname) msg
+      appendFile fname msg = Prelude.appendFile (dir </> fname) msg
   in  do
       gitInit
       gitConfig "user.email" "testsuite@example.com"
       gitConfig "user.name" "Testbot"
 
-      writeFile (dir </> "tyrell.txt") "I'm surprised you didn't come here sooner.\n"
+      writeFile "tyrell.txt" "I'm surprised you didn't come here sooner.\n"
       gitAdd "tyrell.txt"
       c0 <- gitCommit "Initial commit"
 
-      writeFile (dir </> "roy.txt") "It's not an easy thing to meet your maker.\n"
+      writeFile "roy.txt" "It's not an easy thing to meet your maker.\n"
       gitAdd "roy.txt"
       c1 <- gitCommit "Add new quote"
 
-      appendFile (dir </> "tyrell.txt") "What can he do for you?\n"
+      appendFile "tyrell.txt" "What can he do for you?\n"
       gitAdd "tyrell.txt"
       c2 <- gitCommit "Add new Tyrell quote"
 
-      appendFile (dir </> "roy.txt") "Can the maker repair what he makes?\n"
+      appendFile "roy.txt" "Can the maker repair what he makes?\n"
       gitAdd "roy.txt"
       c3 <- gitCommit "Add new Roy quote"
 
       -- Create a branch "ahead", one commit ahead of master.
       gitBranch "ahead" c3
-      appendFile (dir </> "tyrell.txt") "Would you like to be modified?\n"
+      appendFile "tyrell.txt" "Would you like to be modified?\n"
       gitAdd "tyrell.txt"
       c4 <- gitCommit "Add Tyrell  response"
       gitCheckout "master"
 
       -- Now make an alternative commit that conflicts with c3.
       gitBranch "alternative" c2
-      appendFile (dir </> "roy.txt") "You could make me a sandwich.\n"
+      appendFile "roy.txt" "You could make me a sandwich.\n"
       gitAdd "roy.txt"
       c3' <- gitCommit "Write alternative ending"
 
       -- Also add a commit that does not conflict.
       gitBranch "intro" c2
-      writeFile (dir </> "leon.txt") "What do you mean, I'm not helping?\n"
+      writeFile "leon.txt" "What do you mean, I'm not helping?\n"
       gitAdd "leon.txt"
       c5 <- gitCommit "Add more characters"
 
-      writeFile (dir </> "holden.txt") "I mean, you're not helping! Why is that, Leon?\n"
+      writeFile "holden.txt" "I mean, you're not helping! Why is that, Leon?\n"
       gitAdd "holden.txt"
       c6 <- gitCommit "Add response"
 
@@ -149,10 +154,12 @@ withTestEnvExpect body = do
 
   -- Like the actual application, start a new thread to run the main event loop.
   -- Use 'async' here, a higher-level wrapper around 'forkIO', to wait for the
-  -- thread to stop later.
+  -- thread to stop later. Discard log messages from the event loop, to avoid
+  -- polluting the test output. To aid debugging when a test fails, you can
+  -- replace 'runNoLoggingT' with 'runStdoutLoggingT'.
   let config = buildConfig repoDir
   queue           <- Logic.newEventQueue 10
-  finalStateAsync <- async $ EventLoop.runLogicEventLoop config queue
+  finalStateAsync <- async $ runNoLoggingT $ EventLoop.runLogicEventLoop config queue
 
   -- Run the actual test code inside the environment that we just set up,
   -- provide it with the commit shas and an enqueue function so it can send

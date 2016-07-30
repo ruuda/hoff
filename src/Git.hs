@@ -25,6 +25,8 @@ where
 
 import Control.Monad (mzero)
 import Control.Monad.Free (Free (Free, Pure), liftF)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import Data.Aeson
 import Data.List (intersperse)
 import Data.Text (Text)
@@ -80,23 +82,25 @@ rebase sha ontoBranch = liftF $ Rebase sha ontoBranch id
 
 -- Invokes Git with the given arguments. Returns its output on success, or the
 -- exit code and stderr on error.
-callGit :: [String] -> IO (Either (ExitCode, Text) Text)
+callGit :: (MonadIO m, MonadLogger m) => [String] -> m (Either (ExitCode, Text) Text)
 callGit args = do
-  putStrLn $ "executing git " ++ concat (intersperse " " args)
-  (exitCode, output, errors) <- readProcessWithExitCode "git" args ""
+  let commandText = Text.concat $ intersperse " " $ fmap Text.pack args
+      logMessage  = Text.append "executing git " commandText
+  logInfoN logMessage
+  (exitCode, output, errors) <- liftIO $ readProcessWithExitCode "git" args ""
   if exitCode == ExitSuccess
     then return $ Right output
     else return $ Left (exitCode, errors)
 
 -- Interpreter for the GitOperation free monad that starts Git processes and
 -- parses its output.
-runGit :: FilePath -> GitOperation a -> IO a
+runGit :: (MonadIO m, MonadLogger m) => FilePath -> GitOperation a -> m a
 runGit repoDir operation = case operation of
   Pure result -> return result
   Free (FetchBranch branch cont) -> do
     result <- callGitInRepo ["fetch", "origin", show branch]
     case result of
-      Left  _ -> putStrLn "warning: git fetch failed"
+      Left  _ -> logWarnN "warning: git fetch failed"
       Right _ -> return ()
     continueWith cont
   Free (ForcePush sha branch cont) -> do
@@ -107,7 +111,7 @@ runGit repoDir operation = case operation of
     -- not exist.
     result <- callGitInRepo ["push", "--force", "origin", (show sha) ++ ":refs/heads/" ++ (show branch)]
     case result of
-      Left  _ -> putStrLn "warning: git push --force failed"
+      Left  _ -> logWarnN "warning: git push --force failed"
       Right _ -> return ()
     continueWith cont
   Free (Push sha branch cont) -> do
@@ -125,7 +129,7 @@ runGit repoDir operation = case operation of
         revResult <- callGitInRepo ["rev-parse", "@"]
         case revResult of
           Left  _   -> do
-            putStrLn "warning: git rev-parse failed"
+            logWarnN "warning: git rev-parse failed"
             continueWith $ cont Nothing
           Right newSha -> continueWith $ cont $ Just $ Sha $ Text.strip newSha
   where

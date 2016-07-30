@@ -16,6 +16,8 @@ where
 
 import Control.Concurrent.STM.TBQueue
 import Control.Monad (when)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN)
 import Control.Monad.STM (atomically)
 import Data.Text (Text)
 
@@ -26,6 +28,7 @@ import Github (eventRepository, eventRepositoryOwner)
 import Project (ProjectState, PullRequestId (..), emptyProjectState, saveProjectState)
 
 import qualified Configuration as Config
+import qualified Data.Text as Text
 import qualified Github
 import qualified Logic
 import qualified Project
@@ -93,7 +96,7 @@ runGithubEventLoop owner repository ghQueue enqueueEvent = runLoop
         maybe (return ()) enqueueEvent $ convertGithubEvent ghEvent
       runLoop
 
-runLogicEventLoop :: Configuration -> Logic.EventQueue -> IO ProjectState
+runLogicEventLoop :: (MonadIO m, MonadLogger m) => Configuration -> Logic.EventQueue -> m ProjectState
 runLogicEventLoop config queue = runLoop emptyProjectState -- TODO: Load previous state from disk?
   where
     repoDir = Config.checkout config
@@ -101,16 +104,16 @@ runLogicEventLoop config queue = runLoop emptyProjectState -- TODO: Load previou
       -- Handle the event and then perform any additional required actions until
       -- the state reaches a fixed point (when there are no further actions to
       -- perform).
-      putStrLn $ "logic loop received event: " ++ (show event)
-      putStrLn $ "state before: " ++ (show state0)
+      logInfoN  $ Text.append "logic loop received event: " (Text.pack $ show event)
+      logDebugN $ Text.append "state before: " (Text.pack $ show state0)
       state1 <- runGit repoDir $ Logic.runAction config $ Logic.handleEvent event state0
       state2 <- runGit repoDir $ Logic.runAction config $ Logic.proceedUntilFixedPoint state1
-      saveProjectState "project.json" state2
-      putStrLn $ "state after: " ++ (show state2)
+      liftIO $ saveProjectState "project.json" state2
+      logDebugN $ Text.append "state after: " (Text.pack $ show state2)
       runLoop state2
     runLoop state = do
       -- Take one event off the queue, block if there is none.
-      eventOrStopSignal <- atomically $ readTBQueue queue
+      eventOrStopSignal <- liftIO $ atomically $ readTBQueue queue
       -- Queue items are of type 'Maybe Event'; 'Nothing' signals loop
       -- termination. If there was an event, run one iteration and recurse.
       case eventOrStopSignal of
