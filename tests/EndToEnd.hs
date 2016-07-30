@@ -45,10 +45,11 @@ populateRepository dir =
       gitAdd file         = void $ git ["add", file]
       gitBranch name sha  = void $ git ["checkout", "-b", name, show sha]
       gitCheckout brname  = void $ git ["checkout", brname]
+      getHeadSha          = fmap (Sha . Text.strip) $ git ["rev-parse", "@"]
       -- Commits with the given message and returns the sha of the new commit.
-      gitCommit message   = do
-        void $ git ["commit", "-m", message]
-        fmap (Sha . Text.strip) $ git ["rev-parse", "@"]
+      gitCommit message   = git ["commit", "-m", message] >> getHeadSha
+      -- Rebases the commits and returns the sha of the rebased commits.
+      gitRebase onto sha  = git ["rebase", onto, show sha] >> getHeadSha
   in  do
       gitInit
       gitConfig "user.email" "testsuite@example.com"
@@ -93,7 +94,11 @@ populateRepository dir =
       gitAdd "holden.txt"
       c6 <- gitCommit "Add response"
 
-      return [c0, c1, c2, c3, c3', c4, c5, c6]
+      -- Also rebase these branches: the shas of the rebased commits are
+      -- required later on to verify that the right commits have been created.
+      c6r <- gitRebase "master" c6
+
+      return [c0, c1, c2, c3, c3', c4, c5, c6, c6r]
 
 -- Sets up two repositories: one with a few commits in the origin directory, and
 -- a clone of that in the repository directory. The clone ensures that the
@@ -104,6 +109,10 @@ initializeRepository originDir repoDir = do
   createDirectoryIfMissing True originDir
   shas <- populateRepository originDir
   _    <- callGit ["clone", "file://" ++ originDir, repoDir]
+  -- Set the author details in the cloned repository as well, to ensure that
+  -- commit shas are identical. TODO: Is there a cleaner way to do this?
+  _    <- callGit ["-C", repoDir, "config", "user.email", "testsuite@example.com"]
+  _    <- callGit ["-C", repoDir, "config", "user.name", "Testbot"]
   return shas
 
 -- Generate a configuration to be used in the test environment.
@@ -172,7 +181,7 @@ main = hspec $ do
 
     it "handles a fast-forwardable pull request" $
       withTestEnvExpect $ \ shas enqueueEvent -> do
-        let [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6] = shas
+        let [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c6r] = shas
         -- Commit c4 is one commit ahead of master, so integrating it can be done
         -- with a fast-forward merge.
         enqueueEvent $ Logic.PullRequestOpened (PullRequestId 1) c4 "decker"
@@ -185,3 +194,19 @@ main = hspec $ do
         -- TODO: Is there a more intuitive way to write this test, where the
         -- `shouldBe` is not hidden in a wrapper?
         return (c4, c4)
+
+    it "handles a non-conflicting non-fast-forwardable pull request" $
+      withTestEnvExpect $ \ shas enqueueEvent -> do
+        let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6, c6r] = shas
+        -- Commit c6 is two commits ahead and one behind of master, so
+        -- integrating it produces new rebased commits.
+        enqueueEvent $ Logic.PullRequestOpened (PullRequestId 1) c6 "decker"
+        enqueueEvent $ Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c6)
+
+        -- The rebased commit c6r should have been pushed to the remote
+        -- repository 'integration' branch. Tell that building it succeeded.
+        enqueueEvent $ Logic.BuildStatusChanged c6r BuildSucceeded
+
+        -- Both the remote master and integration branches are expected to be at
+        -- the rebased commit c6r.
+        return (c6r, c6r)
