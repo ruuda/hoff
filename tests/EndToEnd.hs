@@ -19,7 +19,6 @@ import Test.Hspec
 import Configuration (Configuration (..))
 import Git (Sha (..))
 import Project (BuildStatus (BuildSucceeded), ProjectState, PullRequestId (..))
-import Project (emptyProjectState)
 
 import qualified Configuration as Config
 import qualified Data.Text as Text
@@ -27,6 +26,7 @@ import qualified EventLoop
 import qualified Git
 import qualified Logic
 import qualified Prelude
+import qualified Project
 
 -- Invokes Git with the given arguments, returns its stdout. Crashes if invoking
 -- Git failed. Discards all logging.
@@ -195,13 +195,14 @@ main = hspec $ do
     it "handles a fast-forwardable pull request" $ do
       history <- withTestEnv $ \ shas runLoop -> do
         let [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6] = shas
+            pr1 = PullRequestId 1
         -- Commit c4 is one commit ahead of master, so integrating it can be done
         -- with a fast-forward merge. Run the main event loop for these events
         -- and discard the final state by using 'void'.
-        void $ runLoop emptyProjectState
+        void $ runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened (PullRequestId 1) c4 "decker",
-            Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c4),
+            Logic.PullRequestOpened pr1 c4 "decker",
+            Logic.CommentAdded pr1 "decker" $ Text.pack $ "LGTM " ++ (show c4),
             Logic.BuildStatusChanged c4 BuildSucceeded
           ]
 
@@ -210,22 +211,24 @@ main = hspec $ do
     it "handles a non-conflicting non-fast-forwardable pull request" $ do
       history <- withTestEnv $ \ shas runLoop -> do
         let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6] = shas
+            pr1 = PullRequestId 1
         -- Commit c6 is two commits ahead and one behind of master, so
         -- integrating it produces new rebased commits.
-        state <- runLoop emptyProjectState
+        state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened (PullRequestId 1) c6 "decker",
-            Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c6)
+            Logic.PullRequestOpened pr1 c6 "decker",
+            Logic.CommentAdded pr1 "decker" $ Text.pack $ "LGTM " ++ (show c6)
           ]
+
+        -- Extract the sha of the rebased commit from the project state.
+        let Just (_prId, pullRequest)     = Project.getIntegrationCandidate state
+            Project.Integrated rebasedSha = Project.integrationStatus pullRequest
 
         -- The rebased commit should have been pushed to the remote repository
         -- 'integration' branch. Tell that building it succeeded.
-        -- TODO: Extract real integration sha from state in event loop.
         void $ runLoop state
           [
-            Logic.BuildStatusChanged (Sha "deadbeef") BuildSucceeded
+            Logic.BuildStatusChanged rebasedSha BuildSucceeded
           ]
 
-      -- TODO: Fix the assertion once this works.
-      -- history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6"]
-      history `shouldBe` ["c0", "c1", "c2", "c3"]
+      history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6"]
