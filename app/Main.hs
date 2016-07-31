@@ -58,7 +58,10 @@ main = withConfig $ \ config -> do
   _ <- forkIO $ runGithubEventLoop owner repository ghQueue enqueueEvent
 
   -- Start a worker thread to run the main event loop.
-  _ <- forkIO $ void $ runStdoutLoggingT $ runLogicEventLoop config mainQueue
+  -- TODO: Load previous state from disk.
+  _ <- forkIO $ void
+              $ runStdoutLoggingT
+              $ runLogicEventLoop config mainQueue emptyProjectState
 
   let port = Config.port config
   runServer port ghQueue

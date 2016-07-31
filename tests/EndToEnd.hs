@@ -7,7 +7,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import Control.Concurrent.Async (async, wait)
-import Control.Monad (void)
+import Control.Monad (forM_, void)
 import Control.Monad.Logger (runNoLoggingT)
 import Data.Text (Text)
 import Data.UUID.V4 (nextRandom)
@@ -18,7 +18,8 @@ import Test.Hspec
 
 import Configuration (Configuration (..))
 import Git (Sha (..))
-import Project (BuildStatus (BuildSucceeded), PullRequestId (..))
+import Project (BuildStatus (BuildSucceeded), ProjectState, PullRequestId (..))
+import Project (emptyProjectState)
 
 import qualified Configuration as Config
 import qualified Data.Text as Text
@@ -125,12 +126,35 @@ buildConfig repoDir = Configuration {
   Config.checkout   = repoDir
 }
 
+-- Runs the main loop in a separate thread, and feeds it the given events.
+runMainEventLoop :: Configuration -> ProjectState -> [Logic.Event] -> IO ProjectState
+runMainEventLoop config initialState events = do
+  -- Like the actual application, start a new thread to run the main event loop.
+  -- Use 'async' here, a higher-level wrapper around 'forkIO', to wait for the
+  -- thread to stop later. Discard log messages from the event loop, to avoid
+  -- polluting the test output. To aid debugging when a test fails, you can
+  -- replace 'runNoLoggingT' with 'runStdoutLoggingT'.
+  queue           <- Logic.newEventQueue 10
+  finalStateAsync <- async
+    $ runNoLoggingT
+    $ EventLoop.runLogicEventLoop config queue initialState
+
+  -- Enqueue all provided events.
+  forM_ events (Logic.enqueueEvent queue)
+
+  -- Tell the worker thread to stop after it has processed all events. Then wait
+  -- for it to exit, and return the final state.
+  Logic.enqueueStopSignal queue
+  wait finalStateAsync
+
+type LoopRunner = ProjectState -> [Logic.Event] -> IO ProjectState
+
 -- Sets up a test environment with an actual Git repository on the file system,
 -- and a thread running the main event loop. Then invokes the body, and tears
 -- down the test environment afterwards. Returns a list of commit message
 -- prefixes of the remote master branch log. The body function is provided with
--- the shas of the test repository and an enqueue function.
-withTestEnv :: ([Sha] -> (Logic.Event -> IO ()) -> IO ()) -> IO [Text]
+-- the shas of the test repository and a function to run the event loop.
+withTestEnv :: ([Sha] -> LoopRunner -> IO ()) -> IO [Text]
 withTestEnv body = do
   -- To run these tests, a real repository has to be made somewhere. Do that in
   -- /tmp because it can be mounted as a ramdisk, so it is fast and we don't
@@ -146,25 +170,10 @@ withTestEnv body = do
   -- the shas of the commits as documented in populateRepository.
   shas <- initializeRepository originDir repoDir
 
-  -- Like the actual application, start a new thread to run the main event loop.
-  -- Use 'async' here, a higher-level wrapper around 'forkIO', to wait for the
-  -- thread to stop later. Discard log messages from the event loop, to avoid
-  -- polluting the test output. To aid debugging when a test fails, you can
-  -- replace 'runNoLoggingT' with 'runStdoutLoggingT'.
-  let config = buildConfig repoDir
-  queue           <- Logic.newEventQueue 10
-  finalStateAsync <- async $ runNoLoggingT $ EventLoop.runLogicEventLoop config queue
-
   -- Run the actual test code inside the environment that we just set up,
-  -- provide it with the commit shas and an enqueue function so it can send
-  -- events.
-  let enqueueEvent = Logic.enqueueEvent queue
-  body shas enqueueEvent
-
-  -- Tell the worker thread to stop after it has processed all events. Then wait
-  -- for it to exit.
-  Logic.enqueueStopSignal queue
-  _finalState <- wait finalStateAsync
+  -- provide it with the commit shas and the function to run the event loop.
+  let config  = buildConfig repoDir
+  body shas (runMainEventLoop config)
 
   -- Retrieve the log of the remote repository master branch. Only show the
   -- commit message subject lines. The repository has been setup to prefix
@@ -184,28 +193,38 @@ main = hspec $ do
   describe "The main event loop" $ do
 
     it "handles a fast-forwardable pull request" $ do
-      history <- withTestEnv $ \ shas enqueueEvent -> do
+      history <- withTestEnv $ \ shas runLoop -> do
         let [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6] = shas
         -- Commit c4 is one commit ahead of master, so integrating it can be done
-        -- with a fast-forward merge.
-        enqueueEvent $ Logic.PullRequestOpened (PullRequestId 1) c4 "decker"
-        enqueueEvent $ Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c4)
-        enqueueEvent $ Logic.BuildStatusChanged c4 BuildSucceeded
+        -- with a fast-forward merge. Run the main event loop for these events
+        -- and discard the final state by using 'void'.
+        void $ runLoop emptyProjectState
+          [
+            Logic.PullRequestOpened (PullRequestId 1) c4 "decker",
+            Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c4),
+            Logic.BuildStatusChanged c4 BuildSucceeded
+          ]
 
       history `shouldBe` ["c0", "c1", "c2", "c3", "c4"]
 
     it "handles a non-conflicting non-fast-forwardable pull request" $ do
-      history <- withTestEnv $ \ shas enqueueEvent -> do
+      history <- withTestEnv $ \ shas runLoop -> do
         let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6] = shas
         -- Commit c6 is two commits ahead and one behind of master, so
         -- integrating it produces new rebased commits.
-        enqueueEvent $ Logic.PullRequestOpened (PullRequestId 1) c6 "decker"
-        enqueueEvent $ Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c6)
+        state <- runLoop emptyProjectState
+          [
+            Logic.PullRequestOpened (PullRequestId 1) c6 "decker",
+            Logic.CommentAdded (PullRequestId 1) "decker" $ Text.pack $ "LGTM " ++ (show c6)
+          ]
 
         -- The rebased commit should have been pushed to the remote repository
         -- 'integration' branch. Tell that building it succeeded.
         -- TODO: Extract real integration sha from state in event loop.
-        enqueueEvent $ Logic.BuildStatusChanged (Sha "deadbeef") BuildSucceeded
+        void $ runLoop state
+          [
+            Logic.BuildStatusChanged (Sha "deadbeef") BuildSucceeded
+          ]
 
       -- TODO: Fix the assertion once this works.
       -- history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6"]

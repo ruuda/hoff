@@ -25,7 +25,7 @@ import Git (runGit)
 import Configuration (Configuration)
 import Github (PullRequestPayload, CommentPayload, CommitStatusPayload, WebhookEvent (..))
 import Github (eventRepository, eventRepositoryOwner)
-import Project (ProjectState, PullRequestId (..), emptyProjectState, saveProjectState)
+import Project (ProjectState, PullRequestId (..), saveProjectState)
 
 import qualified Configuration as Config
 import qualified Data.Text as Text
@@ -96,8 +96,12 @@ runGithubEventLoop owner repository ghQueue enqueueEvent = runLoop
         maybe (return ()) enqueueEvent $ convertGithubEvent ghEvent
       runLoop
 
-runLogicEventLoop :: (MonadIO m, MonadLogger m) => Configuration -> Logic.EventQueue -> m ProjectState
-runLogicEventLoop config queue = runLoop emptyProjectState -- TODO: Load previous state from disk?
+runLogicEventLoop :: (MonadIO m, MonadLogger m)
+                  => Configuration
+                  -> Logic.EventQueue
+                  -> ProjectState
+                  -> m ProjectState
+runLogicEventLoop config queue initialState = runLoop initialState
   where
     repoDir = Config.checkout config
     handleAndContinue state0 event = do
