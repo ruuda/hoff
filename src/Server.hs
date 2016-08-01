@@ -79,6 +79,5 @@ serveNotFound = do
 -- an event will be added to the event queue.
 runServer :: Int -> Github.EventQueue -> IO ()
 runServer port ghQueue = do
-  putStrLn $ "Listening for webhooks on port " ++ (show port)
   app <- scottyApp $ router ghQueue
   run port app

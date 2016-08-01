@@ -79,7 +79,11 @@ convertGithubEvent event = case event of
   Comment payload      -> eventFromCommentPayload payload
 
 -- The event loop that converts GitHub webhook events into logic events.
-runGithubEventLoop :: Text -> Text -> Github.EventQueue -> (Logic.Event -> IO ()) -> IO ()
+runGithubEventLoop :: (MonadIO m, MonadLogger m)
+                   => Text
+                   -> Text
+                   -> Github.EventQueue
+                   -> (Logic.Event -> IO ()) -> m ()
 runGithubEventLoop owner repository ghQueue enqueueEvent = runLoop
   where
     shouldHandle ghEvent =
@@ -87,13 +91,13 @@ runGithubEventLoop owner repository ghQueue enqueueEvent = runLoop
       (eventRepository ghEvent == repository) &&
       (eventRepositoryOwner ghEvent == owner)
     runLoop = do
-      ghEvent <- atomically $ readTBQueue ghQueue
-      putStrLn $ "github loop received event: " ++ (show ghEvent)
+      ghEvent <- liftIO $ atomically $ readTBQueue ghQueue
+      logDebugN $ Text.append "github loop received event: " (Text.pack $ show ghEvent)
       -- Listen only to events for the configured repository.
       when (shouldHandle ghEvent) $
         -- If conversion yielded an event, enqueue it. Block if the
         -- queue is full.
-        maybe (return ()) enqueueEvent $ convertGithubEvent ghEvent
+        maybe (return ()) (liftIO . enqueueEvent) $ convertGithubEvent ghEvent
       runLoop
 
 runLogicEventLoop :: (MonadIO m, MonadLogger m)

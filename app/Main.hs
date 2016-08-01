@@ -55,7 +55,8 @@ main = withConfig $ \ config -> do
   let owner        = Config.owner config
       repository   = Config.repository config
       enqueueEvent = Logic.enqueueEvent mainQueue
-  _ <- forkIO $ runGithubEventLoop owner repository ghQueue enqueueEvent
+  _ <- forkIO $ runStdoutLoggingT
+              $ runGithubEventLoop owner repository ghQueue enqueueEvent
 
   -- Start a worker thread to run the main event loop.
   -- TODO: Load previous state from disk.
@@ -64,6 +65,7 @@ main = withConfig $ \ config -> do
               $ runLogicEventLoop config mainQueue emptyProjectState
 
   let port = Config.port config
+  putStrLn $ "Listening for webhooks on port " ++ (show port)
   runServer port ghQueue
 
   -- Note that a stop signal is never enqueued. The application just runs until
