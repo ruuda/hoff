@@ -227,6 +227,31 @@ main = hspec $ do
       candidate `shouldBe` Nothing
       actions   `shouldBe` [APushNewHead (Sha "38d")]
 
+    it "restarts the sequence after a rejected push" $ do
+      -- Set up a pull request that has gone through the review and build cycle,
+      -- and is ready to be pushed to master.
+      let pullRequest = PullRequest
+            {
+              sha               = Sha "f35",
+              author            = "rachael",
+              approvedBy        = Just "decker",
+              buildStatus       = BuildSucceeded,
+              integrationStatus = Integrated (Sha "38d")
+            }
+          state = ProjectState
+            {
+              pullRequests         = IntMap.singleton 1 pullRequest,
+              integrationCandidate = Just $ PullRequestId 1
+            }
+          -- Run 'proceedUntilFixedPoint', and pretend that pushes fail (because
+          -- something was pushed in the mean time, for instance).
+          (state', actions) = proceedUntilFixedPointFlat (Just (Sha "38e")) PushRejected state
+          (_, pullRequest') = fromJust $ getIntegrationCandidate state'
+
+      integrationStatus pullRequest' `shouldBe` Integrated (Sha "38e")
+      buildStatus       pullRequest' `shouldBe` BuildPending
+      actions `shouldBe` [APushNewHead (Sha "38d"), ATryIntegrate (Sha "f35")]
+
   describe "Github.PullRequestPayload" $ do
 
     it "should be parsed correctly" $ do
