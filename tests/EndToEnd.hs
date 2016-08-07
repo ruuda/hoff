@@ -18,7 +18,7 @@ import Test.Hspec
 
 import Configuration (Configuration (..))
 import Git (Sha (..))
-import Project (BuildStatus (BuildSucceeded), ProjectState, PullRequestId (..))
+import Project (BuildStatus (..), IntegrationStatus (..), ProjectState, PullRequestId (..))
 
 import qualified Configuration as Config
 import qualified Data.Text as Text
@@ -202,7 +202,7 @@ main = hspec $ do
         void $ runLoop Project.emptyProjectState
           [
             Logic.PullRequestOpened pr1 c4 "decker",
-            Logic.CommentAdded pr1 "decker" $ Text.pack $ "LGTM " ++ (show c4),
+            Logic.CommentAdded pr1 "rachael" $ Text.pack $ "LGTM " ++ (show c4),
             Logic.BuildStatusChanged c4 BuildSucceeded
           ]
 
@@ -217,7 +217,7 @@ main = hspec $ do
         state <- runLoop Project.emptyProjectState
           [
             Logic.PullRequestOpened pr1 c6 "decker",
-            Logic.CommentAdded pr1 "decker" $ Text.pack $ "LGTM " ++ (show c6)
+            Logic.CommentAdded pr1 "rachael" $ Text.pack $ "LGTM " ++ (show c6)
           ]
 
         -- Extract the sha of the rebased commit from the project state.
@@ -232,3 +232,35 @@ main = hspec $ do
           ]
 
       history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6"]
+
+    it "skips conflicted pull requests" $ do
+      history <- withTestEnv $ \ shas runLoop -> do
+        let [_c0, _c1, _c2, _c3, c3', c4, _c5, _c6] = shas
+            pr1 = PullRequestId 1
+            pr2 = PullRequestId 2
+        -- Commit c3' conflicts with master, so a rebase should be attempted, but
+        -- because it conflicts, the next pull request should be considered.
+        state <- runLoop Project.emptyProjectState
+          [
+            Logic.PullRequestOpened pr1 c3' "decker",
+            Logic.PullRequestOpened pr2 c4 "decker",
+            Logic.CommentAdded pr1 "rachael" $ Text.pack $ "LGTM " ++ (show c3'),
+            Logic.CommentAdded pr2 "rachael" $ Text.pack $ "LGTM " ++ (show c4)
+          ]
+
+        -- The first pull request should be marked as conflicted. Note: this
+        -- test also verifies that the repository is left in a good state after
+        -- the conflicted rebase, so that the next commit can be integrated
+        -- properly.
+        let Just pullRequest1 = Project.lookupPullRequest pr1 state
+        Project.integrationStatus pullRequest1 `shouldBe` Conflicted
+
+        -- The second pull request should still be pending, awaiting the build
+        -- result.
+        let Just (prId, pullRequest2) = Project.getIntegrationCandidate state
+        prId `shouldBe` pr2
+        Project.buildStatus pullRequest2 `shouldBe` BuildPending
+
+      -- We did not send a build status notification for c4, so it should not
+      -- have been integrated.
+      history `shouldBe` ["c0", "c1", "c2", "c3"]
