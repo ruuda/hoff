@@ -25,7 +25,7 @@ import Git (runGit)
 import Configuration (Configuration)
 import Github (PullRequestPayload, CommentPayload, CommitStatusPayload, WebhookEvent (..))
 import Github (eventRepository, eventRepositoryOwner)
-import Project (ProjectState, PullRequestId (..), saveProjectState)
+import Project (ProjectState, PullRequestId (..))
 
 import qualified Configuration as Config
 import qualified Data.Text as Text
@@ -102,10 +102,11 @@ runGithubEventLoop owner repository ghQueue enqueueEvent = runLoop
 
 runLogicEventLoop :: (MonadIO m, MonadLogger m)
                   => Configuration
+                  -> (ProjectState -> m ())
                   -> Logic.EventQueue
                   -> ProjectState
                   -> m ProjectState
-runLogicEventLoop config queue initialState = runLoop initialState
+runLogicEventLoop config persist queue initialState = runLoop initialState
   where
     repoDir = Config.checkout config
     handleAndContinue state0 event = do
@@ -116,7 +117,7 @@ runLogicEventLoop config queue initialState = runLoop initialState
       logDebugN $ Text.append "state before: " (Text.pack $ show state0)
       state1 <- runGit repoDir $ Logic.runAction config $ Logic.handleEvent event state0
       state2 <- runGit repoDir $ Logic.runAction config $ Logic.proceedUntilFixedPoint state1
-      liftIO $ saveProjectState "project.json" state2
+      persist state2
       logDebugN $ Text.append "state after: " (Text.pack $ show state2)
       runLoop state2
     runLoop state = do

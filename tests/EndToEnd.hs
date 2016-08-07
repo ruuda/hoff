@@ -132,12 +132,15 @@ runMainEventLoop config initialState events = do
   -- Like the actual application, start a new thread to run the main event loop.
   -- Use 'async' here, a higher-level wrapper around 'forkIO', to wait for the
   -- thread to stop later. Discard log messages from the event loop, to avoid
-  -- polluting the test output. To aid debugging when a test fails, you can
-  -- replace 'runNoLoggingT' with 'runStdoutLoggingT'.
-  queue           <- Logic.newEventQueue 10
-  finalStateAsync <- async
+  -- polluting the test output. Ignore requests to persist the state.
+  --
+  -- To aid debugging when a test fails, you can replace 'runNoLoggingT' with
+  -- 'runStdoutLoggingT'.
+  let persist state = return ()
+  queue            <- Logic.newEventQueue 10
+  finalStateAsync  <- async
     $ runNoLoggingT
-    $ EventLoop.runLogicEventLoop config queue initialState
+    $ EventLoop.runLogicEventLoop config persist queue initialState
 
   -- Enqueue all provided events.
   forM_ events (Logic.enqueueEvent queue)
@@ -172,7 +175,7 @@ withTestEnv body = do
 
   -- Run the actual test code inside the environment that we just set up,
   -- provide it with the commit shas and the function to run the event loop.
-  let config  = buildConfig repoDir
+  let config = buildConfig repoDir
   body shas (runMainEventLoop config)
 
   -- Retrieve the log of the remote repository master branch. Only show the

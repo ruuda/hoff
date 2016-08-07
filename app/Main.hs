@@ -10,6 +10,7 @@ module Main where
 
 import Control.Concurrent (forkIO)
 import Control.Monad (void)
+import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runStdoutLoggingT)
 
 import Configuration (Configuration)
@@ -58,11 +59,15 @@ main = withConfig $ \ config -> do
   _ <- forkIO $ runStdoutLoggingT
               $ runGithubEventLoop owner repository ghQueue enqueueEvent
 
+  -- When the event loop wants to persist the current project state,
+  -- save it to project.json.
+  let persist = liftIO . saveProjectState "project.json"
+
   -- Start a worker thread to run the main event loop.
   -- TODO: Load previous state from disk.
   _ <- forkIO $ void
               $ runStdoutLoggingT
-              $ runLogicEventLoop config mainQueue emptyProjectState
+              $ runLogicEventLoop config persist mainQueue emptyProjectState
 
   let port = Config.port config
   putStrLn $ "Listening for webhooks on port " ++ (show port)
