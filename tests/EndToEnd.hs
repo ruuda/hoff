@@ -189,7 +189,7 @@ withTestEnv body = do
   return commits
 
 main :: IO ()
-main = hspec $ do
+main = hspec $ parallel $ do
   describe "The main event loop" $ do
 
     it "handles a fast-forwardable pull request" $ do

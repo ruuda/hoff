@@ -67,7 +67,7 @@ test-suite end-to-end
   type:           exitcode-stdio-1.0
   main-is:        EndToEnd.hs
   hs-source-dirs: tests
-  ghc-options:    -Wall -fwarn-tabs -threaded
+  ghc-options:    -Wall -fwarn-tabs -threaded -rtsopts -with-rtsopts=-N
 
   build-depends: async        >= 2.1 && < 3.0
                , base         >= 4.9 && < 4.10
