@@ -16,6 +16,8 @@ import Data.Text (Text)
 import Prelude hiding (readFile)
 import Test.Hspec
 
+import qualified Data.IntMap as IntMap
+
 import Git (PushResult(..), Sha (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
 import Logic hiding (runAction)
@@ -204,6 +206,26 @@ main = hspec $ do
       buildStatus pullRequest       `shouldBe` BuildPending
       integrationStatus pullRequest `shouldBe` Integrated (Sha "38c")
       actions `shouldBe` [ATryIntegrate (Sha "f34")]
+
+    it "pushes after a successful build" $ do
+      let pullRequest = PullRequest
+            {
+              sha               = Sha "f35",
+              author            = "rachael",
+              approvedBy        = Just "decker",
+              buildStatus       = BuildSucceeded,
+              integrationStatus = Integrated (Sha "38d")
+            }
+          state = ProjectState
+            {
+              pullRequests         = IntMap.singleton 1 pullRequest,
+              integrationCandidate = Just $ PullRequestId 1
+            }
+          (state', actions) = proceedUntilFixedPointFlat (Just (Sha "38e")) PushOk state
+          candidate         = getIntegrationCandidate state'
+      -- After a successful push, the candidate should be gone.
+      candidate `shouldBe` Nothing
+      actions   `shouldBe` [APushNewHead (Sha "38d")]
 
   describe "Github.PullRequestPayload" $ do
 

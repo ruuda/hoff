@@ -55,6 +55,7 @@ test-suite spec
   build-depends: aeson      >= 0.11.0 && < 0.12.0
                , base       >= 4.9    && < 4.10
                , bytestring >= 0.10.8 && < 0.11.0
+               , containers >= 0.5.7  && < 0.6.0
                , free       >= 4.12   && < 5.0
                , hoff
                , hspec      >= 2.2    && < 3.0
