@@ -23,7 +23,7 @@ module Git
 )
 where
 
-import Control.Monad (mzero)
+import Control.Monad (mzero, when)
 import Control.Monad.Free (Free (Free, Pure), liftF)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
@@ -80,6 +80,10 @@ push sha remoteBranch = liftF $ Push sha remoteBranch id
 rebase :: Sha -> Branch -> GitOperation (Maybe Sha)
 rebase sha ontoBranch = liftF $ Rebase sha ontoBranch id
 
+isLeft :: Either a b -> Bool
+isLeft (Left _)  = True
+isLeft (Right _) = False
+
 -- Invokes Git with the given arguments. Returns its output on success, or the
 -- exit code and stderr on error.
 callGit :: (MonadIO m, MonadLogger m) => [String] -> m (Either (ExitCode, Text) Text)
@@ -123,8 +127,12 @@ runGit repoDir operation = case operation of
   Free (Rebase sha branch cont) -> do
     result <- callGitInRepo ["rebase", "origin/" ++ (show branch), show sha]
     case result of
-      -- Rebase failed, call the continuation with no rebased sha.
-      Left  _ -> continueWith $ cont Nothing
+      Left  _ -> do
+        -- Rebase failed, call the continuation with no rebased sha, but first
+        -- abort the rebase.
+        abortResult <- callGitInRepo ["rebase", "--abort"]
+        when (isLeft abortResult) $ logWarnN "warning: git rebase --abort failed"
+        continueWith $ cont Nothing
       Right _ -> do
         revResult <- callGitInRepo ["rev-parse", "@"]
         case revResult of
