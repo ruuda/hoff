@@ -226,12 +226,40 @@ main = hspec $ do
 
         -- The rebased commit should have been pushed to the remote repository
         -- 'integration' branch. Tell that building it succeeded.
-        void $ runLoop state
-          [
-            Logic.BuildStatusChanged rebasedSha BuildSucceeded
-          ]
+        void $ runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
 
       history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6"]
+
+    it "handles multiple pull requests" $ do
+      history <- withTestEnv $ \ shas runLoop -> do
+        let [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6] = shas
+            pr1 = PullRequestId 1
+            pr2 = PullRequestId 2
+        state <- runLoop Project.emptyProjectState
+          [
+            Logic.PullRequestOpened pr1 c4 "decker",
+            Logic.PullRequestOpened pr2 c6 "decker",
+            -- Note that although c4 has a lower pull request number, c6 should
+            -- still be integrated first because it was approved earlier.
+            Logic.CommentAdded pr2 "rachael" $ Text.pack $ "LGTM " ++ (show c6),
+            Logic.CommentAdded pr1 "rachael" $ Text.pack $ "LGTM " ++ (show c4)
+          ]
+
+        -- Extract the sha of the rebased commit from the project state.
+        let Just (_prId, pullRequest2)    = Project.getIntegrationCandidate state
+            Project.Integrated rebasedSha = Project.integrationStatus pullRequest2
+
+        -- The rebased commit should have been pushed to the remote repository
+        -- 'integration' branch. Tell that building it succeeded.
+        state' <- runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
+
+        -- Repeat for the other pull request, which should be the candidate by
+        -- now.
+        let Just (_prId, pullRequest1)     = Project.getIntegrationCandidate state'
+            Project.Integrated rebasedSha' = Project.integrationStatus pullRequest1
+        void $ runLoop state' [Logic.BuildStatusChanged rebasedSha' BuildSucceeded]
+
+      history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6", "c4"]
 
     it "skips conflicted pull requests" $ do
       history <- withTestEnv $ \ shas runLoop -> do
