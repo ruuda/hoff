@@ -136,7 +136,7 @@ runMainEventLoop config initialState events = do
   --
   -- To aid debugging when a test fails, you can replace 'runNoLoggingT' with
   -- 'runStdoutLoggingT'.
-  let persist state = return ()
+  let persist _     = return ()
   queue            <- Logic.newEventQueue 10
   finalStateAsync  <- async
     $ runNoLoggingT
