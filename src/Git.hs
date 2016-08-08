@@ -123,6 +123,7 @@ runGit repoDir operation = case operation of
     let pushResult = case result of
           Left  _ -> PushRejected
           Right _ -> PushOk
+    when (pushResult == PushRejected) $ logInfoN "push was rejected"
     continueWith $ cont pushResult
   Free (Rebase sha branch cont) -> do
     result <- callGitInRepo ["rebase", "origin/" ++ (show branch), show sha]
