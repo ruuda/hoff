@@ -6,6 +6,7 @@
 
 import Test.Hspec (hspec)
 import EventLoopSpec (eventLoopSpec)
+import ServerSpec (serverSpec)
 
 -- This test suite tests interaction of the system with the outside world, as
 -- opposed to its internals (there are unit tests for that). It is not a full
@@ -15,4 +16,6 @@ import EventLoopSpec (eventLoopSpec)
 -- ignoring the messages it receives.
 
 main :: IO ()
-main = hspec eventLoopSpec
+main = hspec $ do
+  eventLoopSpec
+  serverSpec
