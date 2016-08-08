@@ -9,6 +9,7 @@
 import Control.Concurrent.Async (async, wait)
 import Control.Monad (forM_, void)
 import Control.Monad.Logger (runNoLoggingT)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.UUID.V4 (nextRandom)
 import Prelude hiding (appendFile, writeFile)
@@ -135,7 +136,7 @@ runMainEventLoop config initialState events = do
   -- polluting the test output. Ignore requests to persist the state.
   --
   -- To aid debugging when a test fails, you can replace 'runNoLoggingT' with
-  -- 'runStdoutLoggingT'.
+  -- 'runStdoutLoggingT'. You should also remove 'parallel' from main then.
   let persist _     = return ()
   queue            <- Logic.newEventQueue 10
   finalStateAsync  <- async
@@ -151,13 +152,14 @@ runMainEventLoop config initialState events = do
   wait finalStateAsync
 
 type LoopRunner = ProjectState -> [Logic.Event] -> IO ProjectState
+type GitRunner = [String] -> IO ()
 
 -- Sets up a test environment with an actual Git repository on the file system,
 -- and a thread running the main event loop. Then invokes the body, and tears
 -- down the test environment afterwards. Returns a list of commit message
 -- prefixes of the remote master branch log. The body function is provided with
 -- the shas of the test repository and a function to run the event loop.
-withTestEnv :: ([Sha] -> LoopRunner -> IO ()) -> IO [Text]
+withTestEnv :: ([Sha] -> LoopRunner -> GitRunner -> IO ()) -> IO [Text]
 withTestEnv body = do
   -- To run these tests, a real repository has to be made somewhere. Do that in
   -- /tmp because it can be mounted as a ramdisk, so it is fast and we don't
@@ -174,9 +176,11 @@ withTestEnv body = do
   shas <- initializeRepository originDir repoDir
 
   -- Run the actual test code inside the environment that we just set up,
-  -- provide it with the commit shas and the function to run the event loop.
-  let config = buildConfig repoDir
-  body shas (runMainEventLoop config)
+  -- provide it with the commit shas, the function to run the event loop, and a
+  -- function to invoke Git in the cloned repository.
+  let config   = buildConfig repoDir
+      git args = void $ callGit $ ["-C", repoDir] ++ args
+  body shas (runMainEventLoop config) git
 
   -- Retrieve the log of the remote repository master branch. Only show the
   -- commit message subject lines. The repository has been setup to prefix
@@ -196,9 +200,10 @@ main = hspec $ parallel $ do
   describe "The main event loop" $ do
 
     it "handles a fast-forwardable pull request" $ do
-      history <- withTestEnv $ \ shas runLoop -> do
+      history <- withTestEnv $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6] = shas
             pr1 = PullRequestId 1
+
         -- Commit c4 is one commit ahead of master, so integrating it can be done
         -- with a fast-forward merge. Run the main event loop for these events
         -- and discard the final state by using 'void'.
@@ -212,9 +217,10 @@ main = hspec $ parallel $ do
       history `shouldBe` ["c0", "c1", "c2", "c3", "c4"]
 
     it "handles a non-conflicting non-fast-forwardable pull request" $ do
-      history <- withTestEnv $ \ shas runLoop -> do
+      history <- withTestEnv $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6] = shas
             pr1 = PullRequestId 1
+
         -- Commit c6 is two commits ahead and one behind of master, so
         -- integrating it produces new rebased commits.
         state <- runLoop Project.emptyProjectState
@@ -234,10 +240,11 @@ main = hspec $ parallel $ do
       history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6"]
 
     it "handles multiple pull requests" $ do
-      history <- withTestEnv $ \ shas runLoop -> do
+      history <- withTestEnv $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6] = shas
             pr1 = PullRequestId 1
             pr2 = PullRequestId 2
+
         state <- runLoop Project.emptyProjectState
           [
             Logic.PullRequestOpened pr1 c4 "decker",
@@ -265,10 +272,11 @@ main = hspec $ parallel $ do
       history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6", "c4"]
 
     it "skips conflicted pull requests" $ do
-      history <- withTestEnv $ \ shas runLoop -> do
+      history <- withTestEnv $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, c3', c4, _c5, _c6] = shas
             pr1 = PullRequestId 1
             pr2 = PullRequestId 2
+
         -- Commit c3' conflicts with master, so a rebase should be attempted, but
         -- because it conflicts, the next pull request should be considered.
         state <- runLoop Project.emptyProjectState
@@ -295,3 +303,41 @@ main = hspec $ parallel $ do
       -- We did not send a build status notification for c4, so it should not
       -- have been integrated.
       history `shouldBe` ["c0", "c1", "c2", "c3"]
+
+    it "restarts the sequence after a rejected push" $ do
+      history <- withTestEnv $ \ shas runLoop git -> do
+        let [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6] = shas
+            pr1 = PullRequestId 1
+
+        state <- runLoop Project.emptyProjectState
+          [
+            Logic.PullRequestOpened pr1 c6 "decker",
+            Logic.CommentAdded pr1 "rachael" $ Text.pack $ "LGTM " ++ (show c6)
+          ]
+
+        -- At this point, c6 has been rebased and pushed to the "integration"
+        -- branch for building. Before we notify build success, push commmit c4
+        -- to the origin "master" branch, so that pushing the rebased c6 will
+        -- fail later on.
+        git ["push", "origin", (show c4) ++ ":refs/heads/master"]
+
+        -- Extract the sha of the rebased commit from the project state, and
+        -- tell the loop that building the commit succeeded.
+        let Just (_prId, pullRequest)     = Project.getIntegrationCandidate state
+            Project.Integrated rebasedSha = Project.integrationStatus pullRequest
+        state' <- runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
+
+        -- The push should have failed, hence there should still be an
+        -- integration candidate.
+        Project.getIntegrationCandidate state' `shouldSatisfy` isJust
+
+        -- Again notify build success, now for the new commit.
+        let Just (_prId, pullRequest')      = Project.getIntegrationCandidate state'
+            Project.Integrated rebasedSha'  = Project.integrationStatus pullRequest'
+        state'' <- runLoop state' [Logic.BuildStatusChanged rebasedSha' BuildSucceeded]
+
+        -- After the second build success, the pull request should have been
+        -- integrated properly, so there should not be a new candidate.
+        Project.getIntegrationCandidate state'' `shouldBe` Nothing
+
+      history `shouldBe` ["c0", "c1", "c2", "c3", "c4", "c5", "c6"]
