@@ -78,6 +78,7 @@ test-suite end-to-end
                , hoff
                , hspec        >= 2.2  && < 2.3
                , hspec-core   >= 2.2  && < 2.3
+               , http-types   >= 0.9  && < 0.10
                , lens         >= 4.14 && < 4.15
                , monad-logger >= 0.3  && < 0.4
                , random       >= 1.1  && < 1.2

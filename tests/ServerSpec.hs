@@ -17,6 +17,7 @@ module ServerSpec (serverSpec) where
 import Control.Concurrent (forkIO, killThread)
 import Control.Lens (set, view)
 import Data.ByteString.Lazy (ByteString)
+import Network.HTTP.Types.Status (badRequest400, notFound404)
 import Test.Hspec (Spec, describe, it, parallel, shouldBe)
 
 import qualified Network.Wreq as Wreq
@@ -58,5 +59,11 @@ serverSpec = parallel $ do
     it "serves 'not found' at a non-existing url" $
       withServer $ \ _ghQueue -> do
         response <- httpGet $ testHost ++ "/bogus/url"
-        let statusCode = view (Wreq.responseStatus . Wreq.statusCode) response
-        statusCode `shouldBe` 404
+        let statusCode = view Wreq.responseStatus response
+        statusCode `shouldBe` notFound404
+
+    it "responds with 'bad request' to a GET for a webhook url" $
+      withServer $ \ _ghQueue -> do
+        response <- httpGet $ testHost ++ "/hook/github"
+        let statusCode = view Wreq.responseStatus response
+        statusCode `shouldBe` badRequest400
