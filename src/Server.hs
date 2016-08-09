@@ -12,8 +12,13 @@ import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (isFullTBQueue, writeTBQueue)
 import Control.Concurrent.STM.TMVar (newEmptyTMVar, putTMVar, takeTMVar)
 import Control.Monad.IO.Class (liftIO)
+import Data.ByteString.Lazy (ByteString, toStrict)
+import Data.Digest.Pure.SHA (bytestringDigest, hmacSha256)
+import Data.SecureMem (SecureMem, secureMemFromByteString)
+import Data.Text.Lazy (Text)
+import Data.Text.Lazy.Encoding (encodeUtf8)
 import Network.HTTP.Types (status400, status404, status503)
-import Web.Scotty (ActionM, ScottyM, get, header, jsonData, notFound, post, scottyApp, status, text)
+import Web.Scotty (ActionM, ScottyM, body, get, header, jsonData, notFound, post, scottyApp, status, text)
 
 import qualified Network.Wai.Handler.Warp as Warp
 
@@ -22,10 +27,38 @@ import qualified Github
 -- Router for the web server.
 router :: Github.EventQueue -> ScottyM ()
 router ghQueue = do
-  post "/hook/github" $ serveGithubWebhook ghQueue
+  post "/hook/github" $ withSignatureCheck "secret" $ serveGithubWebhook ghQueue
   get  "/hook/github" $ serveWebhookDocs
   get  "/"            $ serveWebInterface
   notFound            $ serveNotFound
+
+makeSecureMem :: ByteString -> SecureMem
+makeSecureMem = secureMemFromByteString . toStrict
+
+withSignatureCheck :: Text -> ActionM () -> ActionM ()
+withSignatureCheck secret bodyAction = do
+  maybeHexDigest <- header "X-Hub-Signature"
+  bodyBytes <- body
+  -- Compute the HMAC as from the body, encode as hexadecimal characters in a
+  -- bytestring. Scotty reads headers as Text, so convert the header to a byte
+  -- string as well.
+  case maybeHexDigest of
+    Nothing -> do
+      status status400
+      text "missing X-Hub-Signature header"
+    Just hexDigest ->
+      let expected = bytestringDigest $ hmacSha256 (encodeUtf8 secret) bodyBytes
+          actual   = encodeUtf8 hexDigest
+
+      -- Convert the byte strings to SecureMem before comparison, because
+      -- SecureMem implements a constant-time comparison. (Note that we convert
+      -- from Text to lazy byte string to strict byte string anyway, but these
+      -- operations do not depend on the data.)
+      in if True (makeSecureMem expected) == (makeSecureMem actual)
+        then bodyAction
+        else do
+          status status400
+          text "signature does not match, is the secret set up properly?"
 
 serveGithubWebhook :: Github.EventQueue -> ActionM ()
 serveGithubWebhook ghQueue = do

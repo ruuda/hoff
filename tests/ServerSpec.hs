@@ -59,7 +59,7 @@ hGithubEvent :: HeaderName
 hGithubEvent = "X-GitHub-Event"
 
 hGithubSignature :: HeaderName
-hGithubSignature = "X-Hub-Sigature" -- Not a typo, really 'Hub', not 'GitHub'.
+hGithubSignature = "X-Hub-Signature" -- Not a typo, really 'Hub', not 'GitHub'.
 
 -- Pops one event from the queue, assuming there is already an event there. This
 -- does not block and wait for an event to arrive, because that could make tests
