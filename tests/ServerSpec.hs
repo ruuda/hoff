@@ -15,12 +15,17 @@
 module ServerSpec (serverSpec) where
 
 import Control.Concurrent (forkIO, killThread)
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TBQueue (tryReadTBQueue)
 import Control.Lens (view)
 import Data.ByteString.Lazy (ByteString)
-import Network.HTTP.Types.Status (badRequest400, notFound404)
+import Data.Maybe (fromJust)
+import Network.HTTP.Types.Header (Header, HeaderName, hContentType)
+import Network.HTTP.Types.Status (badRequest400, notFound404, ok200)
 import Network.Wreq.Lens (Response)
-import Test.Hspec (Spec, describe, it, shouldBe)
+import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
+import qualified Data.ByteString.Lazy as ByteString
 import qualified Network.Wreq as Wreq
 import qualified Network.Wreq.Types as WreqTypes
 
@@ -44,6 +49,28 @@ noThrowOptions = Wreq.defaults { WreqTypes.checkStatus = Just ignoreStatus }
 
 httpGet :: String -> IO (Response ByteString)
 httpGet = Wreq.getWith noThrowOptions
+
+httpPost :: WreqTypes.Postable p => String -> [Header] -> p -> IO (Response ByteString)
+httpPost url headers body = Wreq.postWith options url body
+  where
+    options = noThrowOptions { WreqTypes.headers = headers }
+
+hGithubEvent :: HeaderName
+hGithubEvent = "X-GitHub-Event"
+
+hGithubSignature :: HeaderName
+hGithubSignature = "X-Hub-Sigature" -- Not a typo, really 'Hub', not 'GitHub'.
+
+-- Pops one event from the queue, assuming there is already an event there. This
+-- does not block and wait for an event to arrive, because that could make tests
+-- deadlock in case an event is never pushed.
+popQueue :: Github.EventQueue -> IO Github.WebhookEvent
+popQueue = fmap fromJust . atomically . tryReadTBQueue
+
+isPullRequestEvent :: Github.WebhookEvent -> Bool
+isPullRequestEvent event = case event of
+  Github.PullRequest _ -> True
+  _                    -> False
 
 withServer :: (Github.EventQueue -> IO ()) -> IO ()
 withServer body = do
@@ -77,3 +104,17 @@ serverSpec = do
         response <- httpGet $ testHost ++ "/hook/github"
         let statusCode = view Wreq.responseStatus response
         statusCode `shouldBe` badRequest400
+
+    it "accepts a pull_request webhook" $
+      withServer $ \ ghQueue -> do
+        examplePayload <- ByteString.readFile "tests/data/pull-request-payload.json"
+        let headers = [ (hContentType,     "application/json")
+                      , (hGithubEvent,     "pull_request")
+                      , (hGithubSignature, "TODO") ]
+        response <- httpPost (testHost ++ "/hook/github") headers examplePayload
+        event    <- popQueue ghQueue
+        -- Only check that an event was received, there are unit tests already
+        -- that verify that a request was parsed correctly.
+        (view Wreq.responseBody response) `shouldBe` "hook received"
+        (view Wreq.responseStatus response) `shouldBe` ok200
+        event `shouldSatisfy` isPullRequestEvent
