@@ -18,20 +18,28 @@ import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (tryReadTBQueue)
 import Control.Lens (view)
-import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy (fromStrict)
+import Data.Digest.Pure.SHA (hmacSha256)
 import Data.Maybe (fromJust)
+import Data.Text (Text)
+import Data.Text.Encoding (encodeUtf8)
 import Network.HTTP.Types.Header (Header, HeaderName, hContentType)
 import Network.HTTP.Types.Status (badRequest400, notFound404, ok200)
 import Network.Wreq.Lens (Response)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
-import qualified Data.ByteString.Lazy as ByteString
+import qualified Data.ByteString.Char8 as ByteString.Strict
+import qualified Data.ByteString.Lazy as ByteString.Lazy
 import qualified Network.Wreq as Wreq
 import qualified Network.Wreq.Types as WreqTypes
 
 import Server (buildServer)
 
 import qualified Github
+
+-- Bring a tiny bit of sense into the Haskell string type madness.
+type LazyByteString = ByteString.Lazy.ByteString
+type StrictByteString = ByteString.Strict.ByteString
 
 testPort :: Int
 testPort = 5273
@@ -47,10 +55,10 @@ noThrowOptions = Wreq.defaults { WreqTypes.checkStatus = Just ignoreStatus }
   where
     ignoreStatus _ _ _ = Nothing
 
-httpGet :: String -> IO (Response ByteString)
+httpGet :: String -> IO (Response LazyByteString)
 httpGet = Wreq.getWith noThrowOptions
 
-httpPost :: WreqTypes.Postable p => String -> [Header] -> p -> IO (Response ByteString)
+httpPost :: WreqTypes.Postable p => String -> [Header] -> p -> IO (Response LazyByteString)
 httpPost url headers body = Wreq.postWith options url body
   where
     options = noThrowOptions { WreqTypes.headers = headers }
@@ -60,6 +68,16 @@ hGithubEvent = "X-GitHub-Event"
 
 hGithubSignature :: HeaderName
 hGithubSignature = "X-Hub-Signature" -- Not a typo, really 'Hub', not 'GitHub'.
+
+-- Why three different string types? The secret is Text, which will be encoded
+-- as utf-8 to provide the key for the mac. The message is the data to be
+-- posted, and Wreq expects a lazy bytestring here (TODO: Or can I use a strict
+-- one too?). The result must be put in a http header, and the http-types
+-- package chose to use strict bytestrings for those. So yeah, it's a mess.
+computeSignature :: Text -> LazyByteString -> StrictByteString
+computeSignature secret message =
+  let secretAsBytes = fromStrict $ encodeUtf8 secret
+  in  ByteString.Strict.pack $ show $ hmacSha256 secretAsBytes message
 
 -- Pops one event from the queue, assuming there is already an event there. This
 -- does not block and wait for an event to arrive, because that could make tests
@@ -107,10 +125,11 @@ serverSpec = do
 
     it "accepts a pull_request webhook" $
       withServer $ \ ghQueue -> do
-        examplePayload <- ByteString.readFile "tests/data/pull-request-payload.json"
-        let headers = [ (hContentType,     "application/json")
-                      , (hGithubEvent,     "pull_request")
-                      , (hGithubSignature, "TODO") ]
+        examplePayload <- ByteString.Lazy.readFile "tests/data/pull-request-payload.json"
+        let signature = computeSignature "secret" examplePayload
+            headers   = [ (hContentType,     "application/json")
+                        , (hGithubEvent,     "pull_request")
+                        , (hGithubSignature, signature) ]
         response <- httpPost (testHost ++ "/hook/github") headers examplePayload
         event    <- popQueue ghQueue
         -- Only check that an event was received, there are unit tests already

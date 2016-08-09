@@ -13,13 +13,14 @@ import Control.Concurrent.STM.TBQueue (isFullTBQueue, writeTBQueue)
 import Control.Concurrent.STM.TMVar (newEmptyTMVar, putTMVar, takeTMVar)
 import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Lazy (ByteString, toStrict)
-import Data.Digest.Pure.SHA (bytestringDigest, hmacSha256)
+import Data.Digest.Pure.SHA (hmacSha256)
 import Data.SecureMem (SecureMem, secureMemFromByteString)
 import Data.Text.Lazy (Text)
 import Data.Text.Lazy.Encoding (encodeUtf8)
 import Network.HTTP.Types (status400, status404, status503)
 import Web.Scotty (ActionM, ScottyM, body, get, header, jsonData, notFound, post, scottyApp, status, text)
 
+import qualified Data.ByteString.Lazy.Char8 as ByteString
 import qualified Network.Wai.Handler.Warp as Warp
 
 import qualified Github
@@ -39,7 +40,7 @@ makeSecureMem = secureMemFromByteString . toStrict
 -- the message, given the secret, and the actual message bytes.
 isSignatureValid :: Text -> Text -> ByteString -> Bool
 isSignatureValid secret hexDigest message =
-  let expected = bytestringDigest $ hmacSha256 (encodeUtf8 secret) message
+  let expected = ByteString.pack $ show $ hmacSha256 (encodeUtf8 secret) message
       actual   = encodeUtf8 hexDigest
   -- Convert the bytestrings to SecureMem before comparison, because SecureMem
   -- implements a constant-time comparison. (Note that we convert from Text to
