@@ -50,7 +50,7 @@ test-suite spec
   type:           exitcode-stdio-1.0
   main-is:        Spec.hs
   hs-source-dirs: tests
-  ghc-options:    -Wall -fwarn-tabs -threaded
+  ghc-options:    -Wall -fwarn-tabs
 
   build-depends: aeson      >= 0.11 && < 0.12
                , base       >= 4.8  && < 4.10
