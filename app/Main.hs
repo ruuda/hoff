@@ -16,7 +16,7 @@ import Control.Monad.Logger (runStdoutLoggingT)
 import Configuration (Configuration)
 import EventLoop (runGithubEventLoop, runLogicEventLoop)
 import Project (emptyProjectState, saveProjectState)
-import Server (runServer)
+import Server (buildServer)
 
 import qualified Configuration as Config
 import qualified Github
@@ -71,7 +71,8 @@ main = withConfig $ \ config -> do
 
   let port = Config.port config
   putStrLn $ "Listening for webhooks on port " ++ (show port)
-  runServer port ghQueue
+  runServer <- fmap fst $ buildServer port ghQueue
+  runServer
 
   -- Note that a stop signal is never enqueued. The application just runs until
   -- it is killed.

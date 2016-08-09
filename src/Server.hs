@@ -6,21 +6,18 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 
-module Server (runServer) where
+module Server (buildServer) where
 
-import Control.Concurrent.STM (STM)
-import Control.Concurrent.STM.TBQueue
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TBQueue (isFullTBQueue, writeTBQueue)
+import Control.Concurrent.STM.TMVar (newEmptyTMVar, putTMVar, takeTMVar)
 import Control.Monad.IO.Class (liftIO)
 import Network.HTTP.Types (status400, status404, status503)
-import Network.Wai.Handler.Warp (run)
 import Web.Scotty (ActionM, ScottyM, get, header, jsonData, notFound, post, scottyApp, status, text)
 
-import qualified Github
-import qualified Control.Monad.STM as STM
+import qualified Network.Wai.Handler.Warp as Warp
 
--- Helper to perform an STM operation from within a Scotty action.
-atomically :: STM a -> ActionM a
-atomically = liftIO . STM.atomically
+import qualified Github
 
 -- Router for the web server.
 router :: Github.EventQueue -> ScottyM ()
@@ -51,7 +48,7 @@ serveEnqueueEvent ghQueue event = do
   -- Enqueue the event if the queue is not full. Normally writeTBQueue would
   -- block if the queue is full, but instead we don't want to enqueue the event
   -- and tell the client to retry in a while.
-  enqueued <- atomically $ do
+  enqueued <- liftIO $ atomically $ do
     isFull <- isFullTBQueue ghQueue
     if isFull
       then return False
@@ -75,9 +72,33 @@ serveNotFound = do
   status status404
   text "not found"
 
+warpSettings :: Int -> IO () -> Warp.Settings
+warpSettings port beforeMainLoop
+  = Warp.setPort port
+  $ Warp.setBeforeMainLoop beforeMainLoop
+  $ Warp.defaultSettings
+
 -- Runs a webserver at the specified port. When GitHub webhooks are received,
--- an event will be added to the event queue.
-runServer :: Int -> Github.EventQueue -> IO ()
-runServer port ghQueue = do
+-- an event will be added to the event queue. Returns a pair of two IO
+-- operations: (runServer, blockUntilReady). The first should be used to run
+-- the server, the second may be used to wait until the server is ready to
+-- serve requests.
+buildServer :: Int -> Github.EventQueue -> IO (IO (), IO ())
+buildServer port ghQueue = do
+  -- Create a variable that will be signalled when the server is ready.
+  readyVar <- atomically newEmptyTMVar
+  let signalReady     = atomically $ putTMVar readyVar ()
+      blockUntilReady = atomically $ takeTMVar readyVar
+
+  -- Make Warp signal the variable when it is ready to serve requests.
+  let settings = warpSettings port signalReady
+
+  -- Build the Scotty app, but do not start serving yet, as that would never
+  -- return, so we wouldn't have the opportunity to return the 'blockUntilReady'
+  -- function to the caller.
   app <- scottyApp $ router ghQueue
-  run port app
+  let runServer = Warp.runSettings settings app
+
+  -- Return two IO actions: one that will run the server (and never return),
+  -- and one that blocks until 'readyVar' is signalled from the server.
+  return (runServer, blockUntilReady)
