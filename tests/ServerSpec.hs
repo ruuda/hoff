@@ -14,7 +14,8 @@
 
 module ServerSpec (serverSpec) where
 
-import Control.Concurrent (forkIO, killThread)
+import Control.Concurrent.Async (async, asyncThreadId, waitCatch)
+import Control.Concurrent (killThread)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (tryReadTBQueue)
 import Control.Lens (view)
@@ -95,13 +96,20 @@ withServer body = do
   -- Create an event queue with a capacity of 5 events.
   ghQueue      <- Github.newEventQueue 5
 
-  -- Start the server on the test port, run the body with access to the queue,
-  -- and stop the server afterwards by killing the thread.
+  -- Start the server on the test port, wait until it is ready to handle
+  -- requests, and then run the body with access to the queue.
   (runServer, blockUntilReady) <- buildServer testPort ghQueue
-  serverThread <- forkIO runServer
+  serverAsync <- async runServer
   blockUntilReady
   body ghQueue
-  killThread serverThread
+
+  -- Stop the server by killing the thread. This will not immediately stop the
+  -- server, but we do need to ensure that the port is available after we exit
+  -- the function, so the next test can use it, so also wait for the thread to
+  -- finish after killing it.
+  killThread $ asyncThreadId serverAsync
+  _ <- waitCatch serverAsync
+  return ()
 
 serverSpec :: Spec
 serverSpec = do
