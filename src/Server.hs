@@ -35,10 +35,21 @@ router ghQueue = do
 makeSecureMem :: ByteString -> SecureMem
 makeSecureMem = secureMemFromByteString . toStrict
 
+-- Checks the signature (encoded as hexadecimal characters in 'hexDigest') of
+-- the message, given the secret, and the actual message bytes.
+isSignatureValid :: Text -> Text -> ByteString -> Bool
+isSignatureValid secret hexDigest message =
+  let expected = bytestringDigest $ hmacSha256 (encodeUtf8 secret) message
+      actual   = encodeUtf8 hexDigest
+  -- Convert the bytestrings to SecureMem before comparison, because SecureMem
+  -- implements a constant-time comparison. (Note that we convert from Text to
+  -- lazy byte string to strict byte string anyway, but the running time of
+  -- these operations does not depend on secret data.)
+  in (makeSecureMem expected) == (makeSecureMem actual)
+
 withSignatureCheck :: Text -> ActionM () -> ActionM ()
 withSignatureCheck secret bodyAction = do
   maybeHexDigest <- header "X-Hub-Signature"
-  bodyBytes <- body
   -- Compute the HMAC as from the body, encode as hexadecimal characters in a
   -- bytestring. Scotty reads headers as Text, so convert the header to a byte
   -- string as well.
@@ -46,15 +57,9 @@ withSignatureCheck secret bodyAction = do
     Nothing -> do
       status status400
       text "missing X-Hub-Signature header"
-    Just hexDigest ->
-      let expected = bytestringDigest $ hmacSha256 (encodeUtf8 secret) bodyBytes
-          actual   = encodeUtf8 hexDigest
-
-      -- Convert the byte strings to SecureMem before comparison, because
-      -- SecureMem implements a constant-time comparison. (Note that we convert
-      -- from Text to lazy byte string to strict byte string anyway, but these
-      -- operations do not depend on the data.)
-      in if True (makeSecureMem expected) == (makeSecureMem actual)
+    Just hexDigest -> do
+      bodyBytes <- body
+      if isSignatureValid secret hexDigest bodyBytes
         then bodyAction
         else do
           status status400
