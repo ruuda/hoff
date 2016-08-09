@@ -10,7 +10,7 @@ module Server (buildServer) where
 
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (isFullTBQueue, writeTBQueue)
-import Control.Concurrent.STM.TMVar (newEmptyTMVar, putTMVar, takeTMVar)
+import Control.Concurrent.STM.TSem (newTSem, signalTSem, waitTSem)
 import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Lazy (ByteString, toStrict)
 import Data.Digest.Pure.SHA (hmacSha256)
@@ -124,12 +124,12 @@ warpSettings port beforeMainLoop
 -- serve requests.
 buildServer :: Int -> Github.EventQueue -> IO (IO (), IO ())
 buildServer port ghQueue = do
-  -- Create a variable that will be signalled when the server is ready.
-  readyVar <- atomically newEmptyTMVar
-  let signalReady     = atomically $ putTMVar readyVar ()
-      blockUntilReady = atomically $ takeTMVar readyVar
+  -- Create a semaphore that will be signalled when the server is ready.
+  readySem <- atomically $ newTSem 0
+  let signalReady     = atomically $ signalTSem readySem
+      blockUntilReady = atomically $ waitTSem readySem
 
-  -- Make Warp signal the variable when it is ready to serve requests.
+  -- Make Warp signal the semaphore when it is ready to serve requests.
   let settings = warpSettings port signalReady
 
   -- Build the Scotty app, but do not start serving yet, as that would never
@@ -139,5 +139,5 @@ buildServer port ghQueue = do
   let runServer = Warp.runSettings settings app
 
   -- Return two IO actions: one that will run the server (and never return),
-  -- and one that blocks until 'readyVar' is signalled from the server.
+  -- and one that blocks until 'readySem' is signalled from the server.
   return (runServer, blockUntilReady)
