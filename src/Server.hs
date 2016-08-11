@@ -12,15 +12,18 @@ import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (isFullTBQueue, writeTBQueue)
 import Control.Concurrent.STM.TSem (newTSem, signalTSem, waitTSem)
 import Control.Monad.IO.Class (liftIO)
-import Data.ByteString.Lazy (ByteString, toStrict)
-import Data.Digest.Pure.SHA (hmacSha256)
-import Data.SecureMem (SecureMem, secureMemFromByteString)
-import Data.Text.Lazy (Text)
-import Data.Text.Lazy.Encoding (encodeUtf8)
+import Crypto.Hash (digestFromByteString)
+import Crypto.Hash.Algorithms (SHA256)
+import Crypto.MAC.HMAC (HMAC (..), hmac)
+import Data.ByteString (ByteString)
+import Data.Text (Text)
+import Data.Text.Encoding (encodeUtf8)
 import Network.HTTP.Types (status400, status404, status503)
 import Web.Scotty (ActionM, ScottyM, body, get, header, jsonData, notFound, post, scottyApp, status, text)
 
-import qualified Data.ByteString.Lazy.Char8 as ByteString
+import qualified Data.ByteString.Base16 as Base16
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.Text.Lazy as LT
 import qualified Network.Wai.Handler.Warp as Warp
 
 import qualified Github
@@ -33,20 +36,18 @@ router ghQueue = do
   get  "/"            $ serveWebInterface
   notFound            $ serveNotFound
 
-makeSecureMem :: ByteString -> SecureMem
-makeSecureMem = secureMemFromByteString . toStrict
-
 -- Checks the signature (encoded as hexadecimal characters in 'hexDigest') of
 -- the message, given the secret, and the actual message bytes.
 isSignatureValid :: Text -> Text -> ByteString -> Bool
 isSignatureValid secret hexDigest message =
-  let expected = ByteString.pack $ show $ hmacSha256 (encodeUtf8 secret) message
-      actual   = encodeUtf8 hexDigest
-  -- Convert the bytestrings to SecureMem before comparison, because SecureMem
-  -- implements a constant-time comparison. (Note that we convert from Text to
-  -- lazy byte string to strict byte string anyway, but the running time of
-  -- these operations does not depend on secret data.)
-  in (makeSecureMem expected) == (makeSecureMem actual)
+  let actualHmac   = hmac (encodeUtf8 secret) message :: HMAC SHA256
+      binaryDigest = fst $ Base16.decode $ encodeUtf8 hexDigest
+  in  case digestFromByteString binaryDigest of
+        -- The HMAC type implements a constant-time comparison.
+        Just expectedDigest -> (HMAC expectedDigest) == actualHmac
+        -- If the hexDigest was not a valid hexadecimally-encoded digest,
+        -- the signature was definitely not valid.
+        Nothing -> False
 
 withSignatureCheck :: Text -> ActionM () -> ActionM ()
 withSignatureCheck secret bodyAction = do
@@ -60,7 +61,7 @@ withSignatureCheck secret bodyAction = do
       text "missing X-Hub-Signature header"
     Just hexDigest -> do
       bodyBytes <- body
-      if isSignatureValid secret hexDigest bodyBytes
+      if isSignatureValid secret (LT.toStrict hexDigest) (LBS.toStrict bodyBytes)
         then bodyAction
         else do
           status status400
