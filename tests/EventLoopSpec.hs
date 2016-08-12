@@ -16,15 +16,16 @@
 module EventLoopSpec (eventLoopSpec) where
 
 import Control.Concurrent.Async (async, wait)
-import Control.Monad (forM_, void)
+import Control.Monad (forM_, void, when)
 import Control.Monad.Logger (runNoLoggingT)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.UUID.V4 (nextRandom)
 import Prelude hiding (appendFile, writeFile)
-import System.Directory (createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive)
 import System.FilePath ((</>))
 import Test.Hspec
+
+import qualified System.Directory as FileSystem
 
 import Configuration (Configuration (..))
 import Git (Sha (..))
@@ -116,7 +117,7 @@ populateRepository dir =
 initializeRepository :: FilePath -> FilePath -> IO [Sha]
 initializeRepository originDir repoDir = do
   -- Create the directory for the origin repository, and parent directories.
-  createDirectoryIfMissing True originDir
+  FileSystem.createDirectoryIfMissing True originDir
   shas <- populateRepository originDir
   _    <- callGit ["clone", "file://" ++ originDir, repoDir]
   -- Set the author details in the cloned repository as well, to ensure that
@@ -160,6 +161,17 @@ runMainEventLoop config initialState events = do
   Logic.enqueueStopSignal queue
   wait finalStateAsync
 
+-- Recursively makes all files and directories in a directory writable.
+-- On Windows this is required to be able to recursively delete the directory.
+makeWritableRecursive :: FilePath -> IO ()
+makeWritableRecursive path = do
+  permissions <- FileSystem.getPermissions path
+  FileSystem.setPermissions path (FileSystem.setOwnerWritable True permissions)
+  isDirectory <- FileSystem.doesDirectoryExist path
+  when isDirectory $ do
+    contents <- FileSystem.listDirectory path
+    forM_ contents $ \ item -> makeWritableRecursive (path </> item)
+
 type LoopRunner = ProjectState -> [Logic.Event] -> IO ProjectState
 type GitRunner = [String] -> IO ()
 
@@ -176,7 +188,7 @@ withTestEnv body = do
   -- overwrite somebody else's files, and to ensure that the tests do not affect
   -- eachother.
   uuid       <- nextRandom
-  tmpBaseDir <- getTemporaryDirectory
+  tmpBaseDir <- FileSystem.getTemporaryDirectory
   let testDir   = tmpBaseDir </> ("testsuite-" ++ (show uuid))
       originDir = testDir </> "repo-origin"
       repoDir   = testDir </> "repo-local"
@@ -201,7 +213,8 @@ withTestEnv body = do
   masterLog <- callGit ["-C", originDir, "log", "--format=%s", "master"]
   let commits = reverse $ fmap (Text.takeWhile (/= ':')) $ Text.lines masterLog
 
-  removeDirectoryRecursive testDir
+  makeWritableRecursive testDir
+  FileSystem.removeDirectoryRecursive testDir
   return commits
 
 eventLoopSpec :: Spec
