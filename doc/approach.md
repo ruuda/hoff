@@ -20,10 +20,10 @@ browser, bug tracker, and build and test runner are still required.
 ## Integration with existing tools
 
 There are numerous external systems that could fill the gaps: Gitiles or Cgit to
-browse the repository; Bugzilla, Mantis, or Monorail for bug tracking; Jenkins
-or Buildbot to run builds and tests. But to set up and host these systems is
-nontrivial. Perhaps more importantly, self-hosted solutions like these are a
-treshold for contributors in a GitHub-dominated world. This is true even for
+browse the repository; Bugzilla, Mantis, or Monorail for bug tracking; Buildbot,
+Jenkins, or Drone to run builds and tests. But to set up and host these systems
+is nontrivial. Perhaps more importantly, self-hosted solutions like these are
+a treshold for contributors in a GitHub-dominated world. This is true even for
 more integrated tools: nobody is going to sign up at your Phabricator or GitLab
 instance. There is a strong network effect.
 
