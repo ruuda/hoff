@@ -27,7 +27,7 @@ treshold for contributors in a GitHub-dominated world. This is true even for
 more integrated tools: nobody is going to sign up at your Phabricator or GitLab
 instance. There is a strong network effect.
 
-## GitHub and Travis CI
+## GitHub and a CI service
 
 Modularity is important, but I need to start somewhere. I think integrating with
 GitHub and Travis CI is the best route to a minimal viable system. It is far
@@ -57,4 +57,6 @@ For building and running tests, I’ll use Travis CI. It is simple, solid, and i
 is good at what it does. Perhaps for a complex project more control over
 scheduling and such would be useful, and a more integrated UI could be nice. But
 all I really need is something that I can pass a commit hash to, and that tells
-me pass or fail a while later.
+me pass or fail a while later. In fact, there is no need at all to interact with
+the CI service directly. It can be done through GitHub’s build status API,
+allowing other CI services or even custom setups to be used.
