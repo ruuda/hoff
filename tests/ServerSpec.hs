@@ -19,13 +19,14 @@ import Control.Concurrent (killThread)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (tryReadTBQueue)
 import Control.Lens (view)
+import Control.Monad (replicateM_)
 import Data.ByteString.Lazy (fromStrict)
 import Data.Digest.Pure.SHA (hmacSha256)
 import Data.Maybe (fromJust)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Network.HTTP.Types.Header (Header, HeaderName, hContentType)
-import Network.HTTP.Types.Status (badRequest400, notFound404, ok200)
+import Network.HTTP.Types.Status (badRequest400, notFound404, ok200, serviceUnavailable503)
 import Network.Wreq.Lens (Response)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
@@ -56,11 +57,13 @@ noThrowOptions = Wreq.defaults { WreqTypes.checkStatus = Just ignoreStatus }
   where
     ignoreStatus _ _ _ = Nothing
 
+-- Peforms an http get request. The host is prepended to the url automatically.
 httpGet :: String -> IO (Response LazyByteString)
-httpGet = Wreq.getWith noThrowOptions
+httpGet url = Wreq.getWith noThrowOptions (testHost ++ url)
 
+-- Peforms an http post request. The host is prepended to the url automatically.
 httpPost :: WreqTypes.Postable p => String -> [Header] -> p -> IO (Response LazyByteString)
-httpPost url headers body = Wreq.postWith options url body
+httpPost url headers body = Wreq.postWith options (testHost ++ url) body
   where
     options = noThrowOptions { WreqTypes.headers = headers }
 
@@ -79,6 +82,17 @@ computeSignature :: Text -> LazyByteString -> StrictByteString
 computeSignature secret message =
   let secretAsBytes = fromStrict $ encodeUtf8 secret
   in  ByteString.Strict.pack $ show $ hmacSha256 secretAsBytes message
+
+-- Peforms an http post request for an event with the given body payload. The
+-- host is prepended to the url automatically. (Also, three different string
+-- types in one signature ... please ecosystem, can we sort this out?)
+httpPostGithubEvent :: String -> StrictByteString -> LazyByteString -> IO (Response LazyByteString)
+httpPostGithubEvent url eventName body =
+  let signature = computeSignature "secret" body
+      headers   = [ (hContentType, "application/json")
+                  , (hGithubEvent, eventName)
+                  , (hGithubSignature, signature) ]
+  in  httpPost url headers body
 
 -- Pops one event from the queue, assuming there is already an event there. This
 -- does not block and wait for an event to arrive, because that could make tests
@@ -121,27 +135,42 @@ serverSpec = do
 
     it "serves 'not found' at a non-existing url" $
       withServer $ \ _ghQueue -> do
-        response <- httpGet $ testHost ++ "/bogus/url"
+        response <- httpGet "/bogus/url"
         let statusCode = view Wreq.responseStatus response
         statusCode `shouldBe` notFound404
 
     it "responds with 'bad request' to a GET for a webhook url" $
       withServer $ \ _ghQueue -> do
-        response <- httpGet $ testHost ++ "/hook/github"
+        response <- httpGet "/hook/github"
         let statusCode = view Wreq.responseStatus response
         statusCode `shouldBe` badRequest400
 
     it "accepts a pull_request webhook" $
       withServer $ \ ghQueue -> do
-        examplePayload <- ByteString.Lazy.readFile "tests/data/pull-request-payload.json"
-        let signature = computeSignature "secret" examplePayload
-            headers   = [ (hContentType,     "application/json")
-                        , (hGithubEvent,     "pull_request")
-                        , (hGithubSignature, signature) ]
-        response <- httpPost (testHost ++ "/hook/github") headers examplePayload
+        payload  <- ByteString.Lazy.readFile "tests/data/pull-request-payload.json"
+        response <- httpPostGithubEvent "/hook/github" "pull_request" payload
         event    <- popQueue ghQueue
         -- Only check that an event was received, there are unit tests already
         -- that verify that a request was parsed correctly.
         (view Wreq.responseBody response) `shouldBe` "hook received"
         (view Wreq.responseStatus response) `shouldBe` ok200
         event `shouldSatisfy` isPullRequestEvent
+
+    it "serves 503 service unavailable when the queue is full" $
+      withServer $ \ ghQueue -> do
+        payload  <- ByteString.Lazy.readFile "tests/data/pull-request-payload.json"
+
+        -- The first five responses should be accepted, which will fill up the
+        -- queue (that has a capacity of 5 in these tests).
+        replicateM_ 5 $ do
+          resp <- httpPostGithubEvent "/hook/github" "pull_request" payload
+          (view Wreq.responseStatus resp) `shouldBe` ok200
+
+        -- The next request should therefore be denied.
+        resp6 <- httpPostGithubEvent "/hook/github" "pull_request" payload
+        (view Wreq.responseStatus resp6) `shouldBe` serviceUnavailable503
+
+        -- After popping one event, a new request should be allowed.
+        _     <- popQueue ghQueue
+        resp7 <- httpPostGithubEvent "/hook/github" "pull_request" payload
+        (view Wreq.responseStatus resp7) `shouldBe` ok200

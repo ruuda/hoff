@@ -18,7 +18,7 @@ import Crypto.MAC.HMAC (HMAC (..), hmac)
 import Data.ByteString (ByteString)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
-import Network.HTTP.Types (status400, status404, status503)
+import Network.HTTP.Types (badRequest400, notFound404, serviceUnavailable503)
 import Web.Scotty (ActionM, ScottyM, body, get, header, jsonData, notFound, post, scottyApp, status, text)
 
 import qualified Data.ByteString.Base16 as Base16
@@ -57,14 +57,14 @@ withSignatureCheck secret bodyAction = do
   -- string as well.
   case maybeHexDigest of
     Nothing -> do
-      status status400
+      status badRequest400
       text "missing X-Hub-Signature header"
     Just hexDigest -> do
       bodyBytes <- body
       if isSignatureValid secret (LT.toStrict hexDigest) (LBS.toStrict bodyBytes)
         then bodyAction
         else do
-          status status400
+          status badRequest400
           text "signature does not match, is the secret set up properly?"
 
 serveGithubWebhook :: Github.EventQueue -> ActionM ()
@@ -96,12 +96,12 @@ serveEnqueueEvent ghQueue event = do
   if enqueued
     then text "hook received"
     else do
-      status status503 -- 503: Service Unavailable
+      status serviceUnavailable503
       text "webhook event queue full, please try again in a few minutes"
 
 serveWebhookDocs :: ActionM ()
 serveWebhookDocs = do
-  status status400
+  status badRequest400
   text "expecting POST request at /hook/github"
 
 serveWebInterface :: ActionM ()
@@ -109,7 +109,7 @@ serveWebInterface = text "not yet implemented"
 
 serveNotFound :: ActionM ()
 serveNotFound = do
-  status status404
+  status notFound404
   text "not found"
 
 warpSettings :: Int -> IO () -> Warp.Settings
