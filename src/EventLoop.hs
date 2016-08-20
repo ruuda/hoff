@@ -9,6 +9,7 @@
 
 module EventLoop
 (
+  convertGithubEvent, -- An internal helper function, but exposed for testing.
   runGithubEventLoop,
   runLogicEventLoop
 )

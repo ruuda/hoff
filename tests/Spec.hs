@@ -18,6 +18,7 @@ import Test.Hspec
 
 import qualified Data.IntMap as IntMap
 
+import EventLoop (convertGithubEvent)
 import Git (PushResult(..), Sha (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
 import Logic hiding (runAction)
@@ -312,3 +313,35 @@ main = hspec $ do
       status     `shouldBe` Github.Success
       url        `shouldBe` Nothing
       commitSha  `shouldBe` (Sha "9049f1265b7d61be4a8904a9a27120d2064dab3b")
+
+  describe "EventLoop.convertGithubEvent" $ do
+
+    let testPullRequestPayload action = Github.PullRequestPayload
+            { action     = action
+            , owner      = "decker"
+            , repository = "repo"
+            , number     = 1
+            , sha        = Sha "b26354"
+            , author     = "rachael"
+            }
+
+    it "should convert a pull request opened event" $ do
+      let payload = testPullRequestPayload Github.Opened
+          Just event = convertGithubEvent $ Github.PullRequest payload
+      event `shouldBe` (PullRequestOpened (PullRequestId 1) (Sha "b26354") "rachael")
+
+    it "should convert a pull request reopened event" $ do
+      let payload = testPullRequestPayload Github.Reopened
+          Just event = convertGithubEvent $ Github.PullRequest payload
+      -- Reopened is treated just like opened, there is no memory in the system.
+      event `shouldBe` (PullRequestOpened (PullRequestId 1) (Sha "b26354") "rachael")
+
+    it "should convert a pull request closed event" $ do
+      let payload = testPullRequestPayload Github.Closed
+          Just event = convertGithubEvent $ Github.PullRequest payload
+      event `shouldBe` (PullRequestClosed (PullRequestId 1))
+
+    it "should convert a pull request synchronize event" $ do
+      let payload = testPullRequestPayload Github.Synchronize
+          Just event = convertGithubEvent $ Github.PullRequest payload
+      event `shouldBe` (PullRequestCommitChanged (PullRequestId 1) (Sha "b26354"))
