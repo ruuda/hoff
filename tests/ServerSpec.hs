@@ -133,6 +133,12 @@ serverSpec = do
 
   describe "The webhook server" $ do
 
+    it "serves something at the root" $
+      withServer $ \ _ghQueue -> do
+        response <- httpGet "/"
+        let statusCode = view Wreq.responseStatus response
+        statusCode `shouldBe` ok200
+
     it "serves 'not found' at a non-existing url" $
       withServer $ \ _ghQueue -> do
         response <- httpGet "/bogus/url"
