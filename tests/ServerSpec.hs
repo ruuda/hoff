@@ -26,7 +26,7 @@ import Data.Maybe (fromJust)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Network.HTTP.Types.Header (Header, HeaderName, hContentType)
-import Network.HTTP.Types.Status (badRequest400, notFound404, ok200, serviceUnavailable503)
+import Network.HTTP.Types.Status (badRequest400, notFound404, notImplemented501, ok200, serviceUnavailable503)
 import Network.Wreq.Lens (Response)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
@@ -200,3 +200,13 @@ serverSpec = do
             msg    = view Wreq.responseBody response
         status `shouldBe` badRequest400
         msg    `shouldBe` "signature does not match, is the secret set up properly?"
+
+    it "serves 501 not implemented for unknown webhooks" $
+      withServer $ \ _ghQueue -> do
+        payload  <- ByteString.Lazy.readFile "tests/data/pull-request-payload.json"
+        -- Send a webhook event with correct signature, but bogus event name.
+        response <- httpPostGithubEvent "/hook/github" "launch_missiles" payload
+        let status = view Wreq.responseStatus response
+            msg    = view Wreq.responseBody response
+        status `shouldBe` notImplemented501
+        msg    `shouldBe` "hook ignored, the event type is not supported"

@@ -18,7 +18,7 @@ import Crypto.MAC.HMAC (HMAC (..), hmac)
 import Data.ByteString (ByteString)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
-import Network.HTTP.Types (badRequest400, notFound404, serviceUnavailable503)
+import Network.HTTP.Types (badRequest400, notFound404, notImplemented501, serviceUnavailable503)
 import Web.Scotty (ActionM, ScottyM, body, get, header, jsonData, notFound, post, scottyApp, status, text)
 
 import qualified Data.ByteString.Base16 as Base16
@@ -79,8 +79,9 @@ serveGithubWebhook ghQueue = do
       serveEnqueueEvent ghQueue $ Github.Comment payload
     Just "ping" ->
       serveEnqueueEvent ghQueue $ Github.Ping
-    _ ->
-      text "hook ignored, X-GitHub-Event does not match expected value"
+    _ -> do
+      status notImplemented501
+      text "hook ignored, the event type is not supported"
 
 -- Handles replying to the client when a GitHub webhook is received.
 serveEnqueueEvent :: Github.EventQueue -> Github.WebhookEvent -> ActionM ()
