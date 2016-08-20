@@ -180,3 +180,23 @@ serverSpec = do
         _     <- popQueue ghQueue
         resp7 <- httpPostGithubEvent "/hook/github" "pull_request" payload
         (view Wreq.responseStatus resp7) `shouldBe` ok200
+
+    it "requires an X-Hub-Signature header to be present for webhook calls" $
+      withServer $ \ _ghQueue -> do
+        let headers = [ (hContentType, "application/json")
+                      , (hGithubEvent, "pull_request") ]
+        response <- httpPost "/hook/github" headers ("{}" :: StrictByteString)
+        (view Wreq.responseStatus response) `shouldBe` badRequest400
+        (view Wreq.responseBody response) `shouldBe` "missing X-Hub-Signature header"
+
+    it "requires an X-Hub-Signature header to be valid for webhook calls" $
+      withServer $ \ _ghQueue -> do
+        let headers = [ (hContentType, "application/json")
+                      , (hGithubEvent, "pull_request")
+                      -- Provivide the header, but put bogus in it.
+                      , (hGithubSignature, "not even hexadecimal") ]
+        response <- httpPost "/hook/github" headers ("{}" :: StrictByteString)
+        let status = view Wreq.responseStatus response
+            msg    = view Wreq.responseBody response
+        status `shouldBe` badRequest400
+        msg    `shouldBe` "signature does not match, is the secret set up properly?"
