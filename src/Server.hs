@@ -23,6 +23,7 @@ import Web.Scotty (ActionM, ScottyM, body, get, header, jsonData, notFound, post
 
 import qualified Data.ByteString.Base16 as Base16
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.Text as Text
 import qualified Data.Text.Lazy as LT
 import qualified Network.Wai.Handler.Warp as Warp
 
@@ -49,9 +50,20 @@ isSignatureValid secret hexDigest message =
         -- the signature was definitely not valid.
         Nothing -> False
 
+-- The X-Hub-Signature header value is prefixed with "sha1=", and then the
+-- digest in hexadecimal. Strip off that prefix, and ensure that it has the
+-- expected value.
+extractHexDigest :: Text -> Maybe Text
+extractHexDigest value =
+  let (prefix, hexDigest) = Text.splitAt 5 value
+  in case prefix of
+    "sha1=" -> Just hexDigest
+    _       -> Nothing
+
 withSignatureCheck :: Text -> ActionM () -> ActionM ()
 withSignatureCheck secret bodyAction = do
-  maybeHexDigest <- header "X-Hub-Signature"
+  maybeHubSignature <- header "X-Hub-Signature"
+  let maybeHexDigest = fmap LT.toStrict maybeHubSignature >>= extractHexDigest
   -- Compute the HMAC as from the body, encode as hexadecimal characters in a
   -- bytestring. Scotty reads headers as Text, so convert the header to a byte
   -- string as well.
@@ -61,7 +73,7 @@ withSignatureCheck secret bodyAction = do
       text "missing X-Hub-Signature header"
     Just hexDigest -> do
       bodyBytes <- body
-      if isSignatureValid secret (LT.toStrict hexDigest) (LBS.toStrict bodyBytes)
+      if isSignatureValid secret hexDigest (LBS.toStrict bodyBytes)
         then bodyAction
         else do
           status badRequest400

@@ -84,7 +84,7 @@ testSecret = "N6MAC41717"
 computeSignature :: Text -> StrictByteString -> StrictByteString
 computeSignature secret message =
   let digest = hmac (encodeUtf8 secret) message :: HMAC SHA1
-  in  ByteString.Strict.pack $ show $ hmacGetDigest digest
+  in  ByteString.Strict.pack $ "sha1=" ++ (show $ hmacGetDigest digest)
 
 -- Peforms an http post request for an event with the given body payload. The
 -- host is prepended to the url automatically. (Also, three different string
@@ -197,7 +197,8 @@ serverSpec = do
         let headers = [ (hContentType, "application/json")
                       , (hGithubEvent, "pull_request")
                       -- Provivide the header, but put bogus in it.
-                      , (hGithubSignature, "not even hexadecimal") ]
+                      -- TODO: Also test without the sha1= prefix.
+                      , (hGithubSignature, "sha1=not even hexadecimal") ]
         response <- httpPost "/hook/github" headers ("{}" :: StrictByteString)
         let status = view Wreq.responseStatus response
             msg    = view Wreq.responseBody response

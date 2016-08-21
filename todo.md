@@ -8,6 +8,7 @@
 
 # Up next
 
+ * Test that the server continues serving after an invalid hook
  * Automated testing for all core functionality
  * Render webinterface pages
  * Serve webinterface pages
