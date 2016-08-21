@@ -107,3 +107,40 @@ dependencies), but also issue the right Git rebase commands.
 
  * Creates tension with throughput. Test *every* project again if you only made
    a change to one?
+
+## Similar projects and further reading
+
+There exists lots of sotware that deals with code review and continuous
+integration already, but no existing project offered all of the things I wanted.
+Below are some of the projects that inspired this project:
+
+ * [Rietveld][rietveld], a great code review tool. It is mature and has it has
+   many features, but it can only deal with dependent patchsets in a limited
+   way, and it does not enforce the Not Rocket Science Principle. It creates a
+   linear history, but it requires custom tools to interact with it, different
+   from normal Git workflows. Rietveld was itself based on [Mondrian][mondrian].
+ * [Gerrit][gerrit], a code review tool for Git based on Rietveld. It can rebase
+   proposed changes, but as far as I am aware, it cannot enforce the Not Rocket
+   Science Principle.
+ * [Iron][iron], a code review and release management tool. It was released as
+   source-available by Jane Street, with an interesting trilogy of blog posts
+   ([I][iron-i], [II][iron-ii], [III][iron-iii]), but unfortunately is lacks any
+   further documentation. I have no clue how to build or use it. The blog posts
+   are a good read nevertheless.
+ * [Bors][bors], a bot for GitHub that enforces the Not Rocket Science
+   Principle, written for the Rust project. Graydon’s [post about the Not Rocket
+   Science Principle][not-rocket-science] provides a bit of background. Bors is
+   not a code review tool, it only handles gating commits on test results. Its
+   integration strategy is to do a merge, which creates an ugly history. The
+   original implementation of Bors did not scale very well, so a more robust
+   rewrite called [Homu][homu] was created.
+
+[bors]:     https://github.com/graydon/bors
+[gerrit]:   https://www.gerritcodereview.com/
+[homu]:     https://github.com/servo/homu
+[iron-i]:   https://blogs.janestreet.com/code-review-that-isnt-boring/
+[iron-ii]:  https://blogs.janestreet.com/scrutinizing-your-code-in-style/
+[iron-iii]: https://blogs.janestreet.com/ironing-out-your-release-process/
+[iron]:     https://github.com/janestreet/iron
+[mondrian]: https://www.youtube.com/watch?v=sMql3Di4Kgc
+[rietveld]: https://github.com/rietveld-codereview/rietveld
