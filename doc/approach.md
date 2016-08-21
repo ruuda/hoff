@@ -53,10 +53,13 @@ By building on top of GitHub, I get a lot for free too:
  * A workflow for proposing changes (pull requests).
  * An authentication system to which millions of developers can log in already.
 
-For building and running tests, I’ll use Travis CI. It is simple, solid, and it
-is good at what it does. Perhaps for a complex project more control over
-scheduling and such would be useful, and a more integrated UI could be nice. But
-all I really need is something that I can pass a commit hash to, and that tells
-me pass or fail a while later. In fact, there is no need at all to interact with
-the CI service directly. It can be done through GitHub’s build status API,
-allowing other CI services or even custom setups to be used.
+For building and running tests, I’ll hook into GitHub’s build status API. This
+allows many CI services to be used. (I recommend Travis CI: it is simple,
+solid, and it is good at what it does.) Perhaps for a complex project more
+control over scheduling and such would be useful, and a more integrated UI could
+be nice. But all I really need is something that I can pass a commit hash to,
+and that tells me pass or fail a while later. The build status API is not ideal:
+it requires pushing to a testing branch, which is a bit ugly and prevents
+parallelization. The CI service must also be set up to respond to pushes to that
+branch. But the big advantage is that no direct interaction with the CI service
+is required.
