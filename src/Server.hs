@@ -29,9 +29,9 @@ import qualified Network.Wai.Handler.Warp as Warp
 import qualified Github
 
 -- Router for the web server.
-router :: Github.EventQueue -> ScottyM ()
-router ghQueue = do
-  post "/hook/github" $ withSignatureCheck "secret" $ serveGithubWebhook ghQueue
+router :: Github.EventQueue -> Text -> ScottyM ()
+router ghQueue ghSecret = do
+  post "/hook/github" $ withSignatureCheck ghSecret $ serveGithubWebhook ghQueue
   get  "/hook/github" $ serveWebhookDocs
   get  "/"            $ serveWebInterface
   notFound            $ serveNotFound
@@ -124,8 +124,8 @@ warpSettings port beforeMainLoop
 -- operations: (runServer, blockUntilReady). The first should be used to run
 -- the server, the second may be used to wait until the server is ready to
 -- serve requests.
-buildServer :: Int -> Github.EventQueue -> IO (IO (), IO ())
-buildServer port ghQueue = do
+buildServer :: Int -> Github.EventQueue -> Text -> IO (IO (), IO ())
+buildServer port ghQueue ghSecret = do
   -- Create a semaphore that will be signalled when the server is ready.
   readySem <- atomically $ newTSem 0
   let signalReady     = atomically $ signalTSem readySem
@@ -137,7 +137,7 @@ buildServer port ghQueue = do
   -- Build the Scotty app, but do not start serving yet, as that would never
   -- return, so we wouldn't have the opportunity to return the 'blockUntilReady'
   -- function to the caller.
-  app <- scottyApp $ router ghQueue
+  app <- scottyApp $ router ghQueue ghSecret
   let runServer = Warp.runSettings settings app
 
   -- Return two IO actions: one that will run the server (and never return),

@@ -69,9 +69,10 @@ main = withConfig $ \ config -> do
               $ runStdoutLoggingT
               $ runLogicEventLoop config persist mainQueue emptyProjectState
 
-  let port = Config.port config
+  let port   = Config.port config
+      secret = Config.secret config
   putStrLn $ "Listening for webhooks on port " ++ (show port)
-  runServer <- fmap fst $ buildServer port ghQueue
+  runServer <- fmap fst $ buildServer port ghQueue secret
   runServer
 
   -- Note that a stop signal is never enqueued. The application just runs until

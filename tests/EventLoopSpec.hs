@@ -134,7 +134,8 @@ buildConfig repoDir = Configuration {
   Config.branch     = "master",
   Config.testBranch = "integration",
   Config.port       = 5261,
-  Config.checkout   = repoDir
+  Config.checkout   = repoDir,
+  Config.secret     = "N6MAC41717"
 }
 
 -- Runs the main loop in a separate thread, and feeds it the given events.

@@ -73,6 +73,9 @@ hGithubEvent = "X-GitHub-Event"
 hGithubSignature :: HeaderName
 hGithubSignature = "X-Hub-Signature" -- Not a typo, really 'Hub', not 'GitHub'.
 
+testSecret :: Text
+testSecret = "N6MAC41717"
+
 -- Why three different string types? The secret is Text, which will be encoded
 -- as utf-8 to provide the key for the mac. The message is the data to be
 -- posted, and Wreq expects a lazy bytestring here (TODO: Or can I use a strict
@@ -88,7 +91,7 @@ computeSignature secret message =
 -- types in one signature ... please ecosystem, can we sort this out?)
 httpPostGithubEvent :: String -> StrictByteString -> StrictByteString -> IO (Response LazyByteString)
 httpPostGithubEvent url eventName body =
-  let signature = computeSignature "secret" body
+  let signature = computeSignature testSecret body
       headers   = [ (hContentType, "application/json")
                   , (hGithubEvent, eventName)
                   , (hGithubSignature, signature) ]
@@ -112,7 +115,7 @@ withServer body = do
 
   -- Start the server on the test port, wait until it is ready to handle
   -- requests, and then run the body with access to the queue.
-  (runServer, blockUntilReady) <- buildServer testPort ghQueue
+  (runServer, blockUntilReady) <- buildServer testPort ghQueue testSecret
   serverAsync <- async runServer
   blockUntilReady
   body ghQueue
