@@ -317,13 +317,13 @@ main = hspec $ do
   describe "EventLoop.convertGithubEvent" $ do
 
     let testPullRequestPayload action = Github.PullRequestPayload
-            { action     = action
-            , owner      = "deckard"
-            , repository = "repo"
-            , number     = 1
-            , sha        = Sha "b26354"
-            , author     = "rachael"
-            }
+          { action     = action
+          , owner      = "deckard"
+          , repository = "repo"
+          , number     = 1
+          , sha        = Sha "b26354"
+          , author     = "rachael"
+          }
 
     it "should convert a pull request opened event" $ do
       let payload = testPullRequestPayload Github.Opened
@@ -345,3 +345,27 @@ main = hspec $ do
       let payload = testPullRequestPayload Github.Synchronize
           Just event = convertGithubEvent $ Github.PullRequest payload
       event `shouldBe` (PullRequestCommitChanged (PullRequestId 1) (Sha "b26354"))
+
+    let testCommentPayload action = Github.CommentPayload
+          { action     = action
+          , owner      = "rachael"
+          , repository = "owl"
+          , number     = 1
+          , author     = "deckard"
+          , body       = "Must be expensive."
+          }
+
+    it "should convert a comment created event" $ do
+      let payload = testCommentPayload Github.Created
+          Just event = convertGithubEvent $ Github.Comment payload
+      event `shouldBe` (CommentAdded (PullRequestId 1) "deckard" "Must be expensive.")
+
+    it "should ignore a comment edited event" $ do
+      let payload = testCommentPayload Github.Edited
+          event = convertGithubEvent $ Github.Comment payload
+      event `shouldBe` Nothing
+
+    it "should ignore a comment deleted event" $ do
+      let payload = testCommentPayload Github.Deleted
+          event = convertGithubEvent $ Github.Comment payload
+      event `shouldBe` Nothing
