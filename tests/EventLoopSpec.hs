@@ -231,7 +231,7 @@ eventLoopSpec = parallel $ do
         -- and discard the final state by using 'void'.
         void $ runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr1 c4 "decker",
+            Logic.PullRequestOpened pr1 c4 "deckard",
             Logic.CommentAdded pr1 "rachael" $ Text.pack $ "LGTM " ++ (show c4),
             Logic.BuildStatusChanged c4 BuildSucceeded
           ]
@@ -247,7 +247,7 @@ eventLoopSpec = parallel $ do
         -- integrating it produces new rebased commits.
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr1 c6 "decker",
+            Logic.PullRequestOpened pr1 c6 "deckard",
             Logic.CommentAdded pr1 "rachael" $ Text.pack $ "LGTM " ++ (show c6)
           ]
 
@@ -269,8 +269,8 @@ eventLoopSpec = parallel $ do
 
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr1 c4 "decker",
-            Logic.PullRequestOpened pr2 c6 "decker",
+            Logic.PullRequestOpened pr1 c4 "deckard",
+            Logic.PullRequestOpened pr2 c6 "deckard",
             -- Note that although c4 has a lower pull request number, c6 should
             -- still be integrated first because it was approved earlier.
             Logic.CommentAdded pr2 "rachael" $ Text.pack $ "LGTM " ++ (show c6),
@@ -303,8 +303,8 @@ eventLoopSpec = parallel $ do
         -- because it conflicts, the next pull request should be considered.
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr1 c3' "decker",
-            Logic.PullRequestOpened pr2 c4 "decker",
+            Logic.PullRequestOpened pr1 c3' "deckard",
+            Logic.PullRequestOpened pr2 c4 "deckard",
             Logic.CommentAdded pr1 "rachael" $ Text.pack $ "LGTM " ++ (show c3'),
             Logic.CommentAdded pr2 "rachael" $ Text.pack $ "LGTM " ++ (show c4)
           ]
@@ -333,7 +333,7 @@ eventLoopSpec = parallel $ do
 
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr1 c6 "decker",
+            Logic.PullRequestOpened pr1 c6 "deckard",
             Logic.CommentAdded pr1 "rachael" $ Text.pack $ "LGTM " ++ (show c6)
           ]
 

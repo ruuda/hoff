@@ -213,7 +213,7 @@ main = hspec $ do
             {
               sha               = Sha "f35",
               author            = "rachael",
-              approvedBy        = Just "decker",
+              approvedBy        = Just "deckard",
               buildStatus       = BuildSucceeded,
               integrationStatus = Integrated (Sha "38d")
             }
@@ -235,7 +235,7 @@ main = hspec $ do
             {
               sha               = Sha "f35",
               author            = "rachael",
-              approvedBy        = Just "decker",
+              approvedBy        = Just "deckard",
               buildStatus       = BuildSucceeded,
               integrationStatus = Integrated (Sha "38d")
             }
@@ -318,7 +318,7 @@ main = hspec $ do
 
     let testPullRequestPayload action = Github.PullRequestPayload
             { action     = action
-            , owner      = "decker"
+            , owner      = "deckard"
             , repository = "repo"
             , number     = 1
             , sha        = Sha "b26354"
