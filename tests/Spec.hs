@@ -369,3 +369,32 @@ main = hspec $ do
       let payload = testCommentPayload Github.Deleted
           event = convertGithubEvent $ Github.Comment payload
       event `shouldBe` Nothing
+
+    let testCommitStatusPayload status = Github.CommitStatusPayload
+          { owner      = "rachael"
+          , repository = "owl"
+          , status     = status
+          , url        = Just "https://travis-ci.org/rachael/owl/builds/1982"
+          , sha        = Sha "b26354"
+          }
+
+    it "should convert a commit status pending event" $ do
+      let payload = testCommitStatusPayload Github.Pending
+          Just event = convertGithubEvent $ Github.CommitStatus payload
+      event `shouldBe` (BuildStatusChanged (Sha "b26354") BuildPending)
+
+    it "should convert a commit status success event" $ do
+      let payload = testCommitStatusPayload Github.Success
+          Just event = convertGithubEvent $ Github.CommitStatus payload
+      event `shouldBe` (BuildStatusChanged (Sha "b26354") BuildSucceeded)
+
+    it "should convert a commit status failure event" $ do
+      let payload = testCommitStatusPayload Github.Failure
+          Just event = convertGithubEvent $ Github.CommitStatus payload
+      event `shouldBe` (BuildStatusChanged (Sha "b26354") BuildFailed)
+
+    it "should convert a commit status error event" $ do
+      let payload = testCommitStatusPayload Github.Error
+          Just event = convertGithubEvent $ Github.CommitStatus payload
+      -- The error and failure statuses are both converted to "failed".
+      event `shouldBe` (BuildStatusChanged (Sha "b26354") BuildFailed)
