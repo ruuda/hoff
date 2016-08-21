@@ -20,8 +20,8 @@ import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (tryReadTBQueue)
 import Control.Lens (view)
 import Control.Monad (replicateM_)
-import Data.ByteString.Lazy (fromStrict)
-import Data.Digest.Pure.SHA (hmacSha256)
+import Crypto.Hash.Algorithms (SHA256)
+import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.Maybe (fromJust)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
@@ -78,15 +78,15 @@ hGithubSignature = "X-Hub-Signature" -- Not a typo, really 'Hub', not 'GitHub'.
 -- posted, and Wreq expects a lazy bytestring here (TODO: Or can I use a strict
 -- one too?). The result must be put in a http header, and the http-types
 -- package chose to use strict bytestrings for those. So yeah, it's a mess.
-computeSignature :: Text -> LazyByteString -> StrictByteString
+computeSignature :: Text -> StrictByteString -> StrictByteString
 computeSignature secret message =
-  let secretAsBytes = fromStrict $ encodeUtf8 secret
-  in  ByteString.Strict.pack $ show $ hmacSha256 secretAsBytes message
+  let digest = hmac (encodeUtf8 secret) message :: HMAC SHA256
+  in  ByteString.Strict.pack $ show $ hmacGetDigest digest
 
 -- Peforms an http post request for an event with the given body payload. The
 -- host is prepended to the url automatically. (Also, three different string
 -- types in one signature ... please ecosystem, can we sort this out?)
-httpPostGithubEvent :: String -> StrictByteString -> LazyByteString -> IO (Response LazyByteString)
+httpPostGithubEvent :: String -> StrictByteString -> StrictByteString -> IO (Response LazyByteString)
 httpPostGithubEvent url eventName body =
   let signature = computeSignature "secret" body
       headers   = [ (hContentType, "application/json")
@@ -153,7 +153,7 @@ serverSpec = do
 
     it "accepts a pull_request webhook" $
       withServer $ \ ghQueue -> do
-        payload  <- ByteString.Lazy.readFile "tests/data/pull-request-payload.json"
+        payload  <- ByteString.Strict.readFile "tests/data/pull-request-payload.json"
         response <- httpPostGithubEvent "/hook/github" "pull_request" payload
         event    <- popQueue ghQueue
         -- Only check that an event was received, there are unit tests already
@@ -164,7 +164,7 @@ serverSpec = do
 
     it "serves 503 service unavailable when the queue is full" $
       withServer $ \ ghQueue -> do
-        payload  <- ByteString.Lazy.readFile "tests/data/pull-request-payload.json"
+        payload  <- ByteString.Strict.readFile "tests/data/pull-request-payload.json"
 
         -- The first five responses should be accepted, which will fill up the
         -- queue (that has a capacity of 5 in these tests).
@@ -203,7 +203,7 @@ serverSpec = do
 
     it "serves 501 not implemented for unknown webhooks" $
       withServer $ \ _ghQueue -> do
-        payload  <- ByteString.Lazy.readFile "tests/data/pull-request-payload.json"
+        payload  <- ByteString.Strict.readFile "tests/data/pull-request-payload.json"
         -- Send a webhook event with correct signature, but bogus event name.
         response <- httpPostGithubEvent "/hook/github" "launch_missiles" payload
         let status = view Wreq.responseStatus response
