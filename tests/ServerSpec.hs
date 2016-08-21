@@ -20,7 +20,7 @@ import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (tryReadTBQueue)
 import Control.Lens (view)
 import Control.Monad (replicateM_)
-import Crypto.Hash.Algorithms (SHA256)
+import Crypto.Hash.Algorithms (SHA1)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.Maybe (fromJust)
 import Data.Text (Text)
@@ -83,7 +83,7 @@ testSecret = "N6MAC41717"
 -- package chose to use strict bytestrings for those. So yeah, it's a mess.
 computeSignature :: Text -> StrictByteString -> StrictByteString
 computeSignature secret message =
-  let digest = hmac (encodeUtf8 secret) message :: HMAC SHA256
+  let digest = hmac (encodeUtf8 secret) message :: HMAC SHA1
   in  ByteString.Strict.pack $ show $ hmacGetDigest digest
 
 -- Peforms an http post request for an event with the given body payload. The

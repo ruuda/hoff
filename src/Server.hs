@@ -13,7 +13,7 @@ import Control.Concurrent.STM.TBQueue (isFullTBQueue, writeTBQueue)
 import Control.Concurrent.STM.TSem (newTSem, signalTSem, waitTSem)
 import Control.Monad.IO.Class (liftIO)
 import Crypto.Hash (digestFromByteString)
-import Crypto.Hash.Algorithms (SHA256)
+import Crypto.Hash.Algorithms (SHA1)
 import Crypto.MAC.HMAC (HMAC (..), hmac)
 import Data.ByteString (ByteString)
 import Data.Text (Text)
@@ -40,7 +40,7 @@ router ghQueue ghSecret = do
 -- the message, given the secret, and the actual message bytes.
 isSignatureValid :: Text -> Text -> ByteString -> Bool
 isSignatureValid secret hexDigest message =
-  let actualHmac   = hmac (encodeUtf8 secret) message :: HMAC SHA256
+  let actualHmac   = hmac (encodeUtf8 secret) message :: HMAC SHA1
       binaryDigest = fst $ Base16.decode $ encodeUtf8 hexDigest
   in  case digestFromByteString binaryDigest of
         -- The HMAC type implements a constant-time comparison.
