@@ -30,10 +30,18 @@ import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import Data.Aeson
 import Data.List (intersperse)
 import Data.Text (Text)
+import Data.Text.Format.Params (Params)
+import Data.Text.Lazy (toStrict)
 import System.Exit (ExitCode (ExitSuccess))
 import System.Process.Text (readProcessWithExitCode)
 
 import qualified Data.Text as Text
+import qualified Data.Text.Format as Text
+
+-- Conversion function because of Haskell string type madness. This is just
+-- Text.format, but returning a strict Text instead of a lazy one.
+format :: Params ps => Text.Format -> ps -> Text
+format formatString params = toStrict $ Text.format formatString params
 
 -- A branch is identified by its name.
 data Branch = Branch Text deriving (Eq)
@@ -128,9 +136,11 @@ runGit repoDir operation = case operation of
   Free (Rebase sha branch cont) -> do
     result <- callGitInRepo ["rebase", "origin/" ++ (show branch), show sha]
     case result of
-      Left  _ -> do
+      Left (code, message) -> do
         -- Rebase failed, call the continuation with no rebased sha, but first
         -- abort the rebase.
+        -- TODO: Don't spam the log with these, a failed rebase is expected.
+        logInfoN $ format "git rebase failed with code {}: {}" (show code, message)
         abortResult <- callGitInRepo ["rebase", "--abort"]
         when (isLeft abortResult) $ logWarnN "warning: git rebase --abort failed"
         continueWith $ cont Nothing
