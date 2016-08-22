@@ -35,7 +35,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 
 import Configuration (Configuration)
-import Git (Sha (..), GitOperation, PushResult (..))
+import Git (Branch (..), Sha (..), GitOperation, PushResult (..))
 import Project (BuildStatus (..))
 import Project (IntegrationStatus (..))
 import Project (ProjectState)
@@ -47,14 +47,14 @@ import qualified Project as Pr
 import qualified Configuration as Config
 
 data ActionFree a
-  = TryIntegrate Sha (Maybe Sha -> a)
+  = TryIntegrate (Sha, Branch) (Maybe Sha -> a)
   | PushNewHead Sha (PushResult -> a)
   | LeaveComment PullRequestId Text a
   deriving (Functor)
 
 type Action = Free ActionFree
 
-tryIntegrate :: Sha -> Action (Maybe Sha)
+tryIntegrate :: (Sha, Branch) -> Action (Maybe Sha)
 tryIntegrate candidate = liftF $ TryIntegrate candidate id
 
 pushNewHead :: Sha -> Action PushResult
@@ -64,9 +64,9 @@ pushNewHead newHead = liftF $ PushNewHead newHead id
 runAction :: Configuration -> Action a -> GitOperation a
 runAction config action = case action of
   Pure x -> return x
-  Free (TryIntegrate sha h) -> do
+  Free (TryIntegrate candidate h) -> do
     -- TODO: Change types in config to be 'Branch', not 'Text'.
-    maybeSha <- Git.tryIntegrate sha (Git.Branch $ Config.branch config) (Git.Branch $ Config.testBranch config)
+    maybeSha <- Git.tryIntegrate candidate (Git.Branch $ Config.branch config) (Git.Branch $ Config.testBranch config)
     runAction config $ h maybeSha
   Free (PushNewHead sha h) -> do
     pushResult <- Git.push sha (Git.Branch $ Config.branch config)
@@ -77,13 +77,13 @@ runAction config action = case action of
 
 data Event
   -- GitHub events
-  = PullRequestOpened PullRequestId Sha Text   -- PR, sha, author.
+  = PullRequestOpened PullRequestId Sha Branch Text   -- PR, sha, ref, author.
   -- The commit changed event may contain false positives: it may be received
   -- even if the commit did not really change. This is because GitHub just
   -- sends a "something changed" event along with the new state.
-  | PullRequestCommitChanged PullRequestId Sha -- PR, new sha.
-  | PullRequestClosed PullRequestId            -- PR.
-  | CommentAdded PullRequestId Text Text       -- PR, author and body.
+  | PullRequestCommitChanged PullRequestId Sha Branch -- PR, new sha, new ref.
+  | PullRequestClosed PullRequestId                   -- PR.
+  | CommentAdded PullRequestId Text Text              -- PR, author and body.
   -- CI events
   | BuildStatusChanged Sha BuildStatus
   deriving (Eq, Show)
@@ -105,17 +105,17 @@ enqueueStopSignal queue = atomically $ writeTBQueue queue Nothing
 
 handleEvent :: Event -> ProjectState -> Action ProjectState
 handleEvent event = case event of
-  PullRequestOpened pr sha author -> handlePullRequestOpened pr sha author
-  PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
-  PullRequestClosed pr            -> handlePullRequestClosed pr
-  CommentAdded pr author body     -> handleCommentAdded pr author body
-  BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
+  PullRequestOpened pr sha ref author -> handlePullRequestOpened pr sha ref author
+  PullRequestCommitChanged pr sha ref -> handlePullRequestCommitChanged pr sha ref
+  PullRequestClosed pr                -> handlePullRequestClosed pr
+  CommentAdded pr author body         -> handleCommentAdded pr author body
+  BuildStatusChanged sha status       -> handleBuildStatusChanged sha status
 
-handlePullRequestOpened :: PullRequestId -> Sha -> Text -> ProjectState -> Action ProjectState
-handlePullRequestOpened pr sha author = return . Pr.insertPullRequest pr sha author
+handlePullRequestOpened :: PullRequestId -> Sha -> Branch -> Text -> ProjectState -> Action ProjectState
+handlePullRequestOpened pr sha ref author = return . Pr.insertPullRequest pr sha ref author
 
-handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> Action ProjectState
-handlePullRequestCommitChanged pr newSha state =
+handlePullRequestCommitChanged :: PullRequestId -> Sha -> Branch -> ProjectState -> Action ProjectState
+handlePullRequestCommitChanged pr newSha newRef state =
   -- If the commit changes, pretend that the PR was closed. This forgets about
   -- approval and build status. Then pretend a new PR was opened, with the same
   -- author as the original one, but with the new sha.
@@ -123,7 +123,7 @@ handlePullRequestCommitChanged pr newSha state =
       update pullRequest =
         let oldSha   = Pr.sha pullRequest
             author   = Pr.author pullRequest
-            newState = closedState >>= handlePullRequestOpened pr newSha author
+            newState = closedState >>= handlePullRequestOpened pr newSha newRef author
             -- If the change notification was a false positive, ignore it.
         in  if oldSha == newSha then return state else newState
   -- If the pull request was not present in the first place, do nothing.
@@ -205,8 +205,11 @@ proceedCandidate (pullRequestId, pullRequest) state =
 -- Integrates proposed changes from the pull request into the target branch.
 -- The pull request must exist in the project.
 tryIntegratePullRequest :: PullRequestId -> ProjectState -> Action ProjectState
-tryIntegratePullRequest pr state = fmap handleResult $ tryIntegrate candidateSha
-  where candidateSha = Pr.sha $ fromJust $ Pr.lookupPullRequest pr state
+tryIntegratePullRequest pr state = fmap handleResult $ tryIntegrate candidate
+  where pullRequest  = fromJust $ Pr.lookupPullRequest pr state
+        candidateSha = Pr.sha pullRequest
+        candidateRef = Pr.ref pullRequest
+        candidate    = (candidateSha, candidateRef)
         -- If integrating failed, perform no further actions but do set the
         -- state to conflicted. (TODO: leave a comment on the PR?) If it
         -- succeeded, update the integration candidate, and set the build

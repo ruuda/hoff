@@ -28,7 +28,7 @@ import Control.Monad.STM (atomically)
 import Data.Aeson (FromJSON (parseJSON), Object, Value (Object, String), (.:))
 import Data.Aeson.Types (Parser, typeMismatch)
 import Data.Text (Text)
-import Git (Sha (..))
+import Git (Branch (..), Sha (..))
 
 data PullRequestAction
   = Opened
@@ -52,11 +52,12 @@ data CommitStatus
 
 data PullRequestPayload = PullRequestPayload {
   action     :: PullRequestAction, -- Corresponds to "action".
-  owner      :: Text, -- Corresponds to "pull_request.base.repo.owner.login".
-  repository :: Text, -- Corresponds to "pull_request.base.repo.name".
-  number     :: Int,  -- Corresponds to "pull_request.number".
-  sha        :: Sha,  -- Corresponds to "pull_request.head.sha".
-  author     :: Text  -- Corresponds to "pull_request.user.login".
+  owner      :: Text,   -- Corresponds to "pull_request.base.repo.owner.login".
+  repository :: Text,   -- Corresponds to "pull_request.base.repo.name".
+  number     :: Int,    -- Corresponds to "pull_request.number".
+  sha        :: Sha,    -- Corresponds to "pull_request.head.sha".
+  ref        :: Branch, -- Corresponds to "pull_request.head.ref".
+  author     :: Text    -- Corresponds to "pull_request.user.login".
 } deriving (Eq, Show)
 
 data CommentPayload = CommentPayload {
@@ -113,6 +114,7 @@ instance FromJSON PullRequestPayload where
     <*> getNested v ["pull_request", "base", "repo", "name"]
     <*> getNested v ["pull_request", "number"]
     <*> getNested v ["pull_request", "head", "sha"]
+    <*> getNested v ["pull_request", "head", "ref"]
     <*> getNested v ["pull_request", "user", "login"]
   parseJSON nonObject = typeMismatch "pull_request payload" nonObject
 
