@@ -108,6 +108,11 @@ isPullRequestEvent event = case event of
   Github.PullRequest _ -> True
   _                    -> False
 
+isCommitStatusEvent :: Github.WebhookEvent -> Bool
+isCommitStatusEvent event = case event of
+  Github.CommitStatus _ -> True
+  _                     -> False
+
 withServer :: (Github.EventQueue -> IO ()) -> IO ()
 withServer body = do
   -- Create an event queue with a capacity of 5 events.
@@ -164,6 +169,17 @@ serverSpec = do
         (view Wreq.responseBody response) `shouldBe` "hook received"
         (view Wreq.responseStatus response) `shouldBe` ok200
         event `shouldSatisfy` isPullRequestEvent
+
+    it "accepts a (commit) status webhook" $
+      withServer $ \ ghQueue -> do
+        payload  <- ByteString.Strict.readFile "tests/data/status-payload.json"
+        response <- httpPostGithubEvent "/hook/github" "status" payload
+        event    <- popQueue ghQueue
+        -- Only check that an event was received, there are unit tests already
+        -- that verify that a request was parsed correctly.
+        (view Wreq.responseBody response) `shouldBe` "hook received"
+        (view Wreq.responseStatus response) `shouldBe` ok200
+        event `shouldSatisfy` isCommitStatusEvent
 
     it "serves 503 service unavailable when the queue is full" $
       withServer $ \ ghQueue -> do

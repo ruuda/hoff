@@ -89,6 +89,9 @@ serveGithubWebhook ghQueue = do
     Just "issue_comment" -> do
       payload <- jsonData :: ActionM Github.CommentPayload
       serveEnqueueEvent ghQueue $ Github.Comment payload
+    Just "status" -> do
+      payload <- jsonData :: ActionM Github.CommitStatusPayload
+      serveEnqueueEvent ghQueue $ Github.CommitStatus payload
     Just "ping" ->
       serveEnqueueEvent ghQueue $ Github.Ping
     _ -> do
