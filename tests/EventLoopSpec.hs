@@ -109,9 +109,6 @@ populateRepository dir =
       gitAdd "holden.txt"
       c6 <- gitCommit "c6: Add response"
 
-      -- Make HEAD point at master again, for when it is cloned later.
-      gitCheckout "master"
-
       return [c0, c1, c2, c3, c3', c4, c5, c6]
 
 -- Sets up two repositories: one with a few commits in the origin directory, and
@@ -125,7 +122,7 @@ initializeRepository originDir repoDir = do
   -- Clone with --single-branch, to make sure that we do not have all commits
   -- in the repo dir: when this is running for real, we won't have new commits
   -- already in the repository either. They need to be fetched.
-  _    <- callGit ["clone", "--single-branch", "file://" ++ originDir, repoDir]
+  _    <- callGit ["clone", "--single-branch", "--branch", "master", "file://" ++ originDir, repoDir]
   -- Set the author details in the cloned repository as well, to ensure that
   -- there is no implicit dependency on a global Git configuration.
   _    <- callGit ["-C", repoDir, "config", "user.email", "testsuite@example.com"]
@@ -348,6 +345,7 @@ eventLoopSpec = parallel $ do
         -- branch for building. Before we notify build success, push commmit c4
         -- to the origin "master" branch, so that pushing the rebased c6 will
         -- fail later on.
+        git ["fetch", "origin", "ahead"] -- The ref for commit c4.
         git ["push", "origin", (show c4) ++ ":refs/heads/master"]
 
         -- Extract the sha of the rebased commit from the project state, and
