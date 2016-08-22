@@ -109,6 +109,9 @@ populateRepository dir =
       gitAdd "holden.txt"
       c6 <- gitCommit "c6: Add response"
 
+      -- Make HEAD point at master again, for when it is cloned later.
+      gitCheckout "master"
+
       return [c0, c1, c2, c3, c3', c4, c5, c6]
 
 -- Sets up two repositories: one with a few commits in the origin directory, and
@@ -119,7 +122,10 @@ initializeRepository originDir repoDir = do
   -- Create the directory for the origin repository, and parent directories.
   FileSystem.createDirectoryIfMissing True originDir
   shas <- populateRepository originDir
-  _    <- callGit ["clone", "file://" ++ originDir, repoDir]
+  -- Clone with --single-branch, to make sure that we do not have all commits
+  -- in the repo dir: when this is running for real, we won't have new commits
+  -- already in the repository either. They need to be fetched.
+  _    <- callGit ["clone", "--single-branch", "file://" ++ originDir, repoDir]
   -- Set the author details in the cloned repository as well, to ensure that
   -- there is no implicit dependency on a global Git configuration.
   _    <- callGit ["-C", repoDir, "config", "user.email", "testsuite@example.com"]
