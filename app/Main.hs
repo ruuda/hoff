@@ -12,10 +12,13 @@ import Control.Concurrent (forkIO)
 import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runStdoutLoggingT)
+import System.Exit (exitFailure)
+
+import qualified System.Directory as FileSystem
 
 import Configuration (Configuration)
 import EventLoop (runGithubEventLoop, runLogicEventLoop)
-import Project (emptyProjectState, saveProjectState)
+import Project (ProjectState, emptyProjectState, loadProjectState, saveProjectState)
 import Server (buildServer)
 
 import qualified Configuration as Config
@@ -31,10 +34,25 @@ withConfig handler = do
       putStrLn $ "configuration: " ++ (show config)
       handler config
 
+initializeProjectState :: IO ProjectState
+initializeProjectState = do
+  isDirectory <- FileSystem.doesFileExist "project.json"
+  if isDirectory then do
+    maybeState <- loadProjectState "project.json"
+    case maybeState of
+      Just projectState -> do
+        putStrLn "Loaded project state from project.json."
+        return projectState
+      Nothing -> do
+        -- Fail loudly if something is wrong, and abort the program.
+        putStrLn "Failed to load project.json, please repair or remove it."
+        exitFailure
+  else do
+    putStrLn "No project.json found, starting with an empty state."
+    return emptyProjectState
+
 main :: IO ()
 main = withConfig $ \ config -> do
-  saveProjectState "project.json" emptyProjectState
-
   -- Create an event queue for GitHub webhook events. The server enqueues events
   -- here when a webhook is received, and a worker thread will process these
   -- events. Limit the number of queued events to 10 to avoid overloading the
@@ -63,15 +81,17 @@ main = withConfig $ \ config -> do
   -- save it to project.json.
   let persist = liftIO . saveProjectState "project.json"
 
+  -- Restore the previous state from disk if possible, or start clean.
+  projectState <- initializeProjectState
+
   -- Start a worker thread to run the main event loop.
-  -- TODO: Load previous state from disk.
   _ <- forkIO $ void
               $ runStdoutLoggingT
-              $ runLogicEventLoop config persist mainQueue emptyProjectState
+              $ runLogicEventLoop config persist mainQueue projectState
 
   let port   = Config.port config
       secret = Config.secret config
-  putStrLn $ "Listening for webhooks on port " ++ (show port)
+  putStrLn $ "Listening for webhooks on port " ++ (show port) ++ "."
   runServer <- fmap fst $ buildServer port ghQueue secret
   runServer
 
