@@ -46,11 +46,11 @@ callGit args = fmap (either undefined id) $ runNoLoggingT $ Git.callGit args
 
 -- Populates the repository with the following history:
 --
---                 .-- c5 -- c6  <-- intro
+--                 .-- c5 -- c6  <-- intro (pr 6)
 --                /
---   c0 -- c1 -- c2 -- c3 -- c4  <-- ahead
+--   c0 -- c1 -- c2 -- c3 -- c4  <-- ahead (pr 4)
 --                \     ^----------- master
---                 `-- c3'       <-- alternative
+--                 `-- c3'       <-- alternative (pr 3)
 --
 populateRepository :: FilePath -> IO [Sha]
 populateRepository dir =
@@ -62,6 +62,7 @@ populateRepository dir =
       gitAdd file          = void $ git ["add", file]
       gitBranch name sha   = void $ git ["checkout", "-b", name, show sha]
       gitCheckout brname   = void $ git ["checkout", brname]
+      gitSetRef name sha   = void $ git ["update-ref", name, show sha]
       getHeadSha           = fmap (Sha . Text.strip) $ git ["rev-parse", "@"]
       -- Commits with the given message and returns the sha of the new commit.
       gitCommit message    = git ["commit", "-m", message] >> getHeadSha
@@ -108,6 +109,12 @@ populateRepository dir =
       writeFile "holden.txt" "I mean, you're not helping! Why is that, Leon?"
       gitAdd "holden.txt"
       c6 <- gitCommit "c6: Add response"
+
+      -- Assign a pull request ref to some commits, like how they would exist
+      -- on GitHub. This enables fetching them later.
+      gitSetRef "refs/pull/3/head" c3'
+      gitSetRef "refs/pull/4/head" c4
+      gitSetRef "refs/pull/6/head" c6
 
       return [c0, c1, c2, c3, c3', c4, c5, c6]
 
@@ -228,15 +235,16 @@ eventLoopSpec = parallel $ do
     it "handles a fast-forwardable pull request" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6] = shas
-            pr1 = PullRequestId 1
+            -- Note that at the remote, refs/pull/4/head points to c4.
+            pr4 = PullRequestId 4
 
         -- Commit c4 is one commit ahead of master, so integrating it can be done
         -- with a fast-forward merge. Run the main event loop for these events
         -- and discard the final state by using 'void'.
         void $ runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr1 c4 "deckard",
-            Logic.CommentAdded pr1 "rachael" $ Text.pack $ "LGTM " ++ (show c4),
+            Logic.PullRequestOpened pr4 c4 "deckard",
+            Logic.CommentAdded pr4 "rachael" $ Text.pack $ "LGTM " ++ (show c4),
             Logic.BuildStatusChanged c4 BuildSucceeded
           ]
 
@@ -245,14 +253,15 @@ eventLoopSpec = parallel $ do
     it "handles a non-conflicting non-fast-forwardable pull request" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6] = shas
-            pr1 = PullRequestId 1
+            -- Note that at the remote, refs/pull/4/head points to c6.
+            pr6 = PullRequestId 6
 
         -- Commit c6 is two commits ahead and one behind of master, so
         -- integrating it produces new rebased commits.
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr1 c6 "deckard",
-            Logic.CommentAdded pr1 "rachael" $ Text.pack $ "LGTM " ++ (show c6)
+            Logic.PullRequestOpened pr6 c6 "deckard",
+            Logic.CommentAdded pr6 "rachael" $ Text.pack $ "LGTM " ++ (show c6)
           ]
 
         -- Extract the sha of the rebased commit from the project state.
@@ -268,22 +277,22 @@ eventLoopSpec = parallel $ do
     it "handles multiple pull requests" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6] = shas
-            pr1 = PullRequestId 1
-            pr2 = PullRequestId 2
+            pr4 = PullRequestId 4
+            pr6 = PullRequestId 6
 
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr1 c4 "deckard",
-            Logic.PullRequestOpened pr2 c6 "deckard",
+            Logic.PullRequestOpened pr4 c4 "deckard",
+            Logic.PullRequestOpened pr6 c6 "deckard",
             -- Note that although c4 has a lower pull request number, c6 should
             -- still be integrated first because it was approved earlier.
-            Logic.CommentAdded pr2 "rachael" $ Text.pack $ "LGTM " ++ (show c6),
-            Logic.CommentAdded pr1 "rachael" $ Text.pack $ "LGTM " ++ (show c4)
+            Logic.CommentAdded pr6 "rachael" $ Text.pack $ "LGTM " ++ (show c6),
+            Logic.CommentAdded pr4 "rachael" $ Text.pack $ "LGTM " ++ (show c4)
           ]
 
         -- Extract the sha of the rebased commit from the project state.
-        let Just (_prId, pullRequest2)    = Project.getIntegrationCandidate state
-            Project.Integrated rebasedSha = Project.integrationStatus pullRequest2
+        let Just (_prId, pullRequest6)    = Project.getIntegrationCandidate state
+            Project.Integrated rebasedSha = Project.integrationStatus pullRequest6
 
         -- The rebased commit should have been pushed to the remote repository
         -- 'integration' branch. Tell that building it succeeded.
@@ -291,8 +300,8 @@ eventLoopSpec = parallel $ do
 
         -- Repeat for the other pull request, which should be the candidate by
         -- now.
-        let Just (_prId, pullRequest1)     = Project.getIntegrationCandidate state'
-            Project.Integrated rebasedSha' = Project.integrationStatus pullRequest1
+        let Just (_prId, pullRequest4)     = Project.getIntegrationCandidate state'
+            Project.Integrated rebasedSha' = Project.integrationStatus pullRequest4
         void $ runLoop state' [Logic.BuildStatusChanged rebasedSha' BuildSucceeded]
 
       history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6", "c4"]
@@ -300,31 +309,31 @@ eventLoopSpec = parallel $ do
     it "skips conflicted pull requests" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, c3', c4, _c5, _c6] = shas
-            pr1 = PullRequestId 1
-            pr2 = PullRequestId 2
+            pr3 = PullRequestId 3
+            pr4 = PullRequestId 4
 
         -- Commit c3' conflicts with master, so a rebase should be attempted, but
         -- because it conflicts, the next pull request should be considered.
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr1 c3' "deckard",
-            Logic.PullRequestOpened pr2 c4 "deckard",
-            Logic.CommentAdded pr1 "rachael" $ Text.pack $ "LGTM " ++ (show c3'),
-            Logic.CommentAdded pr2 "rachael" $ Text.pack $ "LGTM " ++ (show c4)
+            Logic.PullRequestOpened pr3 c3' "deckard",
+            Logic.PullRequestOpened pr4 c4 "deckard",
+            Logic.CommentAdded pr3 "rachael" $ Text.pack $ "LGTM " ++ (show c3'),
+            Logic.CommentAdded pr4 "rachael" $ Text.pack $ "LGTM " ++ (show c4)
           ]
 
         -- The first pull request should be marked as conflicted. Note: this
         -- test also verifies that the repository is left in a good state after
         -- the conflicted rebase, so that the next commit can be integrated
         -- properly.
-        let Just pullRequest1 = Project.lookupPullRequest pr1 state
-        Project.integrationStatus pullRequest1 `shouldBe` Conflicted
+        let Just pullRequest3 = Project.lookupPullRequest pr3 state
+        Project.integrationStatus pullRequest3 `shouldBe` Conflicted
 
         -- The second pull request should still be pending, awaiting the build
         -- result.
-        let Just (prId, pullRequest2) = Project.getIntegrationCandidate state
-        prId `shouldBe` pr2
-        Project.buildStatus pullRequest2 `shouldBe` BuildPending
+        let Just (prId, pullRequest4) = Project.getIntegrationCandidate state
+        prId `shouldBe` pr4
+        Project.buildStatus pullRequest4 `shouldBe` BuildPending
 
       -- We did not send a build status notification for c4, so it should not
       -- have been integrated.
@@ -333,12 +342,12 @@ eventLoopSpec = parallel $ do
     it "restarts the sequence after a rejected push" $ do
       history <- withTestEnv $ \ shas runLoop git -> do
         let [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6] = shas
-            pr1 = PullRequestId 1
+            pr6 = PullRequestId 6
 
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr1 c6 "deckard",
-            Logic.CommentAdded pr1 "rachael" $ Text.pack $ "LGTM " ++ (show c6)
+            Logic.PullRequestOpened pr6 c6 "deckard",
+            Logic.CommentAdded pr6 "rachael" $ Text.pack $ "LGTM " ++ (show c6)
           ]
 
         -- At this point, c6 has been rebased and pushed to the "integration"
