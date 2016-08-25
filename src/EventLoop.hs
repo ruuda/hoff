@@ -39,12 +39,11 @@ eventFromPullRequestPayload payload =
   let number = Github.number (payload :: PullRequestPayload) -- TODO: Use PullRequestId wrapper from beginning.
       author = Github.author (payload :: PullRequestPayload) -- TODO: Wrapper type
       sha    = Github.sha    (payload :: PullRequestPayload)
-      ref    = Github.ref    (payload :: PullRequestPayload)
   in case Github.action (payload :: PullRequestPayload) of
-    Github.Opened      -> Logic.PullRequestOpened (PullRequestId number) sha ref author
-    Github.Reopened    -> Logic.PullRequestOpened (PullRequestId number) sha ref author
+    Github.Opened      -> Logic.PullRequestOpened (PullRequestId number) sha author
+    Github.Reopened    -> Logic.PullRequestOpened (PullRequestId number) sha author
     Github.Closed      -> Logic.PullRequestClosed (PullRequestId number)
-    Github.Synchronize -> Logic.PullRequestCommitChanged (PullRequestId number) sha ref
+    Github.Synchronize -> Logic.PullRequestCommitChanged (PullRequestId number) sha
 
 eventFromCommentPayload :: CommentPayload -> Maybe Logic.Event
 eventFromCommentPayload payload =
