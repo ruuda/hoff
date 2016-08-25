@@ -31,11 +31,14 @@ import Control.Monad.Free (Free (..), liftF)
 import Control.Monad.STM (atomically)
 import Data.Maybe (fromJust, fromMaybe, isJust, maybe)
 import Data.Text (Text)
+import Data.Text.Format.Params (Params)
+import Data.Text.Lazy (toStrict)
 
 import qualified Data.Text as Text
+import qualified Data.Text.Format as Text
 
 import Configuration (Configuration)
-import Git (Sha (..), GitOperation, PushResult (..))
+import Git (Branch (..), GitOperation, PushResult (..), Sha (..))
 import Project (BuildStatus (..))
 import Project (IntegrationStatus (..))
 import Project (ProjectState)
@@ -46,15 +49,21 @@ import qualified Git
 import qualified Project as Pr
 import qualified Configuration as Config
 
+-- Conversion function because of Haskell string type madness. This is just
+-- Text.format, but returning a strict Text instead of a lazy one.
+-- TODO: Extract into utility module and avoid duplication?
+format :: Params ps => Text.Format -> ps -> Text
+format formatString params = toStrict $ Text.format formatString params
+
 data ActionFree a
-  = TryIntegrate Sha (Maybe Sha -> a)
+  = TryIntegrate (Branch, Sha) (Maybe Sha -> a)
   | PushNewHead Sha (PushResult -> a)
   | LeaveComment PullRequestId Text a
   deriving (Functor)
 
 type Action = Free ActionFree
 
-tryIntegrate :: Sha -> Action (Maybe Sha)
+tryIntegrate :: (Branch, Sha) -> Action (Maybe Sha)
 tryIntegrate candidate = liftF $ TryIntegrate candidate id
 
 pushNewHead :: Sha -> Action PushResult
@@ -64,9 +73,9 @@ pushNewHead newHead = liftF $ PushNewHead newHead id
 runAction :: Configuration -> Action a -> GitOperation a
 runAction config action = case action of
   Pure x -> return x
-  Free (TryIntegrate sha h) -> do
+  Free (TryIntegrate (ref, sha) h) -> do
     -- TODO: Change types in config to be 'Branch', not 'Text'.
-    maybeSha <- Git.tryIntegrate sha (Git.Branch $ Config.branch config) (Git.Branch $ Config.testBranch config)
+    maybeSha <- Git.tryIntegrate ref sha (Git.Branch $ Config.branch config) (Git.Branch $ Config.testBranch config)
     runAction config $ h maybeSha
   Free (PushNewHead sha h) -> do
     pushResult <- Git.push sha (Git.Branch $ Config.branch config)
@@ -202,20 +211,28 @@ proceedCandidate (pullRequestId, pullRequest) state =
     -- TODO: Leave a comment on the pull request, perhaps post to chatroom.
     BuildFailed     -> return $ Pr.setIntegrationCandidate Nothing state
 
+-- Given a pull request id, returns the name of the GitHub ref for that pull
+-- request, so it can be fetched.
+getPullRequestRef :: PullRequestId -> Branch
+getPullRequestRef (PullRequestId n) = Branch $ format "refs/pull/{}/head" [n]
+
 -- Integrates proposed changes from the pull request into the target branch.
 -- The pull request must exist in the project.
 tryIntegratePullRequest :: PullRequestId -> ProjectState -> Action ProjectState
-tryIntegratePullRequest pr state = fmap handleResult $ tryIntegrate candidateSha
-  where candidateSha = Pr.sha $ fromJust $ Pr.lookupPullRequest pr state
-        -- If integrating failed, perform no further actions but do set the
-        -- state to conflicted. (TODO: leave a comment on the PR?) If it
-        -- succeeded, update the integration candidate, and set the build
-        -- to pending, as pushing should have triggered a build.
-        handleResult result = case result of
-          Nothing  -> Pr.setIntegrationStatus pr Conflicted state
-          Just sha -> Pr.setIntegrationStatus pr (Integrated sha)
-                    $ Pr.setBuildStatus pr BuildPending
-                    $ Pr.setIntegrationCandidate (Just pr) state
+tryIntegratePullRequest pr state = fmap handleResult $ tryIntegrate candidate
+  where
+    candidateSha = Pr.sha $ fromJust $ Pr.lookupPullRequest pr state
+    candidateRef = getPullRequestRef pr
+    candidate    = (candidateRef, candidateSha)
+    -- If integrating failed, perform no further actions but do set the state
+    -- to conflicted. (TODO: leave a comment on the PR?) If it succeeded, update
+    -- the integration candidate, and set the build to pending, as pushing
+    -- should have triggered a build.
+    handleResult result = case result of
+      Nothing  -> Pr.setIntegrationStatus pr Conflicted state
+      Just sha -> Pr.setIntegrationStatus pr (Integrated sha)
+                $ Pr.setBuildStatus pr BuildPending
+                $ Pr.setIntegrationCandidate (Just pr) state
 
 -- Pushes the integrated commits of the given candidate pull request to the
 -- target branch. If the push fails, restarts the integration cycle for the

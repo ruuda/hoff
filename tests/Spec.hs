@@ -19,7 +19,7 @@ import Test.Hspec
 import qualified Data.IntMap as IntMap
 
 import EventLoop (convertGithubEvent)
-import Git (PushResult(..), Sha (..))
+import Git (Branch (..), PushResult(..), Sha (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
 import Logic hiding (runAction)
 import Project
@@ -42,7 +42,7 @@ candidateState pr prSha prAuthor candidateSha =
 -- Types and functions to mock running an action without actually doing anything.
 
 data ActionFlat
-  = ATryIntegrate Sha
+  = ATryIntegrate (Branch, Sha)
   | APushNewHead Sha
   | ALeaveComment PullRequestId Text
   deriving (Eq, Show)
@@ -58,7 +58,7 @@ runActionWithInit integrateResult pushResult actions action =
         in  (result, act : acts')
   in case action of
     Pure result                   -> (result, [])
-    Free (TryIntegrate trySha h)  -> prepend (h integrateResult) $ ATryIntegrate trySha
+    Free (TryIntegrate candi h)   -> prepend (h integrateResult) $ ATryIntegrate candi
     Free (PushNewHead headSha h)  -> prepend (h pushResult) $ APushNewHead headSha
     Free (LeaveComment pr body x) -> prepend x $ ALeaveComment pr body
 
@@ -206,7 +206,7 @@ main = hspec $ do
       prId                          `shouldBe` PullRequestId 1
       buildStatus pullRequest       `shouldBe` BuildPending
       integrationStatus pullRequest `shouldBe` Integrated (Sha "38c")
-      actions `shouldBe` [ATryIntegrate (Sha "f34")]
+      actions `shouldBe` [ATryIntegrate (Branch "refs/pull/1/head", Sha "f34")]
 
     it "pushes after a successful build" $ do
       let pullRequest = PullRequest
@@ -251,7 +251,9 @@ main = hspec $ do
 
       integrationStatus pullRequest' `shouldBe` Integrated (Sha "38e")
       buildStatus       pullRequest' `shouldBe` BuildPending
-      actions `shouldBe` [APushNewHead (Sha "38d"), ATryIntegrate (Sha "f35")]
+      actions `shouldBe` [ APushNewHead (Sha "38d")
+                         , ATryIntegrate (Branch "refs/pull/1/head", Sha "f35")
+                         ]
 
   describe "Github.PullRequestPayload" $ do
 

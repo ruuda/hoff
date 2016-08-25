@@ -55,6 +55,13 @@ instance Show Branch where
 instance Show Sha where
   show (Sha sha) = Text.unpack sha
 
+instance FromJSON Branch where
+  parseJSON (String str) = return (Branch str)
+  parseJSON _            = mzero
+
+instance ToJSON Branch where
+  toJSON (Branch str) = String str
+
 instance FromJSON Sha where
   parseJSON (String str) = return (Sha str)
   parseJSON _            = mzero
@@ -160,14 +167,19 @@ runGit repoDir operation = case operation of
 -- Fetches the target branch, rebases the candidate on top of the target branch,
 -- and if that was successfull, force-pushses the resulting commits to the test
 -- branch.
-tryIntegrate :: Sha -> Branch -> Branch -> GitOperation (Maybe Sha)
-tryIntegrate candidate targetBranch testBranch = do
+tryIntegrate :: Branch -> Sha -> Branch -> Branch -> GitOperation (Maybe Sha)
+tryIntegrate candidateRef candidateSha targetBranch testBranch = do
+  -- Fetch the ref for the target commit that needs to be rebased, we might not
+  -- have it yet. Although Git supports fetching single commits, GitHub does
+  -- not, so we fetch the /refs/pull/:id/head ref that GitHub creates for every
+  -- pull request, and that should point to the candidate commit.
+  fetchBranch candidateRef
   -- Make sure the target branch is up to date. (If later -- after the test
   -- results come in, and we want to push -- it turns out that the target branch
   -- has new commits, then we just restart the cycle.)
   fetchBranch targetBranch
   -- Rebase the candidate commits onto the target branch.
-  rebaseResult <- rebase candidate targetBranch
+  rebaseResult <- rebase candidateSha targetBranch
   case rebaseResult of
     -- If the rebase succeeded, then this is our new integration candidate.
     -- Push it to the remote integration branch to trigger a build.
