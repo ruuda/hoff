@@ -23,3 +23,5 @@ install:
 script:
   - stack build -j2 --no-terminal
   - stack test -j2 --no-terminal
+  # TODO: Build static library only for tags, then upload it to GitHub.
+  - stack build --flag hoff:release
