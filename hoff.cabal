@@ -53,7 +53,6 @@ executable hoff
 
   if flag(release)
     ghc-options:    -Wall -O2
-    ld-options:     -static -pthread
 
   build-depends: base         >= 4.8 && < 4.10
                , directory    >= 1.2 && < 1.3
