@@ -1,6 +1,7 @@
 # Build output
 /.stack-work
 /dist
+/package/*.deb
 
 # Cabal sandbox
 /.cabal-sandbox
@@ -9,3 +10,7 @@
 # Editor files
 *.swp
 *.swo
+
+# Vagrant files
+/package/.vagrant
+/package/*-console.log
