@@ -1,0 +1,13 @@
+Package: hoff
+Version: ${VERSION}
+Section: vcs
+Priority: optional
+Architecture: amd64
+Maintainer: Ruud van Asseldonk <dev@veniogames.com>
+Description: A gatekeeper for your commits
+Depends: libc6 (>= 2.23),
+         libgcc1 (>= 1:6.0.1),
+         libgmp10 (>= 2:6.1.0),
+         libstdc++6 (>= 5.4.0),
+         git (>= 1:2.7.4),
+         zlib1g (>= 1:1.2.8)
