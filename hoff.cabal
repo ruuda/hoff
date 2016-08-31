@@ -14,18 +14,11 @@ build-type:          Simple
 extra-source-files:  readme.md
 cabal-version:       >=1.10
 
-flag release
-  description: Enable optimizations and build a static binary
-  default: False
-
 library
   default-language: Haskell2010
   hs-source-dirs:   src
   exposed-modules:  Configuration, EventLoop, Git, Github, Logic, Project, Server
   ghc-options:      -Wall
-
-  if flag(release)
-    ghc-options:    -Wall -O2
 
   build-depends: aeson             >= 0.11 && < 0.12
                , aeson-pretty      >= 0.7  && < 0.9
@@ -50,9 +43,6 @@ executable hoff
   main-is:          Main.hs
   hs-source-dirs:   app
   ghc-options:      -Wall
-
-  if flag(release)
-    ghc-options:    -Wall -O2
 
   build-depends: base         >= 4.8 && < 4.10
                , directory    >= 1.2 && < 1.3
