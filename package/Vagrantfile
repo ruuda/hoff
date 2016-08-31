@@ -3,13 +3,13 @@
 # keep dependencies on dynamic libraries consistent. For local development, just
 # using Stack should be fine.
 
-# Note: when using the Virtualbox provider,
-# run `vagrant plugin install vagrant-vboxguest` first.
-
 Vagrant.configure(2) do |config|
   config.vm.box = "ubuntu/xenial64"
-  config.vm.synced_folder "..", "/vagrant"
+  config.vm.synced_folder "..", "/vagrant", type: "rsync"
   config.vm.provision "shell", inline: <<-SHELL
+    # Retrieve the key used to sign the Stack package, add a repository for
+    # Stack and install it. Also install an older version of GHC that --
+    # although not used -- ensures that the dependencies are present already.
     sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 575159689BEFB442
     echo 'deb http://download.fpcomplete.com/ubuntu xenial main' | sudo tee /etc/apt/sources.list.d/fpco.list
     sudo apt update
