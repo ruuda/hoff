@@ -1,0 +1,22 @@
+[Unit]
+Description=Commit gatekeeper daemon
+After=networking.service
+Required=networking.service
+AssertPathExists=/etc/hoff.json
+
+[Service]
+ExecStart=/usr/bin/hoff
+# TODO: Set a good working directory where the state is saved.
+WorkingDirectory=/tmp
+# TODO: This is not used yet.
+Environment="ENV=prod"
+User=git
+Restart=on-failure
+RestartSec=5
+# Make /etc, /usr, and /boot read-only to the process.
+ProtectSystem=full
+# TODO: Consider using ProtectHome?
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

@@ -19,7 +19,9 @@ PKGNAME="hoff_$VERSION-1"
 # Recreate the file system layout as it should be on the target machine.
 mkdir -p "$PKGNAME/DEBIAN"
 mkdir -p "$PKGNAME/usr/bin"
+mkdir -p "$PKGNAME/lib/systemd/system"
 cp "$(stack path --local-install-root)/bin/hoff" "$PKGNAME/usr/bin/"
+cp hoff.service "$PKGNAME/lib/systemd/system"
 
 # Write the package metadata file, substituting environment variables in the
 # template file.
