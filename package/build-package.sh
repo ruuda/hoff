@@ -26,6 +26,8 @@ cp hoff.service "$PKGNAME/lib/systemd/system"
 # Write the package metadata file, substituting environment variables in the
 # template file.
 cat deb-control | envsubst > "$PKGNAME/DEBIAN/control"
+cp deb-postinst "$PKGNAME/DEBIAN/postinst"
+chmod +x "$PKGNAME/DEBIAN/postinst"
 
 dpkg-deb --build "$PKGNAME"
 
