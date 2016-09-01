@@ -5,12 +5,16 @@
 #
 #   Usage: VERSION=0.0.0 ./build-package.sh
 
+# Fail early of any of the commands below fail.
+set -e
+
+if [ -z "$VERSION" ]; then
+  echo '$VERSION must be set to build a package.'
+  exit -1
+fi
 
 # Set package filename.
 PKGNAME="hoff_$VERSION-1"
-
-# Fail early of any of the commands below fail.
-set -e
 
 # Recreate the file system layout as it should be on the target machine.
 mkdir -p "$PKGNAME/DEBIAN"
