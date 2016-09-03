@@ -29,6 +29,7 @@ cp example-config.json "$PKGNAME/etc/hoff.json"
 # template file.
 cat deb-control | envsubst > "$PKGNAME/DEBIAN/control"
 cp deb-postinst "$PKGNAME/DEBIAN/postinst"
+cp deb-conffiles "$PKGNAME/DEBIAN/conffiles"
 chmod +x "$PKGNAME/DEBIAN/postinst"
 
 dpkg-deb --build "$PKGNAME"
