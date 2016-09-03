@@ -23,3 +23,6 @@ install:
 script:
   - stack build -j2 --no-terminal
   - stack test -j2 --no-terminal
+  # As CI is running on a Debian-like system, test building
+  # the package here too.
+  - cd package && VERSION=0.0.0 ./build-package.sh
