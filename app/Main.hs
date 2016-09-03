@@ -15,6 +15,7 @@ import Control.Monad.Logger (runStdoutLoggingT)
 import System.Exit (exitFailure)
 
 import qualified System.Directory as FileSystem
+import qualified System.Environment
 
 import Configuration (Configuration)
 import EventLoop (runGithubEventLoop, runLogicEventLoop)
@@ -25,14 +26,30 @@ import qualified Configuration as Config
 import qualified Github
 import qualified Logic
 
-withConfig :: (Configuration -> IO ()) -> IO ()
-withConfig handler = do
-  maybeConfig <- Config.loadConfiguration "config.json"
+getConfigFilePathOrExit :: IO FilePath
+getConfigFilePathOrExit = do
+  args <- System.Environment.getArgs
+  case args of
+    fname : _ -> do
+      exists <- FileSystem.doesFileExist fname
+      if exists then
+        return fname
+      else do
+        putStrLn $ "Cannot load configuration: the file '" ++ fname ++ "' does not exist."
+        exitFailure
+    [] -> do
+      putStrLn "No config file specified."
+      putStrLn "The first argument must be the path to the config file."
+      exitFailure
+
+loadConfigOrExit :: FilePath -> IO Configuration
+loadConfigOrExit fname = do
+  maybeConfig <- Config.loadConfiguration fname
   case maybeConfig of
-    Nothing     -> putStrLn "failed to load configuration"
-    Just config -> do
-      putStrLn $ "configuration: " ++ (show config)
-      handler config
+    Just config -> return config
+    Nothing -> do
+      putStrLn $ "Failed to parse configuration file '" ++ fname ++ "'."
+      exitFailure
 
 initializeProjectState :: IO ProjectState
 initializeProjectState = do
@@ -52,7 +69,11 @@ initializeProjectState = do
     return emptyProjectState
 
 main :: IO ()
-main = withConfig $ \ config -> do
+main = do
+  -- Load configuration from the file specified as first program argument.
+  configFilePath <- getConfigFilePathOrExit
+  config <- loadConfigOrExit configFilePath
+
   -- Create an event queue for GitHub webhook events. The server enqueues events
   -- here when a webhook is received, and a worker thread will process these
   -- events. Limit the number of queued events to 10 to avoid overloading the
