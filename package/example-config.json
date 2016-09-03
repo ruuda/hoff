@@ -5,5 +5,5 @@
   "testBranch": "testing",
   "port": 5261,
   "checkout": "/home/git/your-repo",
-  "secret": "run 'pwgen -sy 40' and put one of the output lines here"
+  "secret": "run 'head --bytes 32 /dev/urandom | base64' and paste output here"
 }

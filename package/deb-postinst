@@ -12,7 +12,7 @@ case "$1" in
 
     # If the config file has not been modified (when the checksum matches that
     # of the example), tell the user to do so.
-    if sha256sum /etc/hoff.json | grep -q "^75eed49207df3daa84020e82973b1"; then
+    if sha256sum /etc/hoff.json | grep -q "^031264ff98d60a71030081655bbeb"; then
         echo "You should now edit /etc/hoff.json."
     fi
 
