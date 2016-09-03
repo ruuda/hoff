@@ -10,9 +10,10 @@ case "$1" in
     # the same parameters as below.
     adduser --system git
 
-    if [ ! -f /etc/hoff.json ]; then
-        # TODO: Put in a default?
-        echo "You should now create /etc/hoff.json."
+    # If the config file has not been modified (when the checksum matches that
+    # of the example), tell the user to do so.
+    if sha256sum /etc/hoff.json | grep -q "^75eed49207df3daa84020e82973b1"; then
+        echo "You should now edit /etc/hoff.json."
     fi
 
   ;;
