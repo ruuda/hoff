@@ -29,7 +29,7 @@ This will do several things:
  * Create the `git` user under which the daemon will run.
  * Create an example config file at `/etc/hoff.json`.
 
-Edit the config file, then enable and start the daemon:
+Enable and start the daemon:
 
     $ sudo --edit /etc/hoff.json
     $ sudo systemctl enable hoff
@@ -39,7 +39,98 @@ Verify that everything is up and running:
 
     $ sudo systemctl status hoff
 
+## Setting up the user
+
+The application runs as the `git` user, which needs its own Git configuration,
+and a private key to connect to GitHub. Let’s start with the Git config:
+
+    $ sudo --user git HOME=/home/git git config --global user.name 'CI Bot'
+    $ sudo --user git HOME=/home/git git config --global user.email 'cibot@example.com'
+    $ sudo --user git HOME=/home/git git config --global transfer.fsckObjects true
+
+Next, generate a private key:
+
+    $ sudo --user git ssh-keygen -t ed25519
+
+Save it in `/home/git/.ssh/id_ed25519`, and leave the passphrase empty to allow
+the key to be used without human interaction.
+
+Finally, we need a GitHub account that will be used for fetching and pushing.
+I recommend creating a separate account for this purpose. On GitHub, add the
+public key. (Paste the output of `sudo cat /home/git/.ssh/id_ed25519.pub` into
+the key field under “SSH and GPG keys”.)
+
 ## Adding a repository
 
-TODO: Generate Git credentials, check out the repository.
-TODO: Configure GitHub.
+Hoff keeps a checkout the repository it manages. (TODO: multiple repositories.)
+Currently it does not create the initial checkout automatically. (TODO:
+automate.) Create a directory to keep these checkouts:
+
+    $ sudo --user git mkdir /home/git/checkouts
+
+I’ll be using the repository `ruuda/bogus` in this example. On GitHub, add the
+bot account to this repository as a collaborator, to give it push access (and
+pull access in the case of a private repository). Note that after adding the bot
+as a collaborator, you need to accept the invitation from the bot account.
+(TODO: automate this via the API.)
+
+Now we can clone the repository on the server as the `git` user. I created a
+subdirectory per GitHub owner to avoid collisions when the server manages
+repositories for multiple owners.
+
+    $ sudo --user git mkdir /home/git/checkouts/ruuda
+    $ cd $_
+    $ sudo --user git HOME=/home/git git clone git@github.com:ruuda/bogus
+
+Accept the unknown host prompt.
+
+Finally, the daemon must be told about the repository in the config file:
+
+    $ sudo --edit /etc/hoff.json
+
+The meaning of the fields is as follows:
+
+ * **Owner**: The GitHub user or organization that owns the repository. In my
+   case `ruuda`.
+ * **Repository**: The GitHub repository to manage. In my case `bogus`.
+ * **Branch**: The branch to integrate changes into. `master` in most cases.
+ * **TestBranch**: The branch that changes are pushed to to trigger a CI build.
+   The application will force-push to this branch, so it should not be used for
+   other purposes. I used `testing`.
+ * **Port**: The port at which the webhook server is exposed. TODO: allow using 
+   80 and 443 via systemd socket activation.
+ * **Checkout**: The full path to the checkout.
+   `/home/git/checkouts/ruuda/bogus` in my case.
+ * **Secret**: The secret used to verify the authenticity of GitHub webhooks.
+   You can run `head --bytes 32 /dev/urandom | base64` to generate a secure
+   256-bit secret that doesn’t require any character to be escaped for json.
+
+Restart the daemon to pick up the new configuration, and verify that it started
+properly:
+
+    $ sudo systemctl restart hoff
+    $ sudo systemctl status hoff
+
+## Setting up webhooks
+
+On GitHub, go to the repository settings and add a new webhook. The payload url
+should be `http://yourserver.com/hook/github`, with content type
+application/json. (TODO: put owner and repo in the url.) Enter the secret
+generated in the previous section, and select the following events to be
+delivered:
+
+ * *Pull request*, to make the daemon aware of new or closed pull requests.
+ * *Issue comment*, to listen for LGTM stamps.
+ * *Status*, to get updates on the build status from a linked CI service.
+
+GitHub will deliver a ping event, and if everything is okay a green checkmark
+will appear. On the server, we can see that the webhook was received:
+
+    $ sudo journalctl --pager-end --unit hoff
+    > Sep 04 21:37:41 hoffbuild hoff[2860]: [Debug] github loop received event: Ping
+
+That’s it! You can now open a pull request and leave an LGTM comment to see the
+application in action. Remember to also set up a CI service like Travis CI to
+provide the build status updates.
+
+TODO: Proper usage manual.
