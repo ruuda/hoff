@@ -13,6 +13,7 @@ import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runStdoutLoggingT)
 import System.Exit (exitFailure)
+import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 
 import qualified System.Directory as FileSystem
 import qualified System.Environment
@@ -70,6 +71,14 @@ initializeProjectState = do
 
 main :: IO ()
 main = do
+  -- When the runtime detects that stdout is not connected to a console, it
+  -- defaults to block buffering instead of line buffering. When running under
+  -- systemd, this prevents log messages (which are written to stdout) from
+  -- showing up until the buffer is flushed. Therefore, explicitly select line
+  -- buffering, to enforce a flush after every newline.
+  hSetBuffering stdout LineBuffering
+  hSetBuffering stderr LineBuffering
+
   -- Load configuration from the file specified as first program argument.
   configFilePath <- getConfigFilePathOrExit
   config <- loadConfigOrExit configFilePath
