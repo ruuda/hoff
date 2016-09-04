@@ -3,7 +3,7 @@
 # This script invokes Stack to do a release build. It is intended to be run on
 # on the same system that packages the binaries, right before build-package.sh.
 
-# Fail early of any of the commands below fail.
+# Fail early if any of the commands below fail.
 set -e
 
 # Download the right version of GHC.
