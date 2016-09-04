@@ -12,7 +12,7 @@ import Control.Concurrent (forkIO)
 import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runStdoutLoggingT)
-import System.Exit (exitFailure)
+import System.Exit (die)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 
 import qualified System.Directory as FileSystem
@@ -35,22 +35,18 @@ getConfigFilePathOrExit = do
       exists <- FileSystem.doesFileExist fname
       if exists then
         return fname
-      else do
-        putStrLn $ "Cannot load configuration: the file '" ++ fname ++ "' does not exist."
-        exitFailure
-    [] -> do
-      putStrLn "No config file specified."
-      putStrLn "The first argument must be the path to the config file."
-      exitFailure
+      else
+        die $ "Cannot load configuration: the file '" ++ fname ++ "' does not exist."
+    [] ->
+      die $ "No config file specified.\n" ++
+            "The first argument must be the path to the config file."
 
 loadConfigOrExit :: FilePath -> IO Configuration
 loadConfigOrExit fname = do
   maybeConfig <- Config.loadConfiguration fname
   case maybeConfig of
     Just config -> return config
-    Nothing -> do
-      putStrLn $ "Failed to parse configuration file '" ++ fname ++ "'."
-      exitFailure
+    Nothing -> die $ "Failed to parse configuration file '" ++ fname ++ "'."
 
 initializeProjectState :: IO ProjectState
 initializeProjectState = do
@@ -63,8 +59,7 @@ initializeProjectState = do
         return projectState
       Nothing -> do
         -- Fail loudly if something is wrong, and abort the program.
-        putStrLn "Failed to load project.json, please repair or remove it."
-        exitFailure
+        die $ "Failed to load project.json, please repair or remove it."
   else do
     putStrLn "No project.json found, starting with an empty state."
     return emptyProjectState
