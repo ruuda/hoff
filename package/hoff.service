@@ -8,7 +8,7 @@ AssertPathExists=/etc/hoff.json
 ExecStart=/usr/bin/hoff /etc/hoff.json
 # TODO: Set a good working directory where the state is saved.
 WorkingDirectory=/tmp
-# User=git
+User=git
 Restart=on-failure
 RestartSec=10
 # Make /etc, /usr, and /boot read-only to the process.
