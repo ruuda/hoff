@@ -25,9 +25,10 @@ data Configuration = Configuration
     repository :: Text,     -- The name of the repository.
     branch     :: Text,     -- The branch to guard and integrate commits into.
     testBranch :: Text,     -- The branch to force-push candidates to for testing.
-    port       :: Int,      -- The port to listen on for webhooks.
     checkout   :: FilePath, -- The path to a local checkout of the repository.
-    secret     :: Text      -- Secret for GitHub webhook hmac signature.
+    secret     :: Text,     -- Secret for GitHub webhook hmac signature.
+    port       :: Int,      -- The port to listen on for webhooks.
+    stateFile  :: FilePath  -- The file where application state is stored.
   }
   deriving (Generic, Show)
 

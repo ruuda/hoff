@@ -97,13 +97,15 @@ The meaning of the fields is as follows:
  * **TestBranch**: The branch that changes are pushed to to trigger a CI build.
    The application will force-push to this branch, so it should not be used for
    other purposes. I used `testing`.
- * **Port**: The port at which the webhook server is exposed. TODO: allow using 
-   80 and 443 via systemd socket activation.
  * **Checkout**: The full path to the checkout.
    `/home/git/checkouts/ruuda/bogus` in my case.
  * **Secret**: The secret used to verify the authenticity of GitHub webhooks.
    You can run `head --bytes 32 /dev/urandom | base64` to generate a secure
    256-bit secret that doesn’t require any character to be escaped for json.
+ * **Port**: The port at which the webhook server is exposed. TODO: allow using
+   80 and 443 via systemd socket activation. Or use a reverse proxy anyway.
+ * **StateFile**: The path to the file where the daemon saves its state, so it
+   can remember the set of open pull requests across restarts.
 
 Restart the daemon to pick up the new configuration, and verify that it started
 properly:

@@ -48,20 +48,21 @@ loadConfigOrExit fname = do
     Just config -> return config
     Nothing -> die $ "Failed to parse configuration file '" ++ fname ++ "'."
 
-initializeProjectState :: IO ProjectState
-initializeProjectState = do
-  isDirectory <- FileSystem.doesFileExist "project.json"
-  if isDirectory then do
-    maybeState <- loadProjectState "project.json"
+initializeProjectState :: FilePath -> IO ProjectState
+initializeProjectState fname = do
+  exists <- FileSystem.doesFileExist fname
+  if exists then do
+    maybeState <- loadProjectState fname
     case maybeState of
       Just projectState -> do
-        putStrLn "Loaded project state from project.json."
+        putStrLn $ "Loaded project state from '" ++ fname ++ "'."
         return projectState
       Nothing -> do
         -- Fail loudly if something is wrong, and abort the program.
-        die $ "Failed to load project.json, please repair or remove it."
+        die $ "Failed to parse project state in '" ++ fname ++ "'.\n" ++
+              "Please repair or remove the file."
   else do
-    putStrLn "No project.json found, starting with an empty state."
+    putStrLn $ "File '" ++ fname ++ "' not found, starting with an empty state."
     return emptyProjectState
 
 main :: IO ()
@@ -98,16 +99,17 @@ main = do
   -- Discard events that are not intended for the configured repository.
   let owner        = Config.owner config
       repository   = Config.repository config
+      stateFile    = Config.stateFile config
       enqueueEvent = Logic.enqueueEvent mainQueue
   _ <- forkIO $ runStdoutLoggingT
               $ runGithubEventLoop owner repository ghQueue enqueueEvent
 
   -- When the event loop wants to persist the current project state,
-  -- save it to project.json.
-  let persist = liftIO . saveProjectState "project.json"
+  -- save it to the configured file.
+  let persist = liftIO . saveProjectState stateFile
 
   -- Restore the previous state from disk if possible, or start clean.
-  projectState <- initializeProjectState
+  projectState <- initializeProjectState stateFile
 
   -- Start a worker thread to run the main event loop.
   _ <- forkIO $ void

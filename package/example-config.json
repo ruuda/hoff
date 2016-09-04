@@ -3,7 +3,8 @@
   "repository": "your-repo",
   "branch": "master",
   "testBranch": "testing",
+  "checkout": "/home/git/checkouts/your-username/your-repo",
+  "secret": "run 'head --bytes 32 /dev/urandom | base64' and paste output here",
   "port": 5261,
-  "checkout": "/home/git/your-repo",
-  "secret": "run 'head --bytes 32 /dev/urandom | base64' and paste output here"
+  "stateFile": "/home/git/state.json"
 }
