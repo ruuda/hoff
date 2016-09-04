@@ -26,6 +26,7 @@
    request, for personal use
  * Support for basic review policy enforcement (whitelist reviewer usernames)
  * Append a "Reviewed-by" line to integrated commits
+ * Set timezone to UTC+0 for bot (rebased) commits
 
 # Long-term
 
