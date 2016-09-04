@@ -29,9 +29,8 @@ This will do several things:
  * Create the `git` user under which the daemon will run.
  * Create an example config file at `/etc/hoff.json`.
 
-Enable and start the daemon:
+Enable the daemon to start it automatically at boot, and start it now:
 
-    $ sudo --edit /etc/hoff.json
     $ sudo systemctl enable hoff
     $ sudo systemctl start hoff
 
@@ -42,13 +41,13 @@ Verify that everything is up and running:
 ## Setting up the user
 
 The application runs as the `git` user, which needs its own Git configuration,
-and a private key to connect to GitHub. Let’s start with the Git config:
+and a key pair to connect to GitHub. Let’s start with the Git config:
 
     $ sudo --user git HOME=/home/git git config --global user.name 'CI Bot'
     $ sudo --user git HOME=/home/git git config --global user.email 'cibot@example.com'
     $ sudo --user git HOME=/home/git git config --global transfer.fsckObjects true
 
-Next, generate a private key:
+Next, generate a key pair:
 
     $ sudo --user git ssh-keygen -t ed25519
 
@@ -57,14 +56,14 @@ the key to be used without human interaction.
 
 Finally, we need a GitHub account that will be used for fetching and pushing.
 I recommend creating a separate account for this purpose. On GitHub, add the
-public key. (Paste the output of `sudo cat /home/git/.ssh/id_ed25519.pub` into
-the key field under “SSH and GPG keys”.)
+public key to the new account. (Paste the output of `sudo cat
+/home/git/.ssh/id_ed25519.pub` into the key field under “SSH and GPG keys”.)
 
 ## Adding a repository
 
-Hoff keeps a checkout the repository it manages. (TODO: multiple repositories.)
-Currently it does not create the initial checkout automatically. (TODO:
-automate.) Create a directory to keep these checkouts:
+Hoff keeps a checkout of the repository it manages. (TODO: multiple
+repositories.) Currently it does not handle the initial clone automatically.
+(TODO: automate.) Create a directory to keep these checkouts:
 
     $ sudo --user git mkdir /home/git/checkouts
 
@@ -90,22 +89,27 @@ Finally, the daemon must be told about the repository in the config file:
 
 The meaning of the fields is as follows:
 
- * **Owner**: The GitHub user or organization that owns the repository. In my
+ * *Owner*: The GitHub user or organization that owns the repository. In my
    case `ruuda`.
- * **Repository**: The GitHub repository to manage. In my case `bogus`.
- * **Branch**: The branch to integrate changes into. `master` in most cases.
- * **TestBranch**: The branch that changes are pushed to to trigger a CI build.
+ * *Repository*: The GitHub repository to manage. In my case `bogus`.
+ * *Branch*: The branch to integrate changes into. `master` in most cases.
+ * *TestBranch*: The branch that changes are pushed to to trigger a CI build.
    The application will force-push to this branch, so it should not be used for
    other purposes. I used `testing`.
- * **Checkout**: The full path to the checkout.
-   `/home/git/checkouts/ruuda/bogus` in my case.
- * **Secret**: The secret used to verify the authenticity of GitHub webhooks.
+ * *Checkout*: The full path to the checkout. `/home/git/checkouts/ruuda/bogus`
+   in my case.
+ * *Secret*: The secret used to verify the authenticity of GitHub webhooks.
    You can run `head --bytes 32 /dev/urandom | base64` to generate a secure
-   256-bit secret that doesn’t require any character to be escaped for json.
- * **Port**: The port at which the webhook server is exposed. TODO: allow using
+   256-bit secret that doesn’t require any character to be escaped in the json
+   file.
+
+There are two global options too:
+
+ * *Port*: The port at which the webhook server is exposed. TODO: allow using
    80 and 443 via systemd socket activation. Or use a reverse proxy anyway.
- * **StateFile**: The path to the file where the daemon saves its state, so it
-   can remember the set of open pull requests across restarts.
+ * *StateFile*: The path to the file where the daemon saves its state, so it
+   can remember the set of open pull requests across restarts. The default
+   `/home/git/state.json` is fine. TODO: urge to back up this file regularly.
 
 Restart the daemon to pick up the new configuration, and verify that it started
 properly:
@@ -126,9 +130,11 @@ delivered:
  * *Status*, to get updates on the build status from a linked CI service.
 
 GitHub will deliver a ping event, and if everything is okay a green checkmark
-will appear. On the server, we can see that the webhook was received:
+will appear in the list of configured webhooks. On the server, we can see that
+the webhook was received:
 
     $ sudo journalctl --pager-end --unit hoff
+    > ...
     > Sep 04 21:37:41 hoffbuild hoff[2860]: [Debug] github loop received event: Ping
 
 That’s it! You can now open a pull request and leave an LGTM comment to see the
