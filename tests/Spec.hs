@@ -1,8 +1,9 @@
+-- Hoff -- A gatekeeper for your commits
 -- Copyright 2016 Ruud van Asseldonk
 --
--- This program is free software: you can redistribute it and/or modify
--- it under the terms of the GNU General Public License version 3. See
--- the licence file in the root of the repository.
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- you may not use this file except in compliance with the License.
+-- A copy of the License has been included in the root of the repository.
 
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DuplicateRecordFields #-}

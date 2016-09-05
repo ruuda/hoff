@@ -4,7 +4,7 @@ category:            Development
 synopsis:            A gatekeeper for your commits
 
 copyright:           Copyright 2016 Ruud van Asseldonk
-license:             GPL-3
+license:             Apache-2.0
 license-file:        license
 
 author:              Ruud van Asseldonk
