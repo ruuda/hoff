@@ -4,6 +4,7 @@
   "branch": "master",
   "testBranch": "testing",
   "checkout": "/home/git/checkouts/your-username/your-repo",
+  "reviewers": ["your-github-username"],
   "secret": "run 'head --bytes 32 /dev/urandom | base64' and paste output here",
   "port": 5261,
   "stateFile": "/home/git/state.json"

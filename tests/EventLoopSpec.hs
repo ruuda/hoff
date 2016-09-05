@@ -145,6 +145,7 @@ buildConfig repoDir = Configuration {
   Config.branch     = "master",
   Config.testBranch = "integration",
   Config.checkout   = repoDir,
+  Config.reviewers  = ["rachael", "deckard"],
   Config.secret     = "N6MAC41717",
   Config.port       = 5261,
   Config.stateFile  = "state.json"

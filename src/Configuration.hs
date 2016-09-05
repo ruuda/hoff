@@ -27,6 +27,7 @@ data Configuration = Configuration
     branch     :: Text,     -- The branch to guard and integrate commits into.
     testBranch :: Text,     -- The branch to force-push candidates to for testing.
     checkout   :: FilePath, -- The path to a local checkout of the repository.
+    reviewers  :: [Text],   -- List of GitHub usernames that are allowed to approve.
     secret     :: Text,     -- Secret for GitHub webhook hmac signature.
     port       :: Int,      -- The port to listen on for webhooks.
     stateFile  :: FilePath  -- The file where application state is stored.
