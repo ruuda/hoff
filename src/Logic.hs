@@ -113,12 +113,12 @@ enqueueEvent queue event = atomically $ writeTBQueue queue $ Just event
 enqueueStopSignal :: EventQueue -> IO ()
 enqueueStopSignal queue = atomically $ writeTBQueue queue Nothing
 
-handleEvent :: Event -> ProjectState -> Action ProjectState
-handleEvent event = case event of
+handleEvent :: Configuration -> Event -> ProjectState -> Action ProjectState
+handleEvent config event = case event of
   PullRequestOpened pr sha author -> handlePullRequestOpened pr sha author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosed pr
-  CommentAdded pr author body     -> handleCommentAdded pr author body
+  CommentAdded pr author body     -> handleCommentAdded config pr author body
   BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
 
 handlePullRequestOpened :: PullRequestId -> Sha -> Text -> ProjectState -> Action ProjectState
@@ -155,12 +155,20 @@ isApproval message (Sha target) =
     [stamp, sha] -> (stamp == "LGTM") && (isGood sha)
     _            -> False
 
-handleCommentAdded :: PullRequestId -> Text -> Text -> ProjectState -> Action ProjectState
-handleCommentAdded pr author body = return . Pr.updatePullRequest pr update
+isReviewer :: Configuration -> Text -> Bool
+isReviewer config username = username `elem` (Config.reviewers config)
+
+handleCommentAdded :: Configuration
+                   -> PullRequestId
+                   -> Text -- TODO: Wrapper type for usernames.
+                   -> Text
+                   -> ProjectState
+                   -> Action ProjectState
+handleCommentAdded config pr author body = return . Pr.updatePullRequest pr update
   -- If the message was a valid approval stamp for the sha of this pull request,
   -- then it was approved by the author of the stamp. Otherwise do nothing.
   where update pullRequest =
-          if isApproval body $ Pr.sha pullRequest
+          if (isApproval body $ Pr.sha pullRequest) && (isReviewer config author)
             then pullRequest { Pr.approvedBy = Just author }
             else pullRequest
 

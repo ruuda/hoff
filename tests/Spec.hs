@@ -19,13 +19,29 @@ import Test.Hspec
 
 import qualified Data.IntMap as IntMap
 
+import Configuration (Configuration)
 import EventLoop (convertGithubEvent)
 import Git (Branch (..), PushResult(..), Sha (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
 import Logic hiding (runAction)
 import Project
 
+import qualified Configuration as Config
 import qualified Github
+
+-- Config used throughout these tests.
+testConfig :: Configuration
+testConfig = Config.Configuration {
+  Config.owner = "deckard",
+  Config.repository = "voight-kampff",
+  Config.branch = "master",
+  Config.testBranch = "testing",
+  Config.checkout = "/tmp/deckard/voight-kampff",
+  Config.reviewers = ["deckard"],
+  Config.secret = "secret",
+  Config.port = 5261,
+  Config.stateFile = "/dev/null"
+}
 
 -- Functions to prepare certain test states.
 
@@ -76,12 +92,12 @@ getState = fst . runAction
 -- Handle an event and simulate its side effects, then ignore the side effects
 -- and return the new state.
 handleEventFlat :: Event -> ProjectState -> ProjectState
-handleEventFlat event state = getState $ handleEvent event state
+handleEventFlat event state = getState $ handleEvent testConfig event state
 
 -- Handle events and simulate their side effects, then ignore the side effects
 -- and return the new state.
 handleEventsFlat :: [Event] -> ProjectState -> ProjectState
-handleEventsFlat events state = getState $ foldlM (flip handleEvent) state events
+handleEventsFlat events state = getState $ foldlM (flip $ handleEvent testConfig) state events
 
 -- Proceed with a state until a fixed point, simulate and collect the side
 -- effects.
@@ -152,12 +168,22 @@ main = hspec $ do
       state3 `shouldBe` state2
       -- TODO: Also assert that no actions are performed.
 
-    it "sets approval after a comment containing an approval stamp" $ do
+    it "sets approval after a stamp from a reviewer" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "toby"
-          event  = CommentAdded (PullRequestId 1) "marie" "LGTM 6412ef5"
+          -- Note: "deckard" is marked as reviewer in the test config.
+          event  = CommentAdded (PullRequestId 1) "deckard" "LGTM 6412ef5"
           state' = handleEventFlat event state
           pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
-      approvedBy pr `shouldBe` Just "marie"
+      approvedBy pr `shouldBe` Just "deckard"
+
+    it "does not set approval after a stamp from a non-reviewer" $ do
+      let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "toby"
+          -- Note: the comment is a valid LGTM stamp, but "rachael" is not
+          -- marked as reviewer in the test config.
+          event  = CommentAdded (PullRequestId 1) "rachael" "LGTM 6412ef5"
+          state' = handleEventFlat event state
+          pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
+      approvedBy pr `shouldBe` Nothing
 
     it "does not set approval after a random comment" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "patrick"

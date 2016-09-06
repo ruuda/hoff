@@ -117,7 +117,7 @@ runLogicEventLoop config persist queue initialState = runLoop initialState
       -- perform).
       logInfoN  $ Text.append "logic loop received event: " (Text.pack $ show event)
       logDebugN $ Text.append "state before: " (Text.pack $ show state0)
-      state1 <- runGit repoDir $ Logic.runAction config $ Logic.handleEvent event state0
+      state1 <- runGit repoDir $ Logic.runAction config $ Logic.handleEvent config event state0
       state2 <- runGit repoDir $ Logic.runAction config $ Logic.proceedUntilFixedPoint state1
       persist state2
       logDebugN $ Text.append "state after: " (Text.pack $ show state2)
