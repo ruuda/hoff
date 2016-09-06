@@ -5,6 +5,7 @@
  * Run event loop
  * Run Git process and parse output
  * Add end-to-end test for retry after rejected push
+ * Configurable Git credentials (just edit config of the daemon user)
 
 # Up next
 
@@ -16,7 +17,6 @@
 
 # Near-term
 
- * Configurable Git credentials
  * Support for multiple repositories
  * Support for commit message validation
  * Support for `--autosquash` rebasing
