@@ -19,10 +19,17 @@ before_install:
 
 install:
   - stack setup --no-terminal
+  - stack install --no-terminal cabal-dependency-licenses
 
 script:
   - stack build -j2 --no-terminal
   - stack test -j2 --no-terminal
+
   # As CI is running on a Debian-like system, test building
   # the package here too.
   - cd package && VERSION=0.0.0 ./build-package.sh
+
+  # Match the licenses of dependencies agains a whitelist, and fail if anything
+  # is not whitelisted. YAML has this arcane feature where an exclamation mark
+  # has special meaning, so the entire command is wrapped in single quotes.
+  - '! $(stack path --local-bin)/cabal-dependency-licenses | grep "#" | egrep -v "BSD3|MIT|PublicDomain"'
