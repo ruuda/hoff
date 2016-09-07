@@ -25,7 +25,9 @@ vagrant ssh -c "cd /vagrant/package && ./build-binary.sh"
 vagrant ssh -c "cd /vagrant/package && VERSION=$VERSION ./build-package.sh"
 
 # Pull the produced package from the virtual machine by catting it through ssh.
-vagrant ssh -c "cat /vagrant/package/$PKGFNAME" > $PKGFNAME
+# Only using cat caused corrupted files, likely due to encoding issues, and
+# transferring the data as base64 fixes that.
+vagrant ssh -c "cat /vagrant/package/$PKGFNAME | base64" | base64 --decode --ignore-garbage > $PKGFNAME
 
 # Power off the virtual machine, but do not destroy it. When using it next time
 # it will have the build tools and dependencies installed already, which will
