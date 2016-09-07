@@ -6,16 +6,19 @@ AssertPathExists=/etc/hoff.json
 
 [Service]
 ExecStart=/usr/bin/hoff /etc/hoff.json
-# TODO: Set a good working directory where the state is saved.
-WorkingDirectory=/tmp
 User=git
 Environment=HOME=/home/git
+
 Restart=on-failure
 RestartSec=10
+
 # Make /etc, /usr, and /boot read-only to the process.
 ProtectSystem=full
-# TODO: Consider using ProtectHome?
 MemoryDenyWriteExecute=true
+# TODO: Consider using ProtectHome?
+
+# Allow binding to priviliged ports (e.g. 80 and 443) as non-root user.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target
