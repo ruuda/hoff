@@ -19,7 +19,6 @@ before_install:
 
 install:
   - stack setup --no-terminal
-  - stack install --no-terminal cabal-dependency-licenses
 
 script:
   - stack build -j2 --no-terminal
@@ -28,7 +27,9 @@ script:
   # Match the licenses of dependencies agains a whitelist, and fail if anything
   # is not whitelisted. YAML has this arcane feature where an exclamation mark
   # has special meaning, so the entire command is wrapped in single quotes.
-  - '! $(stack path --local-bin)/cabal-dependency-licenses | grep "#" | egrep -v "BSD3|MIT|PublicDomain"'
+  # TODO: Enable this once Stack supports it.
+  # See https://github.com/commercialhaskell/stack/pull/2576.
+  # - '! stack list-dependencies --license --no-include-base | egrep -v "BSD3|MIT|ghc-prim|hoff|integer-gmp|template-haskell"'
 
   # As CI is running on a Debian-like system, test building
   # the package here too.
