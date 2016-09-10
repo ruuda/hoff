@@ -3,6 +3,9 @@
 This is a draft design of a minimum viable collaboration system that integrates
 with GitHub and Travis CI.
 
+NOTE: This document is outdated.
+TODO: Update this.
+
 ## Surface area
 
 To interact with the outside world, the system will need:
