@@ -3,6 +3,16 @@
 
 language: c
 
+# Do not build other branches than these, pull requests get built anyway, and in
+# the end it is only the result of the testing branch that matters. In theory
+# the commits that get pushed to master should have been built in testing
+# already, but sometimes I still push manually, and of course the evergreen
+# build status badge needs to come from somewhere.
+branches:
+  only:
+    - master
+    - testing
+
 cache:
   directories:
     - $HOME/.stack/
