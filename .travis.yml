@@ -13,6 +13,9 @@ branches:
     - master
     - testing
 
+notifications:
+  email: false
+
 cache:
   directories:
     - $HOME/.stack/
