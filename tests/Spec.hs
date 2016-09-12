@@ -15,9 +15,12 @@ import Data.Foldable (foldlM)
 import Data.Maybe (fromJust, isJust)
 import Data.Text (Text)
 import Prelude hiding (readFile)
+import System.Directory (getTemporaryDirectory, removeFile)
+import System.FilePath ((</>))
 import Test.Hspec
 
 import qualified Data.IntMap as IntMap
+import qualified Data.UUID.V4 as Uuid
 
 import Configuration (Configuration)
 import EventLoop (convertGithubEvent)
@@ -484,3 +487,15 @@ main = hspec $ do
       emptyState  `shouldBe` emptyState'
       singleState `shouldBe` singleState'
       candState   `shouldBe` candState'
+
+    it "loads correctly after persisting to disk" $ do
+      -- Generate a random filename in /tmp (or equivalent) to persist the state
+      -- to during the test.
+      uuid       <- Uuid.nextRandom
+      tmpBaseDir <- getTemporaryDirectory
+      let fname = tmpBaseDir </> ("state-" ++ (show uuid) ++ ".json")
+          state = singlePullRequestState (PullRequestId 1) (Sha "071") "deckard"
+      Project.saveProjectState fname state
+      Just state' <- Project.loadProjectState fname
+      state `shouldBe` state'
+      removeFile fname

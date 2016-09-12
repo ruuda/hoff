@@ -21,11 +21,11 @@ import Control.Monad (forM_, void, when)
 import Control.Monad.Logger (runNoLoggingT)
 import Data.Maybe (isJust)
 import Data.Text (Text)
-import Data.UUID.V4 (nextRandom)
 import Prelude hiding (appendFile, writeFile)
 import System.FilePath ((</>))
 import Test.Hspec
 
+import qualified Data.UUID.V4 as Uuid
 import qualified System.Directory as FileSystem
 
 import Configuration (Configuration (..))
@@ -201,7 +201,7 @@ withTestEnv body = do
   -- unnecessarily wear out SSDs. Put a uuid in there to ensure we don't
   -- overwrite somebody else's files, and to ensure that the tests do not affect
   -- eachother.
-  uuid       <- nextRandom
+  uuid       <- Uuid.nextRandom
   tmpBaseDir <- FileSystem.getTemporaryDirectory
   let testDir   = tmpBaseDir </> ("testsuite-" ++ (show uuid))
       originDir = testDir </> "repo-origin"
