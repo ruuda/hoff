@@ -309,7 +309,7 @@ main = hspec $ do
             }
           -- Proceeding should pick the next pull request as candidate.
           (state', actions) = proceedUntilFixedPointFlat (Just (Sha "38e")) PushOk state
-          Just (cId, candidate) = getIntegrationCandidate state'
+          Just (cId, _candidate) = getIntegrationCandidate state'
       cId     `shouldBe` PullRequestId 2
       actions `shouldBe` [ATryIntegrate (Branch "refs/pull/2/head", Sha "f37")]
 
