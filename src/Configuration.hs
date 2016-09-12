@@ -32,7 +32,7 @@ data Configuration = Configuration
     port       :: Int,      -- The port to listen on for webhooks.
     stateFile  :: FilePath  -- The file where application state is stored.
   }
-  deriving (Generic, Show)
+  deriving (Generic)
 
 instance FromJSON Configuration
 

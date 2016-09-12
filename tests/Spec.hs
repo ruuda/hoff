@@ -374,6 +374,23 @@ main = hspec $ do
       url        `shouldBe` Nothing
       commitSha  `shouldBe` (Sha "9049f1265b7d61be4a8904a9a27120d2064dab3b")
 
+  describe "Configuration" $ do
+
+    it "loads the example config file correctly" $ do
+      -- This test loads the example configuration file that is packaged. It
+      -- serves two purposes: to test that loading a config file works, but
+      -- mainly, to enforce that the example file is kept up to date.
+      Just cfg <- Config.loadConfiguration "package/example-config.json"
+      Config.owner      cfg `shouldBe` "your-github-username-or-organization"
+      Config.repository cfg `shouldBe` "your-repo"
+      Config.branch     cfg `shouldBe` "master"
+      Config.testBranch cfg `shouldBe` "testing"
+      Config.checkout   cfg `shouldBe` "/home/git/checkouts/your-username/your-repo"
+      Config.reviewers  cfg `shouldBe` ["your-github-username"]
+      Config.secret     cfg `shouldBe` "run 'head --bytes 32 /dev/urandom | base64' and paste output here"
+      Config.port       cfg `shouldBe` 80
+      Config.stateFile  cfg `shouldBe` "/home/git/state.json"
+
   describe "EventLoop.convertGithubEvent" $ do
 
     let testPullRequestPayload action = Github.PullRequestPayload
