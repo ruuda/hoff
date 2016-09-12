@@ -313,9 +313,9 @@ main = hspec $ do
       cId     `shouldBe` PullRequestId 2
       actions `shouldBe` [ATryIntegrate (Branch "refs/pull/2/head", Sha "f37")]
 
-  describe "Github.PullRequestPayload" $ do
+  describe "Github._Payload" $ do
 
-    it "should be parsed correctly" $ do
+    it "parses a PullRequestPayload correctly" $ do
       examplePayload <- readFile "tests/data/pull-request-payload.json"
       let maybePayload :: Maybe PullRequestPayload
           maybePayload = decode examplePayload
@@ -334,9 +334,7 @@ main = hspec $ do
       headSha    `shouldBe` (Sha "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c")
       prAuthor   `shouldBe` "baxterthehacker2"
 
-  describe "Github.CommentPayload" $ do
-
-    it "should be parsed correctly" $ do
+    it "parses a CommentPayload correctly" $ do
       examplePayload <- readFile "tests/data/issue-comment-payload.json"
       let maybePayload :: Maybe CommentPayload
           maybePayload = decode examplePayload
@@ -355,9 +353,7 @@ main = hspec $ do
       commentAuthor `shouldBe` "baxterthehacker2"
       commentBody   `shouldBe` "You are totally right! I'll get this fixed right away."
 
-  describe "Github.CommitStatusPayload" $ do
-
-    it "should be parsed correctly" $ do
+    it "parses a CommitStatusPayload correctly" $ do
       examplePayload <- readFile "tests/data/status-payload.json"
       let maybePayload :: Maybe CommitStatusPayload
           maybePayload = decode examplePayload
@@ -402,23 +398,23 @@ main = hspec $ do
           , author     = "rachael"
           }
 
-    it "should convert a pull request opened event" $ do
+    it "converts a pull request opened event" $ do
       let payload = testPullRequestPayload Github.Opened
           Just event = convertGithubEvent $ Github.PullRequest payload
       event `shouldBe` (PullRequestOpened (PullRequestId 1) (Sha "b26354") "rachael")
 
-    it "should convert a pull request reopened event" $ do
+    it "converts a pull request reopened event" $ do
       let payload = testPullRequestPayload Github.Reopened
           Just event = convertGithubEvent $ Github.PullRequest payload
       -- Reopened is treated just like opened, there is no memory in the system.
       event `shouldBe` (PullRequestOpened (PullRequestId 1) (Sha "b26354") "rachael")
 
-    it "should convert a pull request closed event" $ do
+    it "converts a pull request closed event" $ do
       let payload = testPullRequestPayload Github.Closed
           Just event = convertGithubEvent $ Github.PullRequest payload
       event `shouldBe` (PullRequestClosed (PullRequestId 1))
 
-    it "should convert a pull request synchronize event" $ do
+    it "converts a pull request synchronize event" $ do
       let payload = testPullRequestPayload Github.Synchronize
           Just event = convertGithubEvent $ Github.PullRequest payload
       event `shouldBe` (PullRequestCommitChanged (PullRequestId 1) (Sha "b26354"))
@@ -432,17 +428,17 @@ main = hspec $ do
           , body       = "Must be expensive."
           }
 
-    it "should convert a comment created event" $ do
+    it "converts a comment created event" $ do
       let payload = testCommentPayload Github.Created
           Just event = convertGithubEvent $ Github.Comment payload
       event `shouldBe` (CommentAdded (PullRequestId 1) "deckard" "Must be expensive.")
 
-    it "should ignore a comment edited event" $ do
+    it "ignores a comment edited event" $ do
       let payload = testCommentPayload Github.Edited
           event = convertGithubEvent $ Github.Comment payload
       event `shouldBe` Nothing
 
-    it "should ignore a comment deleted event" $ do
+    it "ignores a comment deleted event" $ do
       let payload = testCommentPayload Github.Deleted
           event = convertGithubEvent $ Github.Comment payload
       event `shouldBe` Nothing
@@ -455,22 +451,22 @@ main = hspec $ do
           , sha        = Sha "b26354"
           }
 
-    it "should convert a commit status pending event" $ do
+    it "converts a commit status pending event" $ do
       let payload = testCommitStatusPayload Github.Pending
           Just event = convertGithubEvent $ Github.CommitStatus payload
       event `shouldBe` (BuildStatusChanged (Sha "b26354") BuildPending)
 
-    it "should convert a commit status success event" $ do
+    it "converts a commit status success event" $ do
       let payload = testCommitStatusPayload Github.Success
           Just event = convertGithubEvent $ Github.CommitStatus payload
       event `shouldBe` (BuildStatusChanged (Sha "b26354") BuildSucceeded)
 
-    it "should convert a commit status failure event" $ do
+    it "converts a commit status failure event" $ do
       let payload = testCommitStatusPayload Github.Failure
           Just event = convertGithubEvent $ Github.CommitStatus payload
       event `shouldBe` (BuildStatusChanged (Sha "b26354") BuildFailed)
 
-    it "should convert a commit status error event" $ do
+    it "converts a commit status error event" $ do
       let payload = testCommitStatusPayload Github.Error
           Just event = convertGithubEvent $ Github.CommitStatus payload
       -- The error and failure statuses are both converted to "failed".
