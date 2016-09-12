@@ -43,6 +43,7 @@ import Data.Text (Text)
 import GHC.Generics
 import Git (Sha (..))
 import Prelude hiding (readFile, writeFile)
+import System.Directory (renameFile)
 
 import qualified Data.IntMap as IntMap
 
@@ -104,7 +105,12 @@ loadProjectState :: FilePath -> IO (Maybe ProjectState)
 loadProjectState = fmap decodeStrict' . readFile
 
 saveProjectState :: FilePath -> ProjectState -> IO ()
-saveProjectState fname state = writeFile fname $ encodePretty state
+saveProjectState fname state = do
+  -- First write the file entirely, afterwards atomically move the new file over
+  -- the old one. This way, the state file is never incomplete if the
+  -- application is killed or crashes during a write.
+  writeFile (fname ++ ".new") $ encodePretty state
+  renameFile (fname ++ ".new") fname
 
 emptyProjectState :: ProjectState
 emptyProjectState = ProjectState {
