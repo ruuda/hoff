@@ -71,7 +71,7 @@ withSignatureCheck secret bodyAction = do
   case maybeHexDigest of
     Nothing -> do
       status badRequest400
-      text "missing X-Hub-Signature header"
+      text "missing or malformed X-Hub-Signature header"
     Just hexDigest -> do
       bodyBytes <- body
       if isSignatureValid secret hexDigest (LBS.toStrict bodyBytes)

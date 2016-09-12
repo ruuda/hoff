@@ -208,21 +208,31 @@ serverSpec = do
         let headers = [ (hContentType, "application/json")
                       , (hGithubEvent, "pull_request") ]
         response <- httpPost "/hook/github" headers ("{}" :: StrictByteString)
-        (view Wreq.responseStatus response) `shouldBe` badRequest400
-        (view Wreq.responseBody response) `shouldBe` "missing X-Hub-Signature header"
+        let status = view Wreq.responseStatus response
+            msg    = view Wreq.responseBody response
+        status `shouldBe` badRequest400
+        msg    `shouldBe` "missing or malformed X-Hub-Signature header"
 
     it "requires an X-Hub-Signature header to be valid for webhook calls" $
       withServer $ \ _ghQueue -> do
         let headers = [ (hContentType, "application/json")
                       , (hGithubEvent, "pull_request")
                       -- Provivide the header, but put bogus in it.
-                      -- TODO: Also test without the sha1= prefix.
                       , (hGithubSignature, "sha1=not even hexadecimal") ]
         response <- httpPost "/hook/github" headers ("{}" :: StrictByteString)
         let status = view Wreq.responseStatus response
             msg    = view Wreq.responseBody response
         status `shouldBe` badRequest400
         msg    `shouldBe` "signature does not match, is the secret set up properly?"
+
+        -- Now try again, but with the "sha1=" prefix in the signature.
+        let headers' = (hGithubSignature, "badc0ffee") : (take 2 headers)
+        response' <- httpPost "/hook/github" headers' ("{}" :: StrictByteString)
+        let status' = view Wreq.responseStatus response'
+            msg'    = view Wreq.responseBody response'
+        status' `shouldBe` badRequest400
+        msg'    `shouldBe` "missing or malformed X-Hub-Signature header"
+
 
     it "continues serving after receiving an invalid webhook" $
       withServer $ \ ghQueue -> do
