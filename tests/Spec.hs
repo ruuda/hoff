@@ -282,6 +282,37 @@ main = hspec $ do
                          , ATryIntegrate (Branch "refs/pull/1/head", Sha "f35")
                          ]
 
+    it "picks a new candidate from the queue after a successful push" $ do
+      let pullRequest1 = PullRequest
+            {
+              sha               = Sha "f35",
+              author            = "rachael",
+              approvedBy        = Just "deckard",
+              buildStatus       = BuildSucceeded,
+              integrationStatus = Integrated (Sha "38d")
+            }
+          pullRequest2 = PullRequest
+            {
+              sha               = Sha "f37",
+              author            = "rachael",
+              approvedBy        = Just "deckard",
+              buildStatus       = BuildNotStarted,
+              integrationStatus = NotIntegrated
+            }
+          prMap = IntMap.fromList [(1, pullRequest1), (2, pullRequest2)]
+          -- After a successful push, the state of pull request 1 will still be
+          -- BuildSucceeded and Integrated, but the candidate will be Nothing.
+          state = ProjectState
+            {
+              pullRequests         = prMap,
+              integrationCandidate = Nothing
+            }
+          -- Proceeding should pick the next pull request as candidate.
+          (state', actions) = proceedUntilFixedPointFlat (Just (Sha "38e")) PushOk state
+          Just (cId, candidate) = getIntegrationCandidate state'
+      cId     `shouldBe` PullRequestId 2
+      actions `shouldBe` [ATryIntegrate (Branch "refs/pull/2/head", Sha "f37")]
+
   describe "Github.PullRequestPayload" $ do
 
     it "should be parsed correctly" $ do
