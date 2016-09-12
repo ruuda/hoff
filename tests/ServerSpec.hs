@@ -27,7 +27,9 @@ import Data.Maybe (fromJust)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Network.HTTP.Types.Header (Header, HeaderName, hContentType)
-import Network.HTTP.Types.Status (badRequest400, notFound404, notImplemented501, ok200, serviceUnavailable503)
+import Network.HTTP.Types.Status (badRequest400, internalServerError500)
+import Network.HTTP.Types.Status (notFound404, notImplemented501, ok200)
+import Network.HTTP.Types.Status (serviceUnavailable503)
 import Network.Wreq.Lens (Response)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
@@ -221,6 +223,20 @@ serverSpec = do
             msg    = view Wreq.responseBody response
         status `shouldBe` badRequest400
         msg    `shouldBe` "signature does not match, is the secret set up properly?"
+
+    it "continues serving after receiving an invalid webhook" $
+      withServer $ \ ghQueue -> do
+        -- First send an invalid webhook with a bad payload.
+        let badPayload = "this is definitely not valid json"
+        badResponse <- httpPostGithubEvent "/hook/github" "status" badPayload
+        (view Wreq.responseStatus badResponse) `shouldBe` internalServerError500
+        -- Now sends a valid one, and verify that an event arrives.
+        goodPayload  <- ByteString.Strict.readFile "tests/data/status-payload.json"
+        goodResponse <- httpPostGithubEvent "/hook/github" "status" goodPayload
+        event        <- popQueue ghQueue
+        (view Wreq.responseStatus goodResponse) `shouldBe` ok200
+        event `shouldSatisfy` isCommitStatusEvent
+
 
     it "serves 501 not implemented for unknown webhooks" $
       withServer $ \ _ghQueue -> do

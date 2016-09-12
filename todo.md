@@ -6,10 +6,10 @@
  * Run Git process and parse output
  * Add end-to-end test for retry after rejected push
  * Configurable Git credentials (just edit config of the daemon user)
+ * Test that the server continues serving after an invalid hook
 
 # Up next
 
- * Test that the server continues serving after an invalid hook
  * Automated testing for all core functionality
  * Render webinterface pages
  * Serve webinterface pages
