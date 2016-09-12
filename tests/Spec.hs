@@ -9,7 +9,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 
 import Control.Monad.Free (Free (..))
-import Data.Aeson (decode)
+import Data.Aeson (decode, encode)
 import Data.ByteString.Lazy (readFile)
 import Data.Foldable (foldlM)
 import Data.Maybe (fromJust, isJust)
@@ -471,3 +471,16 @@ main = hspec $ do
           Just event = convertGithubEvent $ Github.CommitStatus payload
       -- The error and failure statuses are both converted to "failed".
       event `shouldBe` (BuildStatusChanged (Sha "b26354") BuildFailed)
+
+  describe "ProjectState" $ do
+
+    it "can be restored exactly after roundtripping through json" $ do
+      let emptyState  = Project.emptyProjectState
+          singleState = singlePullRequestState (PullRequestId 1) (Sha "071") "deckard"
+          candState   = candidateState (PullRequestId 2) (Sha "073") "rachael" (Sha "079")
+          Just emptyState'  = decode $ encode emptyState
+          Just singleState' = decode $ encode singleState
+          Just candState'   = decode $ encode candState
+      emptyState  `shouldBe` emptyState'
+      singleState `shouldBe` singleState'
+      candState   `shouldBe` candState'
