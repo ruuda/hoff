@@ -19,16 +19,20 @@ module Logic
   enqueueStopSignal,
   handleEvent,
   newEventQueue,
+  newStateVar,
+  readStateVar,
   runAction,
   proceed,
   proceedUntilFixedPoint,
-  tryIntegratePullRequest
+  tryIntegratePullRequest,
+  updateStateVar
 )
 where
 
+import Control.Concurrent.STM.TMVar (TMVar, newTMVar, readTMVar, swapTMVar)
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Exception (assert)
-import Control.Monad (mfilter)
+import Control.Monad (mfilter, void)
 import Control.Monad.Free (Free (..), liftF)
 import Control.Monad.STM (atomically)
 import Data.Maybe (fromJust, fromMaybe, isJust, maybe)
@@ -100,6 +104,7 @@ data Event
   deriving (Eq, Show)
 
 type EventQueue = TBQueue (Maybe Event)
+type StateVar = TMVar ProjectState
 
 -- Creates a new event queue with the given maximum capacity.
 newEventQueue :: Int -> IO EventQueue
@@ -117,6 +122,18 @@ enqueueStopSignal queue = atomically $ writeTBQueue queue Nothing
 -- Dequeue an event or stop signal from an event queue.
 dequeueEvent :: EventQueue -> IO (Maybe Event)
 dequeueEvent queue = atomically $ readTBQueue queue
+
+-- Creates a new project state variable.
+newStateVar :: ProjectState -> IO StateVar
+newStateVar initialState = atomically $ newTMVar initialState
+
+-- Put a new value in the project state variable, discarding the previous one.
+updateStateVar :: StateVar -> ProjectState -> IO ()
+updateStateVar var state = void $ atomically $ swapTMVar var state
+
+-- Read the most recent value from the project state variable.
+readStateVar :: StateVar -> IO ProjectState
+readStateVar var = atomically $ readTMVar var
 
 handleEvent :: Configuration -> Event -> ProjectState -> Action ProjectState
 handleEvent config event = case event of
