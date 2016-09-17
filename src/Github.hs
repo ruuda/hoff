@@ -20,11 +20,12 @@ module Github
   WebhookEvent (..),
   eventRepository,
   eventRepositoryOwner,
-  newEventQueue
+  newEventQueue,
+  tryEnqueueEvent
 )
 where
 
-import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue)
+import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueue, writeTBQueue)
 import Control.Monad.STM (atomically)
 import Data.Aeson (FromJSON (parseJSON), Object, Value (Object, String), (.:))
 import Data.Aeson.Types (Parser, typeMismatch)
@@ -166,3 +167,14 @@ type EventQueue = TBQueue WebhookEvent
 -- Creates a new event queue with the given maximum capacity.
 newEventQueue :: Int -> IO EventQueue
 newEventQueue capacity = atomically $ newTBQueue capacity
+
+-- Enqueues the event if the queue is not full. Returns whether the event has
+-- been enqueued. This function does not block.
+tryEnqueueEvent :: EventQueue -> WebhookEvent -> IO Bool
+tryEnqueueEvent queue event = atomically $ do
+  isFull <- isFullTBQueue queue
+  if isFull
+    then return False
+    -- Normally writeTBQueue would block if the queue is full, but at this point
+    -- we know that the queue is not full, so it will return immediately.
+    else (writeTBQueue queue event) >> (return True)

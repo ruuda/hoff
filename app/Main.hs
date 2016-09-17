@@ -123,6 +123,10 @@ main = do
     -- When the event loop wants to get the next event, take one off the queue.
     getNextEvent = liftIO $ Logic.dequeueEvent mainQueue
 
+    -- When the webhook server receives an event, enqueue it on the webhook
+    -- event queue if it is not full.
+    ghTryEnqueue = Github.tryEnqueueEvent ghQueue
+
 
   -- Start a worker thread to run the main event loop.
   _ <- forkIO $ void
@@ -132,7 +136,7 @@ main = do
   let port   = Config.port config
       secret = Config.secret config
   putStrLn $ "Listening for webhooks on port " ++ (show port) ++ "."
-  runServer <- fmap fst $ buildServer port ghQueue secret
+  runServer <- fmap fst $ buildServer port ghTryEnqueue secret
   runServer
 
   -- Note that a stop signal is never enqueued. The application just runs until

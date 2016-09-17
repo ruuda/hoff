@@ -121,9 +121,11 @@ withServer body = do
   -- Create an event queue with a capacity of 5 events.
   ghQueue      <- Github.newEventQueue 5
 
+  let tryEnqueue = Github.tryEnqueueEvent ghQueue
+
   -- Start the server on the test port, wait until it is ready to handle
   -- requests, and then run the body with access to the queue.
-  (runServer, blockUntilReady) <- buildServer testPort ghQueue testSecret
+  (runServer, blockUntilReady) <- buildServer testPort tryEnqueue testSecret
   serverAsync <- async runServer
   blockUntilReady
   body ghQueue
