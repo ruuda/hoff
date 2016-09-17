@@ -16,9 +16,11 @@ module Project
   PullRequest (..),
   PullRequestId (..),
   candidatePullRequests,
+  conflictedPullRequests,
   deletePullRequest,
-  existsPullRequest,
   emptyProjectState,
+  existsPullRequest,
+  failedPullRequests,
   getIntegrationCandidate,
   insertPullRequest,
   loadProjectState,
@@ -176,31 +178,43 @@ setIntegrationCandidate pr state = state {
   integrationCandidate = pr
 }
 
+-- Returns the ids of the pull requests that satisfy the predicate, in ascending
+-- order.
+filterPullRequestsBy :: (PullRequest -> Bool) -> ProjectState -> [PullRequestId]
+filterPullRequestsBy p =
+  fmap PullRequestId . IntMap.keys . IntMap.filter p . pullRequests
+
 -- Returns the pull requests that have been approved, in order of ascending id.
 approvedPullRequests :: ProjectState -> [PullRequestId]
-approvedPullRequests =
-  fmap PullRequestId . IntMap.keys . IntMap.filter approved . pullRequests
-  where approved = isJust . approvedBy
+approvedPullRequests = filterPullRequestsBy $ isJust . approvedBy
 
 -- Returns the pull requests that have not been integrated yet, in order of
 -- ascending id.
 unintegratedPullRequests :: ProjectState -> [PullRequestId]
-unintegratedPullRequests =
-  fmap PullRequestId . IntMap.keys . IntMap.filter notIntegrated . pullRequests
-  where notIntegrated = (== NotIntegrated) . integrationStatus
+unintegratedPullRequests = filterPullRequestsBy $ (== NotIntegrated) . integrationStatus
+
+-- Returns the pull requests that could not be integrated due to a merge
+-- conflict, in order of ascending id.
+conflictedPullRequests :: ProjectState -> [PullRequestId]
+conflictedPullRequests = filterPullRequestsBy $ (== Conflicted) . integrationStatus
+
+-- Returns the pull requests for which the build has failed, in order of
+-- ascending id.
+failedPullRequests :: ProjectState -> [PullRequestId]
+failedPullRequests = filterPullRequestsBy $ (== BuildFailed) . buildStatus
 
 -- Returns the pull requests that have not been built yet, in order of ascending
 -- id.
 unbuiltPullRequests :: ProjectState -> [PullRequestId]
-unbuiltPullRequests =
-  fmap PullRequestId . IntMap.keys . IntMap.filter notBuilt . pullRequests
-  where notBuilt = (== BuildNotStarted) . buildStatus
+unbuiltPullRequests = filterPullRequestsBy $ (== BuildNotStarted) . buildStatus
 
 -- Returns the pull requests that have been approved, but for which integration
 -- and building has not yet been attempted.
 candidatePullRequests :: ProjectState -> [PullRequestId]
 candidatePullRequests state =
-  let approved     = approvedPullRequests state
-      unintegrated = unintegratedPullRequests state
-      unbuilt      = unbuiltPullRequests state
-  in  approved `intersect` unintegrated `intersect` unbuilt
+  let
+    approved     = approvedPullRequests state
+    unintegrated = unintegratedPullRequests state
+    unbuilt      = unbuiltPullRequests state
+  in
+    approved `intersect` unintegrated `intersect` unbuilt
