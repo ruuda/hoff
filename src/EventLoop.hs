@@ -105,10 +105,10 @@ runGithubEventLoop owner repository ghQueue enqueueEvent = runLoop
 runLogicEventLoop :: (MonadIO m, MonadLogger m)
                   => Configuration
                   -> (ProjectState -> m ())
-                  -> Logic.EventQueue
+                  -> m (Maybe Logic.Event)
                   -> ProjectState
                   -> m ProjectState
-runLogicEventLoop config persist queue initialState = runLoop initialState
+runLogicEventLoop config persist getNextEvent initialState = runLoop initialState
   where
     repoDir = Config.checkout config
     handleAndContinue state0 event = do
@@ -124,7 +124,7 @@ runLogicEventLoop config persist queue initialState = runLoop initialState
       runLoop state2
     runLoop state = do
       -- Take one event off the queue, block if there is none.
-      eventOrStopSignal <- liftIO $ atomically $ readTBQueue queue
+      eventOrStopSignal <- getNextEvent
       -- Queue items are of type 'Maybe Event'; 'Nothing' signals loop
       -- termination. If there was an event, run one iteration and recurse.
       case eventOrStopSignal of

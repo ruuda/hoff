@@ -10,9 +10,11 @@
 module Main where
 
 import Control.Concurrent (forkIO)
+import Control.Concurrent.STM.TBQueue (readTBQueue)
 import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runStdoutLoggingT)
+import Control.Monad.STM (atomically)
 import System.Exit (die)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 
@@ -106,8 +108,10 @@ main = do
               $ runGithubEventLoop owner repository ghQueue enqueueEvent
 
   -- When the event loop wants to persist the current project state,
-  -- save it to the configured file.
-  let persist = liftIO . saveProjectState stateFile
+  -- save it to the configured file. When it wants to get the next event,
+  -- take one off the queue.
+  let persist      = liftIO . saveProjectState stateFile
+      getNextEvent = liftIO $ atomically $ readTBQueue mainQueue
 
   -- Restore the previous state from disk if possible, or start clean.
   projectState <- initializeProjectState stateFile
@@ -115,7 +119,7 @@ main = do
   -- Start a worker thread to run the main event loop.
   _ <- forkIO $ void
               $ runStdoutLoggingT
-              $ runLogicEventLoop config persist mainQueue projectState
+              $ runLogicEventLoop config persist getNextEvent projectState
 
   let port   = Config.port config
       secret = Config.secret config
