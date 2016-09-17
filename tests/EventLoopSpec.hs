@@ -158,16 +158,16 @@ runMainEventLoop config initialState events = do
   -- Like the actual application, start a new thread to run the main event loop.
   -- Use 'async' here, a higher-level wrapper around 'forkIO', to wait for the
   -- thread to stop later. Discard log messages from the event loop, to avoid
-  -- polluting the test output. Ignore requests to persist the state.
+  -- polluting the test output.
   --
   -- To aid debugging when a test fails, you can replace 'runNoLoggingT' with
   -- 'runStdoutLoggingT'. You should also remove 'parallel' from main then.
   queue            <- Logic.newEventQueue 10
-  let persist _     = return ()
+  let publish _     = return () -- Do nothing when a new state is published.
       getNextEvent  = liftIO $ Logic.dequeueEvent queue
   finalStateAsync  <- async
     $ runNoLoggingT
-    $ EventLoop.runLogicEventLoop config persist getNextEvent initialState
+    $ EventLoop.runLogicEventLoop config getNextEvent publish initialState
 
   -- Enqueue all provided events.
   forM_ events (Logic.enqueueEvent queue)

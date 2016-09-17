@@ -104,11 +104,15 @@ runGithubEventLoop owner repository ghQueue enqueueEvent = runLoop
 
 runLogicEventLoop :: (MonadIO m, MonadLogger m)
                   => Configuration
-                  -> (ProjectState -> m ())
+                  -- Action that gets the next event from the queue.
                   -> m (Maybe Logic.Event)
+                  -- Action to perform after the state has changed, such as
+                  -- persisting the new state, and making it available to the
+                  -- webinterface.
+                  -> (ProjectState -> m ())
                   -> ProjectState
                   -> m ProjectState
-runLogicEventLoop config persist getNextEvent initialState = runLoop initialState
+runLogicEventLoop config getNextEvent publish initialState = runLoop initialState
   where
     repoDir = Config.checkout config
     handleAndContinue state0 event = do
@@ -119,7 +123,7 @@ runLogicEventLoop config persist getNextEvent initialState = runLoop initialStat
       logDebugN $ Text.append "state before: " (Text.pack $ show state0)
       state1 <- runGit repoDir $ Logic.runAction config $ Logic.handleEvent config event state0
       state2 <- runGit repoDir $ Logic.runAction config $ Logic.proceedUntilFixedPoint state1
-      persist state2
+      publish state2
       logDebugN $ Text.append "state after: " (Text.pack $ show state2)
       runLoop state2
     runLoop state = do

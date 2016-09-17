@@ -105,19 +105,29 @@ main = do
   _ <- forkIO $ runStdoutLoggingT
               $ runGithubEventLoop owner repository ghQueue enqueueEvent
 
-  -- When the event loop wants to persist the current project state,
-  -- save it to the configured file. When it wants to get the next event,
-  -- take one off the queue.
-  let persist      = liftIO . saveProjectState stateFile
-      getNextEvent = liftIO $ Logic.dequeueEvent mainQueue
-
   -- Restore the previous state from disk if possible, or start clean.
   projectState <- initializeProjectState stateFile
+
+  -- Keep track of the most recent state, so the webinterface can use it to
+  -- serve a status page.
+  stateVar <- Logic.newStateVar projectState
+
+  let
+    -- When the event loop publishes the current project state, save it to
+    -- the configured file, and make the new state available to the
+    -- webinterface.
+    publish newState = do
+        liftIO $ saveProjectState stateFile newState
+        liftIO $ Logic.updateStateVar stateVar newState
+
+    -- When the event loop wants to get the next event, take one off the queue.
+    getNextEvent = liftIO $ Logic.dequeueEvent mainQueue
+
 
   -- Start a worker thread to run the main event loop.
   _ <- forkIO $ void
               $ runStdoutLoggingT
-              $ runLogicEventLoop config persist getNextEvent projectState
+              $ runLogicEventLoop config getNextEvent publish projectState
 
   let port   = Config.port config
       secret = Config.secret config
