@@ -14,6 +14,7 @@ module Logic
   ActionFree (..),
   Event (..),
   EventQueue,
+  dequeueEvent,
   enqueueEvent,
   enqueueStopSignal,
   handleEvent,
@@ -25,7 +26,7 @@ module Logic
 )
 where
 
-import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, writeTBQueue)
+import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Exception (assert)
 import Control.Monad (mfilter)
 import Control.Monad.Free (Free (..), liftF)
@@ -112,6 +113,10 @@ enqueueEvent queue event = atomically $ writeTBQueue queue $ Just event
 -- currently in the queue.
 enqueueStopSignal :: EventQueue -> IO ()
 enqueueStopSignal queue = atomically $ writeTBQueue queue Nothing
+
+-- Dequeue an event or stop signal from an event queue.
+dequeueEvent :: EventQueue -> IO (Maybe Event)
+dequeueEvent queue = atomically $ readTBQueue queue
 
 handleEvent :: Configuration -> Event -> ProjectState -> Action ProjectState
 handleEvent config event = case event of

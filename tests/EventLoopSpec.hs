@@ -17,11 +17,9 @@
 module EventLoopSpec (eventLoopSpec) where
 
 import Control.Concurrent.Async (async, wait)
-import Control.Concurrent.STM.TBQueue (readTBQueue)
 import Control.Monad (forM_, void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runNoLoggingT)
-import Control.Monad.STM (atomically)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Prelude hiding (appendFile, writeFile)
@@ -166,7 +164,7 @@ runMainEventLoop config initialState events = do
   -- 'runStdoutLoggingT'. You should also remove 'parallel' from main then.
   queue            <- Logic.newEventQueue 10
   let persist _     = return ()
-      getNextEvent  = liftIO $ atomically $ readTBQueue queue
+      getNextEvent  = liftIO $ Logic.dequeueEvent queue
   finalStateAsync  <- async
     $ runNoLoggingT
     $ EventLoop.runLogicEventLoop config persist getNextEvent initialState

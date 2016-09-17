@@ -10,11 +10,9 @@
 module Main where
 
 import Control.Concurrent (forkIO)
-import Control.Concurrent.STM.TBQueue (readTBQueue)
 import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runStdoutLoggingT)
-import Control.Monad.STM (atomically)
 import System.Exit (die)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 
@@ -111,7 +109,7 @@ main = do
   -- save it to the configured file. When it wants to get the next event,
   -- take one off the queue.
   let persist      = liftIO . saveProjectState stateFile
-      getNextEvent = liftIO $ atomically $ readTBQueue mainQueue
+      getNextEvent = liftIO $ Logic.dequeueEvent mainQueue
 
   -- Restore the previous state from disk if possible, or start clean.
   projectState <- initializeProjectState stateFile
