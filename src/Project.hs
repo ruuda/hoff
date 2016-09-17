@@ -12,9 +12,11 @@ module Project
 (
   BuildStatus (..),
   IntegrationStatus (..),
+  ProjectInfo (..),
   ProjectState (..),
   PullRequest (..),
   PullRequestId (..),
+  approvedPullRequests,
   candidatePullRequests,
   conflictedPullRequests,
   deletePullRequest,
@@ -86,6 +88,15 @@ data ProjectState = ProjectState
     integrationCandidate :: Maybe PullRequestId
   }
   deriving (Eq, Show, Generic)
+
+-- Static information about a project, which does not change while the program
+-- is running.
+data ProjectInfo = ProjectInfo
+  {
+    owner      :: Text,
+    repository :: Text
+  }
+  deriving (Eq, Show)
 
 -- TODO: These default instances produce ugly json. Write a custom
 -- implementation. For now this will suffice.
