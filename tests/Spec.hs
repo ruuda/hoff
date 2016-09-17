@@ -27,10 +27,11 @@ import EventLoop (convertGithubEvent)
 import Git (Branch (..), PushResult(..), Sha (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
 import Logic hiding (runAction)
-import Project
+import Project (ProjectState (ProjectState), PullRequest (PullRequest), PullRequestId (PullRequestId))
 
 import qualified Configuration as Config
 import qualified Github
+import qualified Project
 
 -- Config used throughout these tests.
 testConfig :: Configuration
@@ -51,13 +52,13 @@ testConfig = Config.Configuration {
 singlePullRequestState :: PullRequestId -> Sha -> Text -> ProjectState
 singlePullRequestState pr prSha prAuthor =
   let event = PullRequestOpened pr prSha prAuthor
-  in  handleEventFlat event emptyProjectState
+  in  handleEventFlat event Project.emptyProjectState
 
 candidateState :: PullRequestId -> Sha -> Text -> Sha -> ProjectState
 candidateState pr prSha prAuthor candidateSha =
   let state0 = singlePullRequestState pr prSha prAuthor
-      state1 = setIntegrationStatus pr (Integrated candidateSha) state0
-  in  state1 { integrationCandidate = Just pr }
+      state1 = Project.setIntegrationStatus pr (Project.Integrated candidateSha) state0
+  in  state1 { Project.integrationCandidate = Just pr }
 
 -- Types and functions to mock running an action without actually doing anything.
 
@@ -114,59 +115,59 @@ main = hspec $ do
 
     it "handles PullRequestOpened" $ do
       let event = PullRequestOpened (PullRequestId 3) (Sha "e0f") "lisa"
-          state = handleEventFlat event emptyProjectState
-      state `shouldSatisfy` existsPullRequest (PullRequestId 3)
-      let pr = fromJust $ lookupPullRequest (PullRequestId 3) state
-      sha pr         `shouldBe` Sha "e0f"
-      author pr      `shouldBe` "lisa"
-      approvedBy pr  `shouldBe` Nothing
-      buildStatus pr `shouldBe` BuildNotStarted
+          state = handleEventFlat event Project.emptyProjectState
+      state `shouldSatisfy` Project.existsPullRequest (PullRequestId 3)
+      let pr = fromJust $ Project.lookupPullRequest (PullRequestId 3) state
+      Project.sha pr         `shouldBe` Sha "e0f"
+      Project.author pr      `shouldBe` "lisa"
+      Project.approvedBy pr  `shouldBe` Nothing
+      Project.buildStatus pr `shouldBe` Project.BuildNotStarted
 
     it "handles PullRequestClosed" $ do
       let event1 = PullRequestOpened (PullRequestId 1) (Sha "abc") "peter"
           event2 = PullRequestOpened (PullRequestId 2) (Sha "def") "jack"
           event3 = PullRequestClosed (PullRequestId 1)
-          state  = handleEventsFlat [event1, event2, event3] emptyProjectState
-      state `shouldSatisfy` not . existsPullRequest (PullRequestId 1)
-      state `shouldSatisfy` existsPullRequest (PullRequestId 2)
+          state  = handleEventsFlat [event1, event2, event3] Project.emptyProjectState
+      state `shouldSatisfy` not . Project.existsPullRequest (PullRequestId 1)
+      state `shouldSatisfy` Project.existsPullRequest (PullRequestId 2)
 
     it "handles closing the integration candidate PR" $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 1) (Sha "ea0") "frank" (Sha "cf4")
           state' = handleEventFlat event state
-      integrationCandidate state' `shouldBe` Nothing
+      Project.integrationCandidate state' `shouldBe` Nothing
 
     it "does not modify the integration candidate if a different PR was closed" $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 2) (Sha "a38") "franz" (Sha "ed0")
           state' = handleEventFlat event state
-      integrationCandidate state' `shouldBe` (Just $ PullRequestId 2)
+      Project.integrationCandidate state' `shouldBe` (Just $ PullRequestId 2)
 
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
           state0 = singlePullRequestState (PullRequestId 1) (Sha "abc") "alice"
-          state1 = setApproval (PullRequestId 1) (Just "hatter") state0
+          state1 = Project.setApproval (PullRequestId 1) (Just "hatter") state0
           state2 = handleEventFlat event state1
-          pr1    = fromJust $ lookupPullRequest (PullRequestId 1) state1
-          pr2    = fromJust $ lookupPullRequest (PullRequestId 1) state2
-      approvedBy pr1 `shouldBe` Just "hatter"
-      approvedBy pr2 `shouldBe` Nothing
+          pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
+          pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
+      Project.approvedBy pr1 `shouldBe` Just "hatter"
+      Project.approvedBy pr2 `shouldBe` Nothing
 
     it "resets the build status after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
           state0 = singlePullRequestState (PullRequestId 1) (Sha "abc") "thomas"
-          state1 = setBuildStatus (PullRequestId 1) BuildPending state0
+          state1 = Project.setBuildStatus (PullRequestId 1) Project.BuildPending state0
           state2 = handleEventFlat event state1
-          pr1    = fromJust $ lookupPullRequest (PullRequestId 1) state1
-          pr2    = fromJust $ lookupPullRequest (PullRequestId 1) state2
-      buildStatus pr1 `shouldBe` BuildPending
-      buildStatus pr2 `shouldBe` BuildNotStarted
+          pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
+          pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
+      Project.buildStatus pr1 `shouldBe` Project.BuildPending
+      Project.buildStatus pr2 `shouldBe` Project.BuildNotStarted
 
     it "ignores false positive commit changed events" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "000")
           state0 = singlePullRequestState (PullRequestId 1) (Sha "000") "cindy"
-          state1 = setApproval (PullRequestId 1) (Just "daniel") state0
-          state2 = setBuildStatus (PullRequestId 1) BuildPending state1
+          state1 = Project.setApproval (PullRequestId 1) (Just "daniel") state0
+          state2 = Project.setBuildStatus (PullRequestId 1) Project.BuildPending state1
           state3 = handleEventFlat event state2
       state3 `shouldBe` state2
       -- TODO: Also assert that no actions are performed.
@@ -176,8 +177,8 @@ main = hspec $ do
           -- Note: "deckard" is marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "deckard" "LGTM 6412ef5"
           state' = handleEventFlat event state
-          pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
-      approvedBy pr `shouldBe` Just "deckard"
+          pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
+      Project.approvedBy pr `shouldBe` Just "deckard"
 
     it "does not set approval after a stamp from a non-reviewer" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "toby"
@@ -185,8 +186,8 @@ main = hspec $ do
           -- marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "rachael" "LGTM 6412ef5"
           state' = handleEventFlat event state
-          pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
-      approvedBy pr `shouldBe` Nothing
+          pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
+      Project.approvedBy pr `shouldBe` Nothing
 
     it "does not set approval after a random comment" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "patrick"
@@ -196,64 +197,64 @@ main = hspec $ do
           event2 = CommentAdded (PullRequestId 1) "guyman" "to get"
           event3 = CommentAdded (PullRequestId 1) "thomas" "lucky."
           state' = handleEventsFlat [event1, event2, event3] state
-          pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
-      approvedBy pr `shouldBe` Nothing
+          pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
+      Project.approvedBy pr `shouldBe` Nothing
 
     it "requires a long enough sha for approval" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "sacha"
           -- A 6-character sha is not long enough for approval.
           event  = CommentAdded (PullRequestId 1) "richard" "LGTM 6412ef"
           state' = handleEventFlat event state
-          pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
-      approvedBy pr `shouldBe` Nothing
+          pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
+      Project.approvedBy pr `shouldBe` Nothing
 
     it "handles a build status change of the integration candidate" $ do
-      let event  = BuildStatusChanged (Sha "84c") BuildSucceeded
+      let event  = BuildStatusChanged (Sha "84c") Project.BuildSucceeded
           state  = candidateState (PullRequestId 1) (Sha "a38") "johanna" (Sha "84c")
           state' = handleEventFlat event state
-          pr     = fromJust $ lookupPullRequest (PullRequestId 1) state'
-      buildStatus pr `shouldBe` BuildSucceeded
+          pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
+      Project.buildStatus pr `shouldBe` Project.BuildSucceeded
 
     it "ignores a build status change of random shas" $ do
       let event0 = PullRequestOpened (PullRequestId 2) (Sha "0ad") "harry"
-          event1 = BuildStatusChanged (Sha "0ad") BuildSucceeded
+          event1 = BuildStatusChanged (Sha "0ad") Project.BuildSucceeded
           state  = candidateState (PullRequestId 1) (Sha "a38") "harry" (Sha "84c")
           state' = handleEventsFlat [event0, event1] state
-          pr1    = fromJust $ lookupPullRequest (PullRequestId 1) state'
-          pr2    = fromJust $ lookupPullRequest (PullRequestId 2) state'
+          pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
+          pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 2) state'
       -- Even though the build status changed for "0ad" which is a known commit,
       -- only the build status of the integration candidate can be changed.
-      buildStatus pr1 `shouldBe` BuildNotStarted
-      buildStatus pr2 `shouldBe` BuildNotStarted
+      Project.buildStatus pr1 `shouldBe` Project.BuildNotStarted
+      Project.buildStatus pr2 `shouldBe` Project.BuildNotStarted
 
   describe "Logic.proceedUntilFixedPoint" $ do
 
     it "finds a new candidate" $ do
-      let state = setApproval (PullRequestId 1) (Just "fred") $
+      let state = Project.setApproval (PullRequestId 1) (Just "fred") $
                   singlePullRequestState (PullRequestId 1) (Sha "f34") "sally"
           (state', actions)  = proceedUntilFixedPointFlat (Just (Sha "38c")) PushRejected state
-          (prId, pullRequest) = fromJust $ getIntegrationCandidate state'
-      prId                          `shouldBe` PullRequestId 1
-      buildStatus pullRequest       `shouldBe` BuildPending
-      integrationStatus pullRequest `shouldBe` Integrated (Sha "38c")
+          (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
+      Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c")
+      Project.buildStatus pullRequest       `shouldBe` Project.BuildPending
+      prId    `shouldBe` PullRequestId 1
       actions `shouldBe` [ATryIntegrate (Branch "refs/pull/1/head", Sha "f34")]
 
     it "pushes after a successful build" $ do
       let pullRequest = PullRequest
             {
-              sha               = Sha "f35",
-              author            = "rachael",
-              approvedBy        = Just "deckard",
-              buildStatus       = BuildSucceeded,
-              integrationStatus = Integrated (Sha "38d")
+              Project.sha               = Sha "f35",
+              Project.author            = "rachael",
+              Project.approvedBy        = Just "deckard",
+              Project.buildStatus       = Project.BuildSucceeded,
+              Project.integrationStatus = Project.Integrated (Sha "38d")
             }
           state = ProjectState
             {
-              pullRequests         = IntMap.singleton 1 pullRequest,
-              integrationCandidate = Just $ PullRequestId 1
+              Project.pullRequests         = IntMap.singleton 1 pullRequest,
+              Project.integrationCandidate = Just $ PullRequestId 1
             }
           (state', actions) = proceedUntilFixedPointFlat (Just (Sha "38e")) PushOk state
-          candidate         = getIntegrationCandidate state'
+          candidate         = Project.getIntegrationCandidate state'
       -- After a successful push, the candidate should be gone.
       candidate `shouldBe` Nothing
       actions   `shouldBe` [APushNewHead (Sha "38d")]
@@ -263,24 +264,24 @@ main = hspec $ do
       -- and is ready to be pushed to master.
       let pullRequest = PullRequest
             {
-              sha               = Sha "f35",
-              author            = "rachael",
-              approvedBy        = Just "deckard",
-              buildStatus       = BuildSucceeded,
-              integrationStatus = Integrated (Sha "38d")
+              Project.sha               = Sha "f35",
+              Project.author            = "rachael",
+              Project.approvedBy        = Just "deckard",
+              Project.buildStatus       = Project.BuildSucceeded,
+              Project.integrationStatus = Project.Integrated (Sha "38d")
             }
           state = ProjectState
             {
-              pullRequests         = IntMap.singleton 1 pullRequest,
-              integrationCandidate = Just $ PullRequestId 1
+              Project.pullRequests         = IntMap.singleton 1 pullRequest,
+              Project.integrationCandidate = Just $ PullRequestId 1
             }
           -- Run 'proceedUntilFixedPoint', and pretend that pushes fail (because
           -- something was pushed in the mean time, for instance).
           (state', actions) = proceedUntilFixedPointFlat (Just (Sha "38e")) PushRejected state
-          (_, pullRequest') = fromJust $ getIntegrationCandidate state'
+          (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
 
-      integrationStatus pullRequest' `shouldBe` Integrated (Sha "38e")
-      buildStatus       pullRequest' `shouldBe` BuildPending
+      Project.integrationStatus pullRequest' `shouldBe` Project.Integrated (Sha "38e")
+      Project.buildStatus       pullRequest' `shouldBe` Project.BuildPending
       actions `shouldBe` [ APushNewHead (Sha "38d")
                          , ATryIntegrate (Branch "refs/pull/1/head", Sha "f35")
                          ]
@@ -288,31 +289,31 @@ main = hspec $ do
     it "picks a new candidate from the queue after a successful push" $ do
       let pullRequest1 = PullRequest
             {
-              sha               = Sha "f35",
-              author            = "rachael",
-              approvedBy        = Just "deckard",
-              buildStatus       = BuildSucceeded,
-              integrationStatus = Integrated (Sha "38d")
+              Project.sha               = Sha "f35",
+              Project.author            = "rachael",
+              Project.approvedBy        = Just "deckard",
+              Project.buildStatus       = Project.BuildSucceeded,
+              Project.integrationStatus = Project.Integrated (Sha "38d")
             }
           pullRequest2 = PullRequest
             {
-              sha               = Sha "f37",
-              author            = "rachael",
-              approvedBy        = Just "deckard",
-              buildStatus       = BuildNotStarted,
-              integrationStatus = NotIntegrated
+              Project.sha               = Sha "f37",
+              Project.author            = "rachael",
+              Project.approvedBy        = Just "deckard",
+              Project.buildStatus       = Project.BuildNotStarted,
+              Project.integrationStatus = Project.NotIntegrated
             }
           prMap = IntMap.fromList [(1, pullRequest1), (2, pullRequest2)]
           -- After a successful push, the state of pull request 1 will still be
           -- BuildSucceeded and Integrated, but the candidate will be Nothing.
           state = ProjectState
             {
-              pullRequests         = prMap,
-              integrationCandidate = Nothing
+              Project.pullRequests         = prMap,
+              Project.integrationCandidate = Nothing
             }
           -- Proceeding should pick the next pull request as candidate.
           (state', actions) = proceedUntilFixedPointFlat (Just (Sha "38e")) PushOk state
-          Just (cId, _candidate) = getIntegrationCandidate state'
+          Just (cId, _candidate) = Project.getIntegrationCandidate state'
       cId     `shouldBe` PullRequestId 2
       actions `shouldBe` [ATryIntegrate (Branch "refs/pull/2/head", Sha "f37")]
 
@@ -457,23 +458,23 @@ main = hspec $ do
     it "converts a commit status pending event" $ do
       let payload = testCommitStatusPayload Github.Pending
           Just event = convertGithubEvent $ Github.CommitStatus payload
-      event `shouldBe` (BuildStatusChanged (Sha "b26354") BuildPending)
+      event `shouldBe` (BuildStatusChanged (Sha "b26354") Project.BuildPending)
 
     it "converts a commit status success event" $ do
       let payload = testCommitStatusPayload Github.Success
           Just event = convertGithubEvent $ Github.CommitStatus payload
-      event `shouldBe` (BuildStatusChanged (Sha "b26354") BuildSucceeded)
+      event `shouldBe` (BuildStatusChanged (Sha "b26354") Project.BuildSucceeded)
 
     it "converts a commit status failure event" $ do
       let payload = testCommitStatusPayload Github.Failure
           Just event = convertGithubEvent $ Github.CommitStatus payload
-      event `shouldBe` (BuildStatusChanged (Sha "b26354") BuildFailed)
+      event `shouldBe` (BuildStatusChanged (Sha "b26354") Project.BuildFailed)
 
     it "converts a commit status error event" $ do
       let payload = testCommitStatusPayload Github.Error
           Just event = convertGithubEvent $ Github.CommitStatus payload
       -- The error and failure statuses are both converted to "failed".
-      event `shouldBe` (BuildStatusChanged (Sha "b26354") BuildFailed)
+      event `shouldBe` (BuildStatusChanged (Sha "b26354") Project.BuildFailed)
 
   describe "ProjectState" $ do
 
