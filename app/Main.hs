@@ -127,6 +127,9 @@ main = do
     -- event queue if it is not full.
     ghTryEnqueue = Github.tryEnqueueEvent ghQueue
 
+    -- Allow the webinterface to retrieve the latest project state.
+    getProjectState = Logic.readStateVar stateVar
+
 
   -- Start a worker thread to run the main event loop.
   _ <- forkIO $ void
@@ -136,7 +139,7 @@ main = do
   let port   = Config.port config
       secret = Config.secret config
   putStrLn $ "Listening for webhooks on port " ++ (show port) ++ "."
-  runServer <- fmap fst $ buildServer port ghTryEnqueue secret
+  runServer <- fmap fst $ buildServer port secret ghTryEnqueue getProjectState
   runServer
 
   -- Note that a stop signal is never enqueued. The application just runs until

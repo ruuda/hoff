@@ -27,6 +27,8 @@ import qualified Data.Text as Text
 import qualified Data.Text.Lazy as LT
 import qualified Network.Wai.Handler.Warp as Warp
 
+import Project (ProjectState)
+
 import qualified Github
 
 -- Router for the web server.
@@ -138,10 +140,11 @@ warpSettings port beforeMainLoop
 -- the server, the second may be used to wait until the server is ready to
 -- serve requests.
 buildServer :: Int
-            -> (Github.WebhookEvent -> IO Bool)
             -> Text
+            -> (Github.WebhookEvent -> IO Bool)
+            -> IO ProjectState
             -> IO (IO (), IO ())
-buildServer port tryEnqueueEvent ghSecret = do
+buildServer port ghSecret tryEnqueueEvent _getProjectState = do
   -- Create a semaphore that will be signalled when the server is ready.
   readySem <- atomically $ newTSem 0
   let signalReady     = atomically $ signalTSem readySem

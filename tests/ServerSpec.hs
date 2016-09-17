@@ -41,6 +41,7 @@ import qualified Network.Wreq.Types as WreqTypes
 import Server (buildServer)
 
 import qualified Github
+import qualified Project
 
 -- Bring a tiny bit of sense into the Haskell string type madness.
 type LazyByteString = ByteString.Lazy.ByteString
@@ -121,11 +122,14 @@ withServer body = do
   -- Create an event queue with a capacity of 5 events.
   ghQueue      <- Github.newEventQueue 5
 
-  let tryEnqueue = Github.tryEnqueueEvent ghQueue
+  let
+    tryEnqueue = Github.tryEnqueueEvent ghQueue
+    -- Fake the project state, always return the empty state.
+    getProjectState = return Project.emptyProjectState
 
   -- Start the server on the test port, wait until it is ready to handle
   -- requests, and then run the body with access to the queue.
-  (runServer, blockUntilReady) <- buildServer testPort tryEnqueue testSecret
+  (runServer, blockUntilReady) <- buildServer testPort testSecret tryEnqueue getProjectState
   serverAsync <- async runServer
   blockUntilReady
   body ghQueue
