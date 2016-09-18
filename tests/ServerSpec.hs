@@ -123,13 +123,15 @@ withServer body = do
   ghQueue      <- Github.newEventQueue 5
 
   let
+    info = Project.ProjectInfo "deckard" "voight-kampff"
     tryEnqueue = Github.tryEnqueueEvent ghQueue
     -- Fake the project state, always return the empty state.
     getProjectState = return Project.emptyProjectState
 
   -- Start the server on the test port, wait until it is ready to handle
   -- requests, and then run the body with access to the queue.
-  (runServer, blockUntilReady) <- buildServer testPort testSecret tryEnqueue getProjectState
+  (runServer, blockUntilReady) <-
+    buildServer testPort info testSecret tryEnqueue getProjectState
   serverAsync <- async runServer
   blockUntilReady
   body ghQueue

@@ -22,6 +22,7 @@ import qualified System.Environment
 import Configuration (Configuration)
 import EventLoop (runGithubEventLoop, runLogicEventLoop)
 import Project (ProjectState, emptyProjectState, loadProjectState, saveProjectState)
+import Project (ProjectInfo (ProjectInfo))
 import Server (buildServer)
 
 import qualified Configuration as Config
@@ -98,10 +99,11 @@ main = do
 
   -- Start a worker thread to put the GitHub webhook events in the main queue.
   -- Discard events that are not intended for the configured repository.
-  let owner        = Config.owner config
-      repository   = Config.repository config
-      stateFile    = Config.stateFile config
-      enqueueEvent = Logic.enqueueEvent mainQueue
+  let
+    owner        = Config.owner config
+    repository   = Config.repository config
+    stateFile    = Config.stateFile config
+    enqueueEvent = Logic.enqueueEvent mainQueue
   _ <- forkIO $ runStdoutLoggingT
               $ runGithubEventLoop owner repository ghQueue enqueueEvent
 
@@ -136,10 +138,12 @@ main = do
               $ runStdoutLoggingT
               $ runLogicEventLoop config getNextEvent publish projectState
 
-  let port   = Config.port config
-      secret = Config.secret config
+  let
+    port   = Config.port config
+    secret = Config.secret config
+    info   = ProjectInfo owner repository
   putStrLn $ "Listening for webhooks on port " ++ (show port) ++ "."
-  runServer <- fmap fst $ buildServer port secret ghTryEnqueue getProjectState
+  runServer <- fmap fst $ buildServer port info secret ghTryEnqueue getProjectState
   runServer
 
   -- Note that a stop signal is never enqueued. The application just runs until

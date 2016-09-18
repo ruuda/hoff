@@ -19,7 +19,7 @@ import Data.ByteString (ByteString)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Network.HTTP.Types (badRequest400, notFound404, notImplemented501, serviceUnavailable503)
-import Web.Scotty (ActionM, ScottyM, body, get, header, jsonData, notFound, post, scottyApp, status, text)
+import Web.Scotty (ActionM, ScottyM, body, get, header, jsonData, notFound, post, raw, scottyApp, setHeader, status, text)
 
 import qualified Data.ByteString.Base16 as Base16
 import qualified Data.ByteString.Lazy as LBS
@@ -27,16 +27,21 @@ import qualified Data.Text as Text
 import qualified Data.Text.Lazy as LT
 import qualified Network.Wai.Handler.Warp as Warp
 
-import Project (ProjectState)
+import Project (ProjectInfo, ProjectState)
 
 import qualified Github
+import qualified WebInterface
 
 -- Router for the web server.
-router :: (Github.WebhookEvent -> ActionM ()) -> Text -> ScottyM ()
-router serveEnqueueEvent ghSecret = do
+router :: ProjectInfo
+       -> Text
+       -> (Github.WebhookEvent -> ActionM ())
+       -> IO ProjectState
+       -> ScottyM ()
+router info ghSecret serveEnqueueEvent getProjectState = do
   post "/hook/github" $ withSignatureCheck ghSecret $ serveGithubWebhook serveEnqueueEvent
   get  "/hook/github" $ serveWebhookDocs
-  get  "/"            $ serveWebInterface
+  get  "/"            $ serveWebInterface info getProjectState
   notFound            $ serveNotFound
 
 -- Checks the signature (encoded as hexadecimal characters in 'hexDigest') of
@@ -120,8 +125,11 @@ serveWebhookDocs = do
   status badRequest400
   text "expecting POST request at /hook/github"
 
-serveWebInterface :: ActionM ()
-serveWebInterface = text "not yet implemented"
+serveWebInterface :: ProjectInfo -> (IO ProjectState) -> ActionM ()
+serveWebInterface info getProjectState = do
+  state <- liftIO $ getProjectState
+  setHeader "Content-Type" "text/html; charset=utf-8"
+  raw $ WebInterface.renderPage "TODO: title" $ WebInterface.viewProject info state
 
 serveNotFound :: ActionM ()
 serveNotFound = do
@@ -140,11 +148,12 @@ warpSettings port beforeMainLoop
 -- the server, the second may be used to wait until the server is ready to
 -- serve requests.
 buildServer :: Int
+            -> ProjectInfo
             -> Text
             -> (Github.WebhookEvent -> IO Bool)
             -> IO ProjectState
             -> IO (IO (), IO ())
-buildServer port ghSecret tryEnqueueEvent _getProjectState = do
+buildServer port info ghSecret tryEnqueueEvent getProjectState = do
   -- Create a semaphore that will be signalled when the server is ready.
   readySem <- atomically $ newTSem 0
   let signalReady     = atomically $ signalTSem readySem
@@ -160,7 +169,7 @@ buildServer port ghSecret tryEnqueueEvent _getProjectState = do
   -- Build the Scotty app, but do not start serving yet, as that would never
   -- return, so we wouldn't have the opportunity to return the 'blockUntilReady'
   -- function to the caller.
-  app <- scottyApp $ router serveEnqueueEvent ghSecret
+  app <- scottyApp $ router info ghSecret serveEnqueueEvent getProjectState
   let runServer = Warp.runSettings settings app
 
   -- Return two IO actions: one that will run the server (and never return),

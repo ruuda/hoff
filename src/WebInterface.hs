@@ -15,9 +15,11 @@ import Data.Text.Format.Params (Params)
 import Data.Text.Lazy (toStrict)
 import Prelude hiding (id, div, head, span)
 import Text.Blaze ((!), toValue)
+import Text.Blaze.Html.Renderer.Utf8
 import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, head, meta, p, span, title, toHtml)
 import Text.Blaze.Html5.Attributes (class_, charset, content, href, id, name)
 
+import qualified Data.ByteString.Lazy as LazyByteString
 import qualified Data.Text as Text
 import qualified Data.Text.Format as Text
 
@@ -30,9 +32,10 @@ import qualified Project
 format :: Params ps => Text.Format -> ps -> Text
 format formatString params = toStrict $ Text.format formatString params
 
--- Wraps the given body html in html for an actual page.
-renderPage :: Text -> Html -> Html
-renderPage pageTitle bodyHtml = docTypeHtml $ do
+-- Wraps the given body html in html for an actual page, and encodes the
+-- resulting page in utf-8.
+renderPage :: Text -> Html -> LazyByteString.ByteString
+renderPage pageTitle bodyHtml = renderHtml $ docTypeHtml $ do
   head $ do
     meta ! charset "utf-8"
     meta ! name "viewport" ! content "width=device-width, initial-scale=1"
