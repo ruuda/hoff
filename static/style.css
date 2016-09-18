@@ -1,0 +1,98 @@
+/* Scale:
+   0.391em
+   0.625em
+   1.0em
+   1.6em
+   2.56em
+   4.096em
+
+   Baseline grid: multiples of 1.6em.
+
+   Color scheme:
+   https://coolors.co/e0644c-fffbf7-adaca4-43494c-313638
+
+   #e0644c (Jelly bean -- accent)
+   #fffbf7 (Snow -- background)
+   #adaca4 (Silver chalice -- light text)
+   #56656d (Black coral -- body text)
+   #43494c (Outer space -- body text) // Unused
+   #313638 (Onyx -- currently not used)
+
+   #8c8e81 (Dolphin gray -- light text accent)
+*/
+
+*
+{
+  margin: 0;
+  padding: 0;
+  font-weight: 400;
+}
+
+html
+{
+  font-size: 22px;
+  line-height: 1.6em;
+}
+
+body
+{
+  font-family: 'Source Sans Pro', 'Segoe UI', sans-serif;
+  background-color: #fffbf7;
+  color: #56656d;
+  margin: 3.2em;
+}
+
+a
+{
+  color: #e0644c;
+  text-decoration: none;
+}
+
+#content
+{
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 24em;
+}
+
+h1
+{
+  font-size: 2.56em;
+  line-height: 1.6rem; /* Aligns the text baseline to the grid. */
+  margin-top: -0.1rem;
+  padding-bottom: 0.5rem; /* Leave the same amount of space as a p would. */
+}
+
+h2
+{
+  font-size: 1.6em;
+  line-height: 2rem; /* Aligns the text baseline to the grid. */
+  margin-top: 2.4rem;
+  padding-bottom: 0.4rem;
+}
+
+p
+{
+  clear: both;
+}
+
+span.prnum
+{
+  display: block;
+  width: 2em;
+  margin-left: -2.625em;
+  float: left;
+  text-align: right;
+  color: #adaca4;  
+}
+
+span.review
+{
+  color: #adaca4;
+  display: block;
+}
+
+span.review a
+{
+  color: #8c8e81;
+}

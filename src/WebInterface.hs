@@ -6,17 +6,19 @@
 -- A copy of the License has been included in the root of the repository.
 
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module WebInterface (renderPage, viewProject) where
 
 import Control.Monad (forM_)
+import Data.FileEmbed (embedStringFile)
 import Data.Text (Text)
 import Data.Text.Format.Params (Params)
 import Data.Text.Lazy (toStrict)
 import Prelude hiding (id, div, head, span)
 import Text.Blaze ((!), toValue)
 import Text.Blaze.Html.Renderer.Utf8
-import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, head, meta, p, span, title, toHtml)
+import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, head, meta, p, span, style, title, toHtml)
 import Text.Blaze.Html5.Attributes (class_, charset, content, href, id, name)
 
 import qualified Data.ByteString.Lazy as LazyByteString
@@ -32,6 +34,10 @@ import qualified Project
 format :: Params ps => Text.Format -> ps -> Text
 format formatString params = toStrict $ Text.format formatString params
 
+-- TODO: Minify this css at inclusion time.
+stylesheet :: Text
+stylesheet = $(embedStringFile "static/style.css")
+
 -- Wraps the given body html in html for an actual page, and encodes the
 -- resulting page in utf-8.
 renderPage :: Text -> Html -> LazyByteString.ByteString
@@ -40,6 +46,7 @@ renderPage pageTitle bodyHtml = renderHtml $ docTypeHtml $ do
     meta ! charset "utf-8"
     meta ! name "viewport" ! content "width=device-width, initial-scale=1"
     title $ toHtml pageTitle
+    style $ toHtml stylesheet
   body $
     div ! id "content" $
       bodyHtml
