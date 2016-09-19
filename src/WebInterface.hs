@@ -75,8 +75,11 @@ viewProjectQueues info state = do
     pullRequests = Project.classifyPullRequests state
     filterPrs predicate = fmap fst $ filter (predicate . snd) pullRequests
 
+  let building = filterPrs (== Project.PrStatusBuildPending)
   h2 "Building"
-  p "There are no builds in progress at the moment." -- TODO
+  if null building
+    then p "There are no builds in progress at the moment."
+    else viewList viewPullRequestWithApproval info state building
 
   let approved = filterPrs (== Project.PrStatusApproved)
   unless (null approved) $ do
