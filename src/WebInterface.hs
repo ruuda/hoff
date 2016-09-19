@@ -107,13 +107,13 @@ viewProjectQueues info state = do
 
 -- Renders the contents of a list item with a link for a pull request.
 viewPullRequest :: ProjectInfo -> PullRequestId -> PullRequest -> Html
-viewPullRequest info (PullRequestId n) _pullRequest =
+viewPullRequest info (PullRequestId n) pullRequest =
   let
     url = format "https://github.com/{}/{}/pull/{}"
       (Project.owner info, Project.repository info, n)
   in do
     span ! class_ "prnum" $ toHtml n
-    a ! href (toValue url) $ "TODO: Pull request titles"
+    a ! href (toValue url) $ toHtml $ Project.title pullRequest
 
 viewPullRequestWithApproval :: ProjectInfo -> PullRequestId -> PullRequest -> Html
 viewPullRequestWithApproval info prId pullRequest = do
