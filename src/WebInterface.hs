@@ -10,7 +10,7 @@
 
 module WebInterface (renderPage, viewProject) where
 
-import Control.Monad (forM_)
+import Control.Monad (forM_, unless)
 import Data.FileEmbed (embedStringFile)
 import Data.Text (Text)
 import Data.Text.Format.Params (Params)
@@ -71,27 +71,36 @@ viewProject info state =
 -- Render the html for the queues in a project, excluding the header and footer.
 viewProjectQueues :: ProjectInfo -> ProjectState -> Html
 viewProjectQueues info state = do
+  let
+    pullRequests = Project.classifyPullRequests state
+    filterPrs predicate = fmap fst $ filter (predicate . snd) pullRequests
+
   h2 "Building"
   p "There are no builds in progress at the moment." -- TODO
 
-  h2 "Approved"
-  viewList viewPullRequestWithApproval info state $
-    Project.approvedPullRequests state
+  let approved = filterPrs (== Project.PrStatusApproved)
+  unless (null approved) $ do
+    h2 "Approved"
+    viewList viewPullRequestWithApproval info state approved
 
-  h2 "Awaiting approval"
-  viewList viewPullRequest info state $ Project.approvedPullRequests state -- TODO: use proper list.
+  let awaitingApproval = filterPrs (== Project.PrStatusAwaitingApproval)
+  unless (null awaitingApproval) $ do
+    h2 "Awaiting approval"
+    viewList viewPullRequest info state awaitingApproval
 
-  h2 "Failed to integrate"
-  viewList viewPullRequestWithApproval info state $
-    Project.conflictedPullRequests state
+  let failed = filterPrs $ \ st ->
+        (st == Project.PrStatusFailedConflict) || (st == Project.PrStatusFailedBuild)
+  unless (null failed) $ do
+    h2 "Failed"
+    -- TODO: Also render failure reason: conflicted or build failed.
+    viewList viewPullRequestWithApproval info state failed
 
-  h2 "Failed to build"
-  viewList viewPullRequestWithApproval info state $
-    Project.failedPullRequests state
-
-  h2 "Recently integrated"
-  viewList viewPullRequestWithApproval info state $
-    Project.conflictedPullRequests state -- TODO: Use proper list.
+  -- TODO: Keep a list of the last n integrated pull requests, so they stay
+  -- around for a bit after they have been closed.
+  let integrated = filterPrs (== Project.PrStatusIntegrated)
+  unless (null integrated) $ do
+    h2 "Recently integrated"
+    viewList viewPullRequestWithApproval info state integrated
 
 -- Renders the contents of a list item with a link for a pull request.
 viewPullRequest :: ProjectInfo -> PullRequestId -> PullRequest -> Html

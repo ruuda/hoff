@@ -16,13 +16,14 @@ module Project
   ProjectState (..),
   PullRequest (..),
   PullRequestId (..),
+  PullRequestStatus (..),
   approvedPullRequests,
   candidatePullRequests,
-  conflictedPullRequests,
+  classifyPullRequest,
+  classifyPullRequests,
   deletePullRequest,
   emptyProjectState,
   existsPullRequest,
-  failedPullRequests,
   getIntegrationCandidate,
   insertPullRequest,
   loadProjectState,
@@ -71,6 +72,15 @@ data IntegrationStatus
   | Integrated Sha
   | Conflicted
   deriving (Eq, Show, Generic)
+
+data PullRequestStatus
+  = PrStatusAwaitingApproval -- New, awaiting review.
+  | PrStatusApproved         -- Approved, but not yet integrated or built.
+  | PrStatusBuildPending     -- Integrated, and build pending or in progress.
+  | PrStatusIntegrated       -- Integrated, build passed, merged into target branch.
+  | PrStatusFailedConflict   -- Failed to integrate due to merge conflict.
+  | PrStatusFailedBuild      -- Integrated, but the build failed.
+  deriving (Eq)
 
 data PullRequest = PullRequest
   {
@@ -189,6 +199,25 @@ setIntegrationCandidate pr state = state {
   integrationCandidate = pr
 }
 
+classifyPullRequest :: PullRequest -> PullRequestStatus
+classifyPullRequest pr = case approvedBy pr of
+  Nothing -> PrStatusAwaitingApproval
+  Just _  -> case integrationStatus pr of
+    NotIntegrated -> PrStatusApproved
+    Conflicted    -> PrStatusFailedConflict
+    Integrated _  -> case buildStatus pr of
+      BuildNotStarted -> PrStatusApproved
+      BuildPending    -> PrStatusBuildPending
+      BuildSucceeded  -> PrStatusIntegrated
+      BuildFailed     -> PrStatusFailedBuild
+
+-- Classify every pull request into one status. Orders pull requests by id in
+-- ascending order.
+classifyPullRequests :: ProjectState -> [(PullRequestId, PullRequestStatus)]
+classifyPullRequests state = IntMap.foldMapWithKey aux (pullRequests state)
+  where
+    aux i pr = [(PullRequestId i, classifyPullRequest pr)]
+
 -- Returns the ids of the pull requests that satisfy the predicate, in ascending
 -- order.
 filterPullRequestsBy :: (PullRequest -> Bool) -> ProjectState -> [PullRequestId]
@@ -203,16 +232,6 @@ approvedPullRequests = filterPullRequestsBy $ isJust . approvedBy
 -- ascending id.
 unintegratedPullRequests :: ProjectState -> [PullRequestId]
 unintegratedPullRequests = filterPullRequestsBy $ (== NotIntegrated) . integrationStatus
-
--- Returns the pull requests that could not be integrated due to a merge
--- conflict, in order of ascending id.
-conflictedPullRequests :: ProjectState -> [PullRequestId]
-conflictedPullRequests = filterPullRequestsBy $ (== Conflicted) . integrationStatus
-
--- Returns the pull requests for which the build has failed, in order of
--- ascending id.
-failedPullRequests :: ProjectState -> [PullRequestId]
-failedPullRequests = filterPullRequestsBy $ (== BuildFailed) . buildStatus
 
 -- Returns the pull requests that have not been built yet, in order of ascending
 -- id.
