@@ -248,7 +248,7 @@ eventLoopSpec = parallel $ do
         -- and discard the final state by using 'void'.
         void $ runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr4 c4 "deckard",
+            Logic.PullRequestOpened pr4 c4 "Add Leon test results" "deckard",
             Logic.CommentAdded pr4 "rachael" $ Text.pack $ "LGTM " ++ (show c4),
             Logic.BuildStatusChanged c4 BuildSucceeded
           ]
@@ -265,7 +265,7 @@ eventLoopSpec = parallel $ do
         -- integrating it produces new rebased commits.
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr6 c6 "deckard",
+            Logic.PullRequestOpened pr6 c6 "Add Leon test results" "deckard",
             Logic.CommentAdded pr6 "rachael" $ Text.pack $ "LGTM " ++ (show c6)
           ]
 
@@ -287,8 +287,8 @@ eventLoopSpec = parallel $ do
 
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr4 c4 "deckard",
-            Logic.PullRequestOpened pr6 c6 "deckard",
+            Logic.PullRequestOpened pr4 c4 "Add Leon test results" "deckard",
+            Logic.PullRequestOpened pr6 c6 "Add Rachael test results" "deckard",
             -- Note that although c4 has a lower pull request number, c6 should
             -- still be integrated first because it was approved earlier.
             Logic.CommentAdded pr6 "rachael" $ Text.pack $ "LGTM " ++ (show c6),
@@ -321,8 +321,8 @@ eventLoopSpec = parallel $ do
         -- because it conflicts, the next pull request should be considered.
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr3 c3' "deckard",
-            Logic.PullRequestOpened pr4 c4 "deckard",
+            Logic.PullRequestOpened pr3 c3' "Add Leon test results" "deckard",
+            Logic.PullRequestOpened pr4 c4 "Add Rachael test results" "deckard",
             Logic.CommentAdded pr3 "rachael" $ Text.pack $ "LGTM " ++ (show c3'),
             Logic.CommentAdded pr4 "rachael" $ Text.pack $ "LGTM " ++ (show c4)
           ]
@@ -351,7 +351,7 @@ eventLoopSpec = parallel $ do
 
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr6 c6 "deckard",
+            Logic.PullRequestOpened pr6 c6 "Add test results" "deckard",
             Logic.CommentAdded pr6 "rachael" $ Text.pack $ "LGTM " ++ (show c6)
           ]
 

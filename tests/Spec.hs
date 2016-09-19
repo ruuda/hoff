@@ -51,7 +51,7 @@ testConfig = Config.Configuration {
 
 singlePullRequestState :: PullRequestId -> Sha -> Text -> ProjectState
 singlePullRequestState pr prSha prAuthor =
-  let event = PullRequestOpened pr prSha prAuthor
+  let event = PullRequestOpened pr prSha "Untitled" prAuthor
   in  handleEventFlat event Project.emptyProjectState
 
 candidateState :: PullRequestId -> Sha -> Text -> Sha -> ProjectState
@@ -114,7 +114,7 @@ main = hspec $ do
   describe "Logic.handleEvent" $ do
 
     it "handles PullRequestOpened" $ do
-      let event = PullRequestOpened (PullRequestId 3) (Sha "e0f") "lisa"
+      let event = PullRequestOpened (PullRequestId 3) (Sha "e0f") "title" "lisa"
           state = handleEventFlat event Project.emptyProjectState
       state `shouldSatisfy` Project.existsPullRequest (PullRequestId 3)
       let pr = fromJust $ Project.lookupPullRequest (PullRequestId 3) state
@@ -124,8 +124,8 @@ main = hspec $ do
       Project.buildStatus pr `shouldBe` Project.BuildNotStarted
 
     it "handles PullRequestClosed" $ do
-      let event1 = PullRequestOpened (PullRequestId 1) (Sha "abc") "peter"
-          event2 = PullRequestOpened (PullRequestId 2) (Sha "def") "jack"
+      let event1 = PullRequestOpened (PullRequestId 1) (Sha "abc") "title" "peter"
+          event2 = PullRequestOpened (PullRequestId 2) (Sha "def") "title" "jack"
           event3 = PullRequestClosed (PullRequestId 1)
           state  = handleEventsFlat [event1, event2, event3] Project.emptyProjectState
       state `shouldSatisfy` not . Project.existsPullRequest (PullRequestId 1)
@@ -216,7 +216,7 @@ main = hspec $ do
       Project.buildStatus pr `shouldBe` Project.BuildSucceeded
 
     it "ignores a build status change of random shas" $ do
-      let event0 = PullRequestOpened (PullRequestId 2) (Sha "0ad") "harry"
+      let event0 = PullRequestOpened (PullRequestId 2) (Sha "0ad") "title" "harry"
           event1 = BuildStatusChanged (Sha "0ad") Project.BuildSucceeded
           state  = candidateState (PullRequestId 1) (Sha "a38") "harry" (Sha "84c")
           state' = handleEventsFlat [event0, event1] state
@@ -243,6 +243,7 @@ main = hspec $ do
       let pullRequest = PullRequest
             {
               Project.sha               = Sha "f35",
+              Project.title             = "Add my test results",
               Project.author            = "rachael",
               Project.approvedBy        = Just "deckard",
               Project.buildStatus       = Project.BuildSucceeded,
@@ -265,6 +266,7 @@ main = hspec $ do
       let pullRequest = PullRequest
             {
               Project.sha               = Sha "f35",
+              Project.title             = "Add my test results",
               Project.author            = "rachael",
               Project.approvedBy        = Just "deckard",
               Project.buildStatus       = Project.BuildSucceeded,
@@ -290,6 +292,7 @@ main = hspec $ do
       let pullRequest1 = PullRequest
             {
               Project.sha               = Sha "f35",
+              Project.title             = "Add Leon test results",
               Project.author            = "rachael",
               Project.approvedBy        = Just "deckard",
               Project.buildStatus       = Project.BuildSucceeded,
@@ -298,6 +301,7 @@ main = hspec $ do
           pullRequest2 = PullRequest
             {
               Project.sha               = Sha "f37",
+              Project.title             = "Add my test results",
               Project.author            = "rachael",
               Project.approvedBy        = Just "deckard",
               Project.buildStatus       = Project.BuildNotStarted,
@@ -330,12 +334,14 @@ main = hspec $ do
           repository = Github.repository (payload :: PullRequestPayload)
           number     = Github.number     (payload :: PullRequestPayload)
           headSha    = Github.sha        (payload :: PullRequestPayload)
+          title      = Github.title      (payload :: PullRequestPayload)
           prAuthor   = Github.author     (payload :: PullRequestPayload)
       action     `shouldBe` Github.Opened
       owner      `shouldBe` "baxterthehacker"
       repository `shouldBe` "public-repo"
       number     `shouldBe` 1
       headSha    `shouldBe` (Sha "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c")
+      title      `shouldBe` "Update the README with new information"
       prAuthor   `shouldBe` "baxterthehacker2"
 
     it "parses a CommentPayload correctly" $ do
@@ -399,19 +405,22 @@ main = hspec $ do
           , repository = "repo"
           , number     = 1
           , sha        = Sha "b26354"
+          , title      = "Add test results"
           , author     = "rachael"
           }
 
     it "converts a pull request opened event" $ do
       let payload = testPullRequestPayload Github.Opened
           Just event = convertGithubEvent $ Github.PullRequest payload
-      event `shouldBe` (PullRequestOpened (PullRequestId 1) (Sha "b26354") "rachael")
+      event `shouldBe`
+        (PullRequestOpened (PullRequestId 1) (Sha "b26354") "Add test results" "rachael")
 
     it "converts a pull request reopened event" $ do
       let payload = testPullRequestPayload Github.Reopened
           Just event = convertGithubEvent $ Github.PullRequest payload
       -- Reopened is treated just like opened, there is no memory in the system.
-      event `shouldBe` (PullRequestOpened (PullRequestId 1) (Sha "b26354") "rachael")
+      event `shouldBe`
+        (PullRequestOpened (PullRequestId 1) (Sha "b26354") "Add test results" "rachael")
 
     it "converts a pull request closed event" $ do
       let payload = testPullRequestPayload Github.Closed

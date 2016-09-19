@@ -85,6 +85,7 @@ data PullRequestStatus
 data PullRequest = PullRequest
   {
     sha               :: Sha,
+    title             :: Text,
     author            :: Text,
     approvedBy        :: Maybe Text,
     buildStatus       :: BuildStatus,
@@ -143,10 +144,11 @@ emptyProjectState = ProjectState {
 
 -- Inserts a new pull request into the project, with approval set to Nothing,
 -- build status to BuildNotStarted, and integration status to NotIntegrated.
-insertPullRequest :: PullRequestId -> Sha -> Text -> ProjectState -> ProjectState
-insertPullRequest (PullRequestId n) prSha prAuthor state =
+insertPullRequest :: PullRequestId -> Sha -> Text -> Text -> ProjectState -> ProjectState
+insertPullRequest (PullRequestId n) prSha prTitle prAuthor state =
   let pullRequest = PullRequest {
         sha               = prSha,
+        title             = prTitle,
         author            = prAuthor,
         approvedBy        = Nothing,
         buildStatus       = BuildNotStarted,

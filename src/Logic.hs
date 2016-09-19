@@ -92,7 +92,7 @@ runAction config action = case action of
 
 data Event
   -- GitHub events
-  = PullRequestOpened PullRequestId Sha Text   -- PR, sha, author.
+  = PullRequestOpened PullRequestId Sha Text Text -- PR, sha, title, author.
   -- The commit changed event may contain false positives: it may be received
   -- even if the commit did not really change. This is because GitHub just
   -- sends a "something changed" event along with the new state.
@@ -137,29 +137,40 @@ readStateVar var = atomically $ readTMVar var
 
 handleEvent :: Configuration -> Event -> ProjectState -> Action ProjectState
 handleEvent config event = case event of
-  PullRequestOpened pr sha author -> handlePullRequestOpened pr sha author
-  PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
-  PullRequestClosed pr            -> handlePullRequestClosed pr
-  CommentAdded pr author body     -> handleCommentAdded config pr author body
-  BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
+  PullRequestOpened pr sha title author -> handlePullRequestOpened pr sha title author
+  PullRequestCommitChanged pr sha       -> handlePullRequestCommitChanged pr sha
+  PullRequestClosed pr                  -> handlePullRequestClosed pr
+  CommentAdded pr author body           -> handleCommentAdded config pr author body
+  BuildStatusChanged sha status         -> handleBuildStatusChanged sha status
 
-handlePullRequestOpened :: PullRequestId -> Sha -> Text -> ProjectState -> Action ProjectState
-handlePullRequestOpened pr sha author = return . Pr.insertPullRequest pr sha author
+handlePullRequestOpened :: PullRequestId
+                        -> Sha
+                        -> Text
+                        -> Text
+                        -> ProjectState
+                        -> Action ProjectState
+handlePullRequestOpened pr sha title author =
+  return . Pr.insertPullRequest pr sha title author
 
 handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> Action ProjectState
 handlePullRequestCommitChanged pr newSha state =
   -- If the commit changes, pretend that the PR was closed. This forgets about
   -- approval and build status. Then pretend a new PR was opened, with the same
   -- author as the original one, but with the new sha.
-  let closedState = handlePullRequestClosed pr state
-      update pullRequest =
-        let oldSha   = Pr.sha pullRequest
-            author   = Pr.author pullRequest
-            newState = closedState >>= handlePullRequestOpened pr newSha author
-            -- If the change notification was a false positive, ignore it.
-        in  if oldSha == newSha then return state else newState
-  -- If the pull request was not present in the first place, do nothing.
-  in maybe (return state) update $ Pr.lookupPullRequest pr state
+  let
+    closedState = handlePullRequestClosed pr state
+    update pullRequest =
+      let
+        oldSha   = Pr.sha pullRequest
+        title    = Pr.title pullRequest
+        author   = Pr.author pullRequest
+        newState = closedState >>= handlePullRequestOpened pr newSha title author
+      in
+        -- If the change notification was a false positive, ignore it.
+        if oldSha == newSha then return state else newState
+  in
+    -- If the pull request was not present in the first place, do nothing.
+    maybe (return state) update $ Pr.lookupPullRequest pr state
 
 handlePullRequestClosed :: PullRequestId -> ProjectState -> Action ProjectState
 handlePullRequestClosed pr state = return $ Pr.deletePullRequest pr state {
