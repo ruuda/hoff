@@ -30,9 +30,18 @@
 
 html
 {
-  font-size: 22px;
+  font-size: 14px;
   line-height: 1.6em;
 }
+
+/* Font size is 10 + 0.25 * sqrt(screen-width). */
+@media(min-width: 512px) { html { font-size: 15.7px; } }
+@media(min-width: 768px) { html { font-size: 16.9px; } }
+@media(min-width: 1024px) { html { font-size: 18.0px; } }
+@media(min-width: 1280px) { html { font-size: 19.8px; } }
+@media(min-width: 1536px) { html { font-size: 20.6px; } }
+@media(min-width: 1792px) { html { font-size: 21.3px; } }
+@media(min-width: 2048px) { html { font-size: 22.0px; } }
 
 body
 {
