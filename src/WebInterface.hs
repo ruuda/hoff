@@ -111,8 +111,7 @@ viewPullRequest info (PullRequestId n) pullRequest =
   let
     url = format "https://github.com/{}/{}/pull/{}"
       (Project.owner info, Project.repository info, n)
-  in do
-    span ! class_ "prnum" $ toHtml n
+  in
     a ! href (toValue url) $ toHtml $ Project.title pullRequest
 
 viewPullRequestWithApproval :: ProjectInfo -> PullRequestId -> PullRequest -> Html

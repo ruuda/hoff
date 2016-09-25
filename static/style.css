@@ -85,16 +85,6 @@ p
   clear: both;
 }
 
-span.prnum
-{
-  display: block;
-  width: 2em;
-  margin-left: -2.625em;
-  float: left;
-  text-align: right;
-  color: #adaca4;  
-}
-
 span.review
 {
   color: #adaca4;
