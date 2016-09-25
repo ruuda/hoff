@@ -7,24 +7,26 @@
  * Add end-to-end test for retry after rejected push
  * Configurable Git credentials (just edit config of the daemon user)
  * Test that the server continues serving after an invalid hook
-
-# Up next
-
- * Automated testing for all core functionality
  * Render webinterface pages
  * Serve webinterface pages
  * Test with GitHub
+ * Support for basic review policy enforcement (whitelist reviewer usernames)
+
+# Up next
+
+ * Support for multiple repositories
+ * Make API calls to leave comments and close pull requests
+ * Automated testing for all core functionality
 
 # Near-term
 
- * Support for multiple repositories
+ * Keep track of recently integrated pull requests, even after they were closed
  * Support for commit message validation
  * Support for `--autosquash` rebasing
  * Generate ping event at startup
  * Client to generate API calls for ping
  * The ability to queue approved commits directly without requiring a pull
    request, for personal use
- * Support for basic review policy enforcement (whitelist reviewer usernames)
  * Append a "Reviewed-by" line to integrated commits
  * Set timezone to UTC+0 for bot (rebased) commits
 
