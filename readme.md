@@ -5,10 +5,12 @@ always builds.
 
 TODO: Hipster build status badges.
 
-Hoff intends to replace the merge button in the GitHub UI. Unlike GitHub and
+Hoff intends to replace the merge button in the GitHub UI. Unlike GitHub\* and
 many other tools, Hoff integrates changes into master using a *rebase*. This
 keeps the history clean, free of random fork points and merge commits. (TODO:
 In the future Hoff will also enforce a commit message format.)
+
+\* [This is no longer true.](https://github.com/blog/2243-rebase-and-merge-pull-requests)
 
 Furthermore, Hoff implements the [Not Rocket Science Principle][not-rocket-science]
 of software engineering:
