@@ -19,7 +19,7 @@ import System.Directory (getTemporaryDirectory, removeFile)
 import System.FilePath ((</>))
 import Test.Hspec
 
-import qualified Data.IntMap as IntMap
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.UUID.V4 as Uuid
 
 import Configuration (Configuration)

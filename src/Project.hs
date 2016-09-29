@@ -41,7 +41,7 @@ import Data.Aeson
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString (readFile)
 import Data.ByteString.Lazy (writeFile)
-import Data.IntMap (IntMap)
+import Data.IntMap.Strict (IntMap)
 import Data.List (intersect)
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -50,7 +50,7 @@ import Git (Sha (..))
 import Prelude hiding (readFile, writeFile)
 import System.Directory (renameFile)
 
-import qualified Data.IntMap as IntMap
+import qualified Data.IntMap.Strict as IntMap
 
 -- TODO: Move to Github module?
 -- A pull request is identified by its number.
