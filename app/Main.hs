@@ -104,10 +104,11 @@ main = do
     pconfig      = head $ Config.projects config
     owner        = Config.owner pconfig
     repository   = Config.repository pconfig
+    projectInfo  = ProjectInfo owner repository
     stateFile    = Config.stateFile config
     enqueueEvent = Logic.enqueueEvent mainQueue
   _ <- forkIO $ runStdoutLoggingT
-              $ runGithubEventLoop owner repository ghQueue enqueueEvent
+              $ runGithubEventLoop projectInfo ghQueue enqueueEvent
 
   -- Restore the previous state from disk if possible, or start clean.
   projectState <- initializeProjectState stateFile
