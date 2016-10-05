@@ -29,7 +29,7 @@ import Test.Hspec
 import qualified Data.UUID.V4 as Uuid
 import qualified System.Directory as FileSystem
 
-import Configuration (Configuration (..))
+import Configuration (ProjectConfiguration (ProjectConfiguration))
 import Git (Sha (..))
 import Project (BuildStatus (..), IntegrationStatus (..), ProjectState, PullRequestId (..))
 
@@ -138,23 +138,19 @@ initializeRepository originDir repoDir = do
   _    <- callGit ["-C", repoDir, "config", "user.name", "Testbot"]
   return shas
 
--- Generate a configuration to be used in the test environment.
-buildConfig :: FilePath -> Configuration
-buildConfig repoDir = Configuration {
+-- Generate a project configuration to be used in the test environment.
+buildProjectConfig :: FilePath -> ProjectConfiguration
+buildProjectConfig repoDir = ProjectConfiguration {
   Config.owner      = "ruuda",
   Config.repository = "blog",
   Config.branch     = "master",
   Config.testBranch = "integration",
   Config.checkout   = repoDir,
-  Config.reviewers  = ["rachael", "deckard"],
-  Config.secret     = "N6MAC41717",
-  Config.stateFile  = "state.json",
-  Config.port       = 5261,
-  Config.tls        = Nothing
+  Config.reviewers  = ["rachael", "deckard"]
 }
 
 -- Runs the main loop in a separate thread, and feeds it the given events.
-runMainEventLoop :: Configuration -> ProjectState -> [Logic.Event] -> IO ProjectState
+runMainEventLoop :: ProjectConfiguration -> ProjectState -> [Logic.Event] -> IO ProjectState
 runMainEventLoop config initialState events = do
   -- Like the actual application, start a new thread to run the main event loop.
   -- Use 'async' here, a higher-level wrapper around 'forkIO', to wait for the
@@ -216,7 +212,7 @@ withTestEnv body = do
   -- Run the actual test code inside the environment that we just set up,
   -- provide it with the commit shas, the function to run the event loop, and a
   -- function to invoke Git in the cloned repository.
-  let config   = buildConfig repoDir
+  let config   = buildProjectConfig repoDir
       git args = void $ callGit $ ["-C", repoDir] ++ args
   body shas (runMainEventLoop config) git
 

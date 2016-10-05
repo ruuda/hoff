@@ -22,7 +22,7 @@ import Test.Hspec
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.UUID.V4 as Uuid
 
-import Configuration (Configuration)
+import Configuration (ProjectConfiguration)
 import EventLoop (convertGithubEvent)
 import Git (Branch (..), PushResult(..), Sha (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
@@ -33,19 +33,15 @@ import qualified Configuration as Config
 import qualified Github
 import qualified Project
 
--- Config used throughout these tests.
-testConfig :: Configuration
-testConfig = Config.Configuration {
+-- Project config used throughout these tests.
+testProjectConfig :: ProjectConfiguration
+testProjectConfig = Config.ProjectConfiguration {
   Config.owner = "deckard",
   Config.repository = "voight-kampff",
   Config.branch = "master",
   Config.testBranch = "testing",
   Config.checkout = "/tmp/deckard/voight-kampff",
-  Config.reviewers = ["deckard"],
-  Config.secret = "secret",
-  Config.stateFile = "/dev/null",
-  Config.port = 5261,
-  Config.tls = Nothing
+  Config.reviewers = ["deckard"]
 }
 
 -- Functions to prepare certain test states.
@@ -97,12 +93,14 @@ getState = fst . runAction
 -- Handle an event and simulate its side effects, then ignore the side effects
 -- and return the new state.
 handleEventFlat :: Event -> ProjectState -> ProjectState
-handleEventFlat event state = getState $ handleEvent testConfig event state
+handleEventFlat event state =
+  getState $ handleEvent testProjectConfig event state
 
 -- Handle events and simulate their side effects, then ignore the side effects
 -- and return the new state.
 handleEventsFlat :: [Event] -> ProjectState -> ProjectState
-handleEventsFlat events state = getState $ foldlM (flip $ handleEvent testConfig) state events
+handleEventsFlat events state =
+  getState $ foldlM (flip $ handleEvent testProjectConfig) state events
 
 -- Proceed with a state until a fixed point, simulate and collect the side
 -- effects.
@@ -388,16 +386,21 @@ main = hspec $ do
       -- serves two purposes: to test that loading a config file works, but
       -- mainly, to enforce that the example file is kept up to date.
       Just cfg <- Config.loadConfiguration "package/example-config.json"
-      Config.owner      cfg `shouldBe` "your-github-username-or-organization"
-      Config.repository cfg `shouldBe` "your-repo"
-      Config.branch     cfg `shouldBe` "master"
-      Config.testBranch cfg `shouldBe` "testing"
-      Config.checkout   cfg `shouldBe` "/home/git/checkouts/your-username/your-repo"
-      Config.reviewers  cfg `shouldBe` ["your-github-username"]
-      Config.secret     cfg `shouldBe` "run 'head --bytes 32 /dev/urandom | base64' and paste output here"
-      Config.stateFile  cfg `shouldBe` "/home/git/state.json"
-      Config.port       cfg `shouldBe` 443
-      Config.tls        cfg `shouldSatisfy` isNothing
+      Config.secret    cfg `shouldBe` "run 'head --bytes 32 /dev/urandom | base64' and paste output here"
+      Config.stateFile cfg `shouldBe` "/home/git/state.json"
+      Config.port      cfg `shouldBe` 443
+      Config.tls       cfg `shouldSatisfy` isNothing
+
+      let
+        projects = Config.projects cfg
+        project  = head projects
+
+      Config.owner      project `shouldBe` "your-github-username-or-organization"
+      Config.repository project `shouldBe` "your-repo"
+      Config.branch     project `shouldBe` "master"
+      Config.testBranch project `shouldBe` "testing"
+      Config.checkout   project `shouldBe` "/home/git/checkouts/your-username/your-repo"
+      Config.reviewers  project `shouldBe` ["your-github-username"]
 
   describe "EventLoop.convertGithubEvent" $ do
 
