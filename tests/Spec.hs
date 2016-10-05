@@ -12,7 +12,7 @@ import Control.Monad.Free (Free (..))
 import Data.Aeson (decode, encode)
 import Data.ByteString.Lazy (readFile)
 import Data.Foldable (foldlM)
-import Data.Maybe (fromJust, isJust)
+import Data.Maybe (fromJust, isJust, isNothing)
 import Data.Text (Text)
 import Prelude hiding (readFile)
 import System.Directory (getTemporaryDirectory, removeFile)
@@ -397,9 +397,7 @@ main = hspec $ do
       Config.secret     cfg `shouldBe` "run 'head --bytes 32 /dev/urandom | base64' and paste output here"
       Config.stateFile  cfg `shouldBe` "/home/git/state.json"
       Config.port       cfg `shouldBe` 443
-      let Just tlsCfg = Config.tls cfg
-      Config.keyFile  tlsCfg `shouldBe` "/etc/letsencrypt/live/example.com/privkey.pem"
-      Config.certFile tlsCfg `shouldBe` "/etc/letsencrypt/live/example.com/fullchain.pem"
+      Config.tls        cfg `shouldSatisfy` isNothing
 
   describe "EventLoop.convertGithubEvent" $ do
 

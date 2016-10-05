@@ -26,7 +26,7 @@ data TlsConfiguration = TlsConfiguration
     certFile :: FilePath,
     keyFile  :: FilePath
   }
-  deriving (Generic)
+  deriving (Generic, Show)
 
 data Configuration = Configuration
   {
