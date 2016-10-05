@@ -10,6 +10,7 @@
 # Editor files
 *.swp
 *.swo
+/tags
 
 # Vagrant files
 /package/.vagrant
