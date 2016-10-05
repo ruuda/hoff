@@ -9,7 +9,7 @@
   "stateFile": "/home/git/state.json",
   "port": 443,
   "tls": {
-    "keyFile": "/etc/letsencrypt/live/privkey.pem",
-    "certFile": "/etc/letsencrypt/live/fullchain.pem"
+    "keyFile": "/etc/letsencrypt/live/example.com/privkey.pem",
+    "certFile": "/etc/letsencrypt/live/example.com/fullchain.pem"
   }
 }

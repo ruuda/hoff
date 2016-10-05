@@ -398,8 +398,8 @@ main = hspec $ do
       Config.stateFile  cfg `shouldBe` "/home/git/state.json"
       Config.port       cfg `shouldBe` 443
       let Just tlsCfg = Config.tls cfg
-      Config.keyFile  tlsCfg `shouldBe` "/etc/letsencrypt/live/privkey.pem"
-      Config.certFile tlsCfg `shouldBe` "/etc/letsencrypt/live/fullchain.pem"
+      Config.keyFile  tlsCfg `shouldBe` "/etc/letsencrypt/live/example.com/privkey.pem"
+      Config.certFile tlsCfg `shouldBe` "/etc/letsencrypt/live/example.com/fullchain.pem"
 
   describe "EventLoop.convertGithubEvent" $ do
 
