@@ -20,6 +20,7 @@
 
 # Near-term
 
+ * Graceful shutdown when receiving sigterm
  * Keep track of recently integrated pull requests, even after they were closed
  * Support for commit message validation
  * Support for `--autosquash` rebasing
@@ -29,6 +30,9 @@
    request, for personal use
  * Append a "Reviewed-by" line to integrated commits
  * Set timezone to UTC+0 for bot (rebased) commits
+ * Add the ability to filter pull request status by context:
+   accepting pull request build status as valid is wrong,
+   because GitHub makes Travis build a merge commit
 
 # Long-term
 
