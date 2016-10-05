@@ -6,6 +6,10 @@
   "checkout": "/home/git/checkouts/your-username/your-repo",
   "reviewers": ["your-github-username"],
   "secret": "run 'head --bytes 32 /dev/urandom | base64' and paste output here",
-  "port": 80,
-  "stateFile": "/home/git/state.json"
+  "stateFile": "/home/git/state.json",
+  "port": 443,
+  "tls": {
+    "keyFile": "/etc/letsencrypt/live/privkey.pem",
+    "certFile": "/etc/letsencrypt/live/fullchain.pem"
+  }
 }

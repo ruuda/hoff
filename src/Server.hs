@@ -25,10 +25,14 @@ import qualified Data.ByteString.Base16 as Base16
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy as LT
+import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
+import qualified Network.Wai.Handler.WarpTLS as Warp
 
+import Configuration (TlsConfiguration)
 import Project (ProjectInfo, ProjectState)
 
+import qualified Configuration as Config
 import qualified Github
 import qualified WebInterface
 
@@ -142,18 +146,35 @@ warpSettings port beforeMainLoop
   $ Warp.setBeforeMainLoop beforeMainLoop
   $ Warp.defaultSettings
 
+warpTlsSettings :: TlsConfiguration -> Warp.TLSSettings
+warpTlsSettings config =
+  Warp.tlsSettings (Config.certFile config) (Config.keyFile config)
+
+-- Runs the a server with TLS if a TLS config was provided, or a normal http
+-- server otherwise. Behaves identical to Warp.runSettings after passing the
+-- TLS configuration.
+runServerMaybeTls :: Maybe TlsConfiguration
+                  -> Warp.Settings
+                  -> Wai.Application
+                  -> IO ()
+runServerMaybeTls maybeTlsConfig =
+  case maybeTlsConfig of
+    Just tlsConfig -> Warp.runTLS $ warpTlsSettings tlsConfig
+    Nothing -> Warp.runSettings
+
 -- Runs a webserver at the specified port. When GitHub webhooks are received,
 -- an event will be added to the event queue. Returns a pair of two IO
 -- operations: (runServer, blockUntilReady). The first should be used to run
 -- the server, the second may be used to wait until the server is ready to
 -- serve requests.
 buildServer :: Int
+            -> Maybe TlsConfiguration
             -> ProjectInfo
             -> Text
             -> (Github.WebhookEvent -> IO Bool)
             -> IO ProjectState
             -> IO (IO (), IO ())
-buildServer port info ghSecret tryEnqueueEvent getProjectState = do
+buildServer port tlsConfig info ghSecret tryEnqueueEvent getProjectState = do
   -- Create a semaphore that will be signalled when the server is ready.
   readySem <- atomically $ newTSem 0
   let signalReady     = atomically $ signalTSem readySem
@@ -170,7 +191,7 @@ buildServer port info ghSecret tryEnqueueEvent getProjectState = do
   -- return, so we wouldn't have the opportunity to return the 'blockUntilReady'
   -- function to the caller.
   app <- scottyApp $ router info ghSecret serveEnqueueEvent getProjectState
-  let runServer = Warp.runSettings settings app
+  let runServer = runServerMaybeTls tlsConfig settings app
 
   -- Return two IO actions: one that will run the server (and never return),
   -- and one that blocks until 'readySem' is signalled from the server.

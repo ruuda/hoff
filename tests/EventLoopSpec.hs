@@ -148,8 +148,9 @@ buildConfig repoDir = Configuration {
   Config.checkout   = repoDir,
   Config.reviewers  = ["rachael", "deckard"],
   Config.secret     = "N6MAC41717",
+  Config.stateFile  = "state.json",
   Config.port       = 5261,
-  Config.stateFile  = "state.json"
+  Config.tls        = Nothing
 }
 
 -- Runs the main loop in a separate thread, and feeds it the given events.

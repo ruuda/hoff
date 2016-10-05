@@ -139,11 +139,12 @@ main = do
               $ runLogicEventLoop config getNextEvent publish projectState
 
   let
-    port   = Config.port config
-    secret = Config.secret config
-    info   = ProjectInfo owner repository
+    port      = Config.port config
+    tlsConfig = Config.tls config
+    secret    = Config.secret config
+    info      = ProjectInfo owner repository
   putStrLn $ "Listening for webhooks on port " ++ (show port) ++ "."
-  runServer <- fmap fst $ buildServer port info secret ghTryEnqueue getProjectState
+  runServer <- fmap fst $ buildServer port tlsConfig info secret ghTryEnqueue getProjectState
   runServer
 
   -- Note that a stop signal is never enqueued. The application just runs until

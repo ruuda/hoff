@@ -43,8 +43,9 @@ testConfig = Config.Configuration {
   Config.checkout = "/tmp/deckard/voight-kampff",
   Config.reviewers = ["deckard"],
   Config.secret = "secret",
+  Config.stateFile = "/dev/null",
   Config.port = 5261,
-  Config.stateFile = "/dev/null"
+  Config.tls = Nothing
 }
 
 -- Functions to prepare certain test states.
@@ -394,8 +395,11 @@ main = hspec $ do
       Config.checkout   cfg `shouldBe` "/home/git/checkouts/your-username/your-repo"
       Config.reviewers  cfg `shouldBe` ["your-github-username"]
       Config.secret     cfg `shouldBe` "run 'head --bytes 32 /dev/urandom | base64' and paste output here"
-      Config.port       cfg `shouldBe` 80
       Config.stateFile  cfg `shouldBe` "/home/git/state.json"
+      Config.port       cfg `shouldBe` 443
+      let Just tlsCfg = Config.tls cfg
+      Config.keyFile  tlsCfg `shouldBe` "/etc/letsencrypt/live/privkey.pem"
+      Config.certFile tlsCfg `shouldBe` "/etc/letsencrypt/live/fullchain.pem"
 
   describe "EventLoop.convertGithubEvent" $ do
 

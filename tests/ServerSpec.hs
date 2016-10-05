@@ -131,7 +131,7 @@ withServer body = do
   -- Start the server on the test port, wait until it is ready to handle
   -- requests, and then run the body with access to the queue.
   (runServer, blockUntilReady) <-
-    buildServer testPort info testSecret tryEnqueue getProjectState
+    buildServer testPort Nothing info testSecret tryEnqueue getProjectState
   serverAsync <- async runServer
   blockUntilReady
   body ghQueue
