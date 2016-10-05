@@ -103,10 +103,13 @@ The meaning of the fields is as follows:
    256-bit secret that doesn’t require any character to be escaped in the json
    file.
 
-There are two global options too:
+There are a few global options too:
 
- * *Port*: The port at which the webhook server is exposed. TODO: allow using
-   80 and 443 via systemd socket activation. Or use a reverse proxy anyway.
+ * *Port*: The port at which the webhook server is exposed. The systemd unit
+   ensures that the daemon has permissions to run on priviliged ports (such as
+   80 and 443) without having to run as root.
+ * *TLS*: Can be used to make the server serve https instead of insecure http.
+   See the [TLS guide](tls.md) for more details.
  * *StateFile*: The path to the file where the daemon saves its state, so it
    can remember the set of open pull requests across restarts. The default
    `/home/git/state.json` is fine. TODO: urge to back up this file regularly.
