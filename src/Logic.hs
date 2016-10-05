@@ -43,7 +43,7 @@ import Data.Text.Lazy (toStrict)
 import qualified Data.Text as Text
 import qualified Data.Text.Format as Text
 
-import Configuration (Configuration)
+import Configuration (ProjectConfiguration)
 import Git (Branch (..), GitOperation, PushResult (..), Sha (..))
 import Project (BuildStatus (..))
 import Project (IntegrationStatus (..))
@@ -76,7 +76,7 @@ pushNewHead :: Sha -> Action PushResult
 pushNewHead newHead = liftF $ PushNewHead newHead id
 
 -- Interpreter that translates high-level actions into more low-level ones.
-runAction :: Configuration -> Action a -> GitOperation a
+runAction :: ProjectConfiguration -> Action a -> GitOperation a
 runAction config action = case action of
   Pure x -> return x
   Free (TryIntegrate (ref, sha) h) -> do
@@ -135,7 +135,7 @@ updateStateVar var state = void $ atomically $ swapTMVar var state
 readStateVar :: StateVar -> IO ProjectState
 readStateVar var = atomically $ readTMVar var
 
-handleEvent :: Configuration -> Event -> ProjectState -> Action ProjectState
+handleEvent :: ProjectConfiguration -> Event -> ProjectState -> Action ProjectState
 handleEvent config event = case event of
   PullRequestOpened pr sha title author -> handlePullRequestOpened pr sha title author
   PullRequestCommitChanged pr sha       -> handlePullRequestCommitChanged pr sha
@@ -188,10 +188,10 @@ isApproval message (Sha target) =
     [stamp, sha] -> (stamp == "LGTM") && (isGood sha)
     _            -> False
 
-isReviewer :: Configuration -> Text -> Bool
+isReviewer :: ProjectConfiguration -> Text -> Bool
 isReviewer config username = username `elem` (Config.reviewers config)
 
-handleCommentAdded :: Configuration
+handleCommentAdded :: ProjectConfiguration
                    -> PullRequestId
                    -> Text -- TODO: Wrapper type for usernames.
                    -> Text

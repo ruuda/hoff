@@ -1,10 +1,12 @@
 {
-  "owner": "your-github-username-or-organization",
-  "repository": "your-repo",
-  "branch": "master",
-  "testBranch": "testing",
-  "checkout": "/home/git/checkouts/your-username/your-repo",
-  "reviewers": ["your-github-username"],
+  "projects": [{
+    "owner": "your-github-username-or-organization",
+    "repository": "your-repo",
+    "branch": "master",
+    "testBranch": "testing",
+    "checkout": "/home/git/checkouts/your-username/your-repo",
+    "reviewers": ["your-github-username"]
+  }],
   "secret": "run 'head --bytes 32 /dev/urandom | base64' and paste output here",
   "stateFile": "/home/git/state.json",
   "port": 443,

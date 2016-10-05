@@ -24,7 +24,7 @@ import Control.Monad.STM (atomically)
 import Data.Text (Text)
 
 import Git (runGit)
-import Configuration (Configuration)
+import Configuration (ProjectConfiguration)
 import Github (PullRequestPayload, CommentPayload, CommitStatusPayload, WebhookEvent (..))
 import Github (eventRepository, eventRepositoryOwner)
 import Project (ProjectState, PullRequestId (..))
@@ -107,7 +107,7 @@ runGithubEventLoop owner repository ghQueue enqueueEvent = runLoop
       runLoop
 
 runLogicEventLoop :: (MonadIO m, MonadLogger m)
-                  => Configuration
+                  => ProjectConfiguration
                   -- Action that gets the next event from the queue.
                   -> m (Maybe Logic.Event)
                   -- Action to perform after the state has changed, such as

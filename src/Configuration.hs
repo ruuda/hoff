@@ -10,6 +10,7 @@
 module Configuration
 (
   Configuration (..),
+  ProjectConfiguration (..),
   TlsConfiguration (..),
   loadConfiguration
 )
@@ -21,6 +22,17 @@ import Data.Text (Text)
 import GHC.Generics
 import Prelude hiding (readFile)
 
+data ProjectConfiguration = ProjectConfiguration
+  {
+    owner      :: Text,     -- The GitHub user or organization who owns the repo.
+    repository :: Text,     -- The name of the repository.
+    branch     :: Text,     -- The branch to guard and integrate commits into.
+    testBranch :: Text,     -- The branch to force-push candidates to for testing.
+    checkout   :: FilePath, -- The path to a local checkout of the repository.
+    reviewers  :: [Text]    -- List of GitHub usernames that are allowed to approve.
+  }
+  deriving (Generic)
+
 data TlsConfiguration = TlsConfiguration
   {
     certFile :: FilePath,
@@ -30,19 +42,29 @@ data TlsConfiguration = TlsConfiguration
 
 data Configuration = Configuration
   {
-    owner      :: Text,     -- The GitHub user or organization who owns the repo.
-    repository :: Text,     -- The name of the repository.
-    branch     :: Text,     -- The branch to guard and integrate commits into.
-    testBranch :: Text,     -- The branch to force-push candidates to for testing.
-    checkout   :: FilePath, -- The path to a local checkout of the repository.
-    reviewers  :: [Text],   -- List of GitHub usernames that are allowed to approve.
-    secret     :: Text,     -- Secret for GitHub webhook hmac signature.
-    stateFile  :: FilePath, -- The file where application state is stored.
-    port       :: Int,      -- The port to run the webserver on.
-    tls        :: Maybe TlsConfiguration -- Optional config for enabling https.
+    -- The projects to manage.
+    projects :: [ProjectConfiguration],
+
+    -- The secret for GitHub webhook hmac signatures. Note that for webhooks
+    -- only it would be better if these were per project, but the GitHub
+    -- "integrations" only get one webhook per integration, so in that case
+    -- there can be only one secret. (Note that it would be much better if
+    -- GitHub were to sign their requests with a public/private key pair, but
+    -- alas, that is not the case.)
+    secret :: Text,
+
+    -- The file where application state is stored.
+    stateFile :: FilePath,
+
+    -- The port to run the webserver on.
+    port :: Int,
+
+    -- Optional config for enabling https.
+    tls :: Maybe TlsConfiguration
   }
   deriving (Generic)
 
+instance FromJSON ProjectConfiguration
 instance FromJSON TlsConfiguration
 instance FromJSON Configuration
 

@@ -100,8 +100,10 @@ main = do
   -- Start a worker thread to put the GitHub webhook events in the main queue.
   -- Discard events that are not intended for the configured repository.
   let
-    owner        = Config.owner config
-    repository   = Config.repository config
+    -- TODO: Deal with more than one project.
+    pconfig      = head $ Config.projects config
+    owner        = Config.owner pconfig
+    repository   = Config.repository pconfig
     stateFile    = Config.stateFile config
     enqueueEvent = Logic.enqueueEvent mainQueue
   _ <- forkIO $ runStdoutLoggingT
@@ -136,7 +138,7 @@ main = do
   -- Start a worker thread to run the main event loop.
   _ <- forkIO $ void
               $ runStdoutLoggingT
-              $ runLogicEventLoop config getNextEvent publish projectState
+              $ runLogicEventLoop pconfig getNextEvent publish projectState
 
   let
     port      = Config.port config
