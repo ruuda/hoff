@@ -34,6 +34,7 @@ import Project (ProjectInfo, ProjectState)
 
 import qualified Configuration as Config
 import qualified Github
+import qualified Project
 import qualified WebInterface
 
 -- Router for the web server.
@@ -133,7 +134,8 @@ serveWebInterface :: ProjectInfo -> (IO ProjectState) -> ActionM ()
 serveWebInterface info getProjectState = do
   state <- liftIO $ getProjectState
   setHeader "Content-Type" "text/html; charset=utf-8"
-  raw $ WebInterface.renderPage "TODO: title" $ WebInterface.viewProject info state
+  let title = Text.concat [Project.owner info, "/", Project.repository info]
+  raw $ WebInterface.renderPage title $ WebInterface.viewProject info state
 
 serveNotFound :: ActionM ()
 serveNotFound = do
