@@ -10,6 +10,7 @@
 module Configuration
 (
   Configuration (..),
+  TlsConfiguration (..),
   loadConfiguration
 )
 where
@@ -20,6 +21,13 @@ import Data.Text (Text)
 import GHC.Generics
 import Prelude hiding (readFile)
 
+data TlsConfiguration = TlsConfiguration
+  {
+    certFile :: FilePath,
+    keyFile  :: FilePath
+  }
+  deriving (Generic)
+
 data Configuration = Configuration
   {
     owner      :: Text,     -- The GitHub user or organization who owns the repo.
@@ -29,11 +37,13 @@ data Configuration = Configuration
     checkout   :: FilePath, -- The path to a local checkout of the repository.
     reviewers  :: [Text],   -- List of GitHub usernames that are allowed to approve.
     secret     :: Text,     -- Secret for GitHub webhook hmac signature.
-    port       :: Int,      -- The port to listen on for webhooks.
-    stateFile  :: FilePath  -- The file where application state is stored.
+    stateFile  :: FilePath, -- The file where application state is stored.
+    port       :: Int,      -- The port to run the webserver on.
+    tls        :: Maybe TlsConfiguration -- Optional config for enabling https.
   }
   deriving (Generic)
 
+instance FromJSON TlsConfiguration
 instance FromJSON Configuration
 
 -- Reads and parses the configuration. Returns Nothing if parsing failed, but
