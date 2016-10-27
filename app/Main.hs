@@ -10,9 +10,10 @@
 module Main where
 
 import Control.Concurrent (forkIO)
-import Control.Monad (void)
+import Control.Monad (forM, forM_, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runStdoutLoggingT)
+import Data.List (zip4)
 import System.Exit (die)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 
@@ -91,63 +92,89 @@ main = do
   ghQueue <- Github.newEventQueue 10
 
   -- Events do not stay in the webhook queue for long: they are converted into
-  -- logic events and put in the main queue, where the main event loop will
+  -- logic events and put in the project queues, where the main event loop will
   -- process them. This conversion process does not reject events, but it blocks
-  -- if the main queue is full (which will cause the webhook queue to fill up,
-  -- so the server will reject new events).
-  mainQueue <- Logic.newEventQueue 10
+  -- if the project queue is full (which will cause the webhook queue to fill
+  -- up, so the server will reject new events).
+  projectQueues <- forM (Config.projects config) $ \ pconfig -> do
+    projectQueue <- Logic.newEventQueue 10
+    let
+      owner        = Config.owner pconfig
+      repository   = Config.repository pconfig
+      projectInfo  = ProjectInfo owner repository
+    return (projectInfo, projectQueue)
 
-  -- Start a worker thread to put the GitHub webhook events in the main queue.
-  -- Discard events that are not intended for the configured repository.
+  -- Define a function that enqueues an event in the right project queue.
   let
-    -- TODO: Deal with more than one project.
-    pconfig      = head $ Config.projects config
-    owner        = Config.owner pconfig
-    repository   = Config.repository pconfig
-    projectInfo  = ProjectInfo owner repository
-    stateFile    = Config.stateFile config
-    enqueueEvent = Logic.enqueueEvent mainQueue
-  _ <- forkIO $ runStdoutLoggingT
-              $ runGithubEventLoop projectInfo ghQueue enqueueEvent
+    enqueueEvent projectInfo event =
+      -- Call the corresponding enqueue function if the project exists,
+      -- otherwise drop the event on the floor.
+      maybe (return ()) (\ queue -> Logic.enqueueEvent queue event) $
+      -- TODO: This is doing a linear scan over a linked list to find the right
+      -- queue. That can be improved. A lot.
+      lookup projectInfo projectQueues
+
+  -- Start a worker thread to put the GitHub webhook events in the right queue.
+  _ <- forkIO $ runStdoutLoggingT $ runGithubEventLoop ghQueue enqueueEvent
 
   -- Restore the previous state from disk if possible, or start clean.
-  projectState <- initializeProjectState stateFile
+  projectStates <- forM (Config.projects config) $ \ pconfig -> do
+    -- TODO: Have a per-project state file.
+    projectState <- initializeProjectState (Config.stateFile config)
+    let
+      -- TODO: DRY.
+      owner        = Config.owner pconfig
+      repository   = Config.repository pconfig
+      projectInfo  = ProjectInfo owner repository
+    return (projectInfo, projectState)
 
-  -- Keep track of the most recent state, so the webinterface can use it to
-  -- serve a status page.
-  stateVar <- Logic.newStateVar projectState
+  -- Keep track of the most recent state for every project, so the webinterface
+  -- can use it to serve a status page.
+  stateVars <- forM projectStates $ \ (projectInfo, projectState) -> do
+    stateVar <- Logic.newStateVar projectState
+    return (projectInfo, stateVar)
 
-  let
-    -- When the event loop publishes the current project state, save it to
-    -- the configured file, and make the new state available to the
-    -- webinterface.
-    publish newState = do
-        liftIO $ saveProjectState stateFile newState
+  -- Start a main event loop for every project.
+  let 
+    -- TODO: This is very, very ugly. Get these per-project collections sorted
+    -- out.
+    zipped = zip4 (Config.projects config) projectQueues stateVars projectStates
+    tuples = map (\(cfg, (_, a), (_, b), (_, c)) -> (cfg, a, b, c)) zipped
+  forM_ tuples $ \ (projectConfig, projectQueue, stateVar, projectState) -> do
+    let
+      -- When the event loop publishes the current project state, save it to
+      -- the configured file, and make the new state available to the
+      -- webinterface.
+      publish newState = do
+        -- TODO: per project state file.
+        liftIO $ saveProjectState (Config.stateFile config) newState
         liftIO $ Logic.updateStateVar stateVar newState
 
-    -- When the event loop wants to get the next event, take one off the queue.
-    getNextEvent = liftIO $ Logic.dequeueEvent mainQueue
+      -- When the event loop wants to get the next event, take one off the queue.
+      getNextEvent = liftIO $ Logic.dequeueEvent projectQueue
 
+    -- Start a worker thread to run the main event loop for the project.
+    forkIO $ void
+           $ runStdoutLoggingT
+           $ runLogicEventLoop projectConfig getNextEvent publish projectState
+
+  let
     -- When the webhook server receives an event, enqueue it on the webhook
     -- event queue if it is not full.
     ghTryEnqueue = Github.tryEnqueueEvent ghQueue
 
-    -- Allow the webinterface to retrieve the latest project state.
-    getProjectState = Logic.readStateVar stateVar
-
-
-  -- Start a worker thread to run the main event loop.
-  _ <- forkIO $ void
-              $ runStdoutLoggingT
-              $ runLogicEventLoop pconfig getNextEvent publish projectState
+    -- Allow the webinterface to retrieve the latest project state per project.
+    getProjectState projectInfo =
+      fmap Logic.readStateVar $ lookup projectInfo stateVars
 
   let
     port      = Config.port config
     tlsConfig = Config.tls config
     secret    = Config.secret config
-    info      = ProjectInfo owner repository
+    -- TODO: Do this in a cleaner way.
+    infos     = fmap (\ pc -> ProjectInfo (Config.owner pc) (Config.repository pc)) $ Config.projects config
   putStrLn $ "Listening for webhooks on port " ++ (show port) ++ "."
-  runServer <- fmap fst $ buildServer port tlsConfig info secret ghTryEnqueue getProjectState
+  runServer <- fmap fst $ buildServer port tlsConfig infos secret ghTryEnqueue getProjectState
   runServer
 
   -- Note that a stop signal is never enqueued. The application just runs until

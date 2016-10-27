@@ -18,8 +18,7 @@ module Github
   PullRequestAction (..),
   PullRequestPayload (..),
   WebhookEvent (..),
-  eventRepository,
-  eventRepositoryOwner,
+  eventProjectInfo,
   newEventQueue,
   tryEnqueueEvent
 )
@@ -31,6 +30,7 @@ import Data.Aeson (FromJSON (parseJSON), Object, Value (Object, String), (.:))
 import Data.Aeson.Types (Parser, typeMismatch)
 import Data.Text (Text)
 import Git (Sha (..))
+import Project (ProjectInfo (..))
 
 data PullRequestAction
   = Opened
@@ -163,6 +163,10 @@ eventRepository event = case event of
   PullRequest payload  -> repository (payload :: PullRequestPayload)
   Comment payload      -> repository (payload :: CommentPayload)
   CommitStatus payload -> repository (payload :: CommitStatusPayload)
+
+eventProjectInfo :: WebhookEvent -> ProjectInfo
+eventProjectInfo event =
+  ProjectInfo (eventRepositoryOwner event) (eventRepository event)
 
 type EventQueue = TBQueue WebhookEvent
 

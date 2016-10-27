@@ -25,7 +25,7 @@ import Control.Monad.STM (atomically)
 import Git (runGit)
 import Configuration (ProjectConfiguration)
 import Github (PullRequestPayload, CommentPayload, CommitStatusPayload, WebhookEvent (..))
-import Github (eventRepository, eventRepositoryOwner)
+import Github (eventProjectInfo)
 import Project (ProjectInfo, ProjectState, PullRequestId (..))
 
 import qualified Configuration as Config
@@ -85,23 +85,21 @@ convertGithubEvent event = case event of
 
 -- The event loop that converts GitHub webhook events into logic events.
 runGithubEventLoop :: (MonadIO m, MonadLogger m)
-                   => ProjectInfo
-                   -> Github.EventQueue
-                   -> (Logic.Event -> IO ()) -> m ()
-runGithubEventLoop info ghQueue enqueueEvent = runLoop
+                   => Github.EventQueue
+                   -> (ProjectInfo -> Logic.Event -> IO ()) -> m ()
+runGithubEventLoop ghQueue enqueueEvent = runLoop
   where
-    shouldHandle ghEvent =
-      (ghEvent /= Ping) &&
-      (eventRepository ghEvent == Project.repository info) &&
-      (eventRepositoryOwner ghEvent == Project.owner info)
+    shouldHandle ghEvent = (ghEvent /= Ping)
     runLoop = do
       ghEvent <- liftIO $ atomically $ readTBQueue ghQueue
       logDebugN $ Text.append "github loop received event: " (Text.pack $ show ghEvent)
-      -- Listen only to events for the configured repository.
       when (shouldHandle ghEvent) $
-        -- If conversion yielded an event, enqueue it. Block if the
-        -- queue is full.
-        maybe (return ()) (liftIO . enqueueEvent) $ convertGithubEvent ghEvent
+        -- If conversion yielded an event, enqueue it. Block if the queue is full.
+        let
+          projectInfo = eventProjectInfo ghEvent
+          converted   = convertGithubEvent ghEvent
+        in
+          maybe (return ()) (liftIO . enqueueEvent projectInfo) converted
       runLoop
 
 runLogicEventLoop :: (MonadIO m, MonadLogger m)

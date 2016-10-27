@@ -38,15 +38,15 @@ import qualified Project
 import qualified WebInterface
 
 -- Router for the web server.
-router :: ProjectInfo
+router :: [ProjectInfo]
        -> Text
        -> (Github.WebhookEvent -> ActionM ())
-       -> IO ProjectState
+       -> (ProjectInfo -> Maybe (IO ProjectState))
        -> ScottyM ()
-router info ghSecret serveEnqueueEvent getProjectState = do
+router infos ghSecret serveEnqueueEvent getProjectState = do
   post "/hook/github" $ withSignatureCheck ghSecret $ serveGithubWebhook serveEnqueueEvent
   get  "/hook/github" $ serveWebhookDocs
-  get  "/"            $ serveWebInterface info getProjectState
+  get  "/"            $ serveWebInterface infos getProjectState
   notFound            $ serveNotFound
 
 -- Checks the signature (encoded as hexadecimal characters in 'hexDigest') of
@@ -130,9 +130,15 @@ serveWebhookDocs = do
   status badRequest400
   text "expecting POST request at /hook/github"
 
-serveWebInterface :: ProjectInfo -> (IO ProjectState) -> ActionM ()
-serveWebInterface info getProjectState = do
-  state <- liftIO $ getProjectState
+serveWebInterface :: [ProjectInfo]
+                  -> (ProjectInfo -> Maybe (IO ProjectState))
+                  -> ActionM ()
+serveWebInterface infos getProjectState = do
+  let info = head infos -- TODO: Actually deal with multiple projects.
+  -- TODO: Use project info from url. But we don't need to do dynamic lookup,
+  -- we can just construct the router properly at startup time.
+  let Just getState = getProjectState info
+  state <- liftIO $ getState
   setHeader "Content-Type" "text/html; charset=utf-8"
   let title = Text.concat [Project.owner info, "/", Project.repository info]
   raw $ WebInterface.renderPage title $ WebInterface.viewProject info state
@@ -171,12 +177,12 @@ runServerMaybeTls maybeTlsConfig =
 -- serve requests.
 buildServer :: Int
             -> Maybe TlsConfiguration
-            -> ProjectInfo
+            -> [ProjectInfo]
             -> Text
             -> (Github.WebhookEvent -> IO Bool)
-            -> IO ProjectState
+            -> (ProjectInfo -> Maybe (IO ProjectState))
             -> IO (IO (), IO ())
-buildServer port tlsConfig info ghSecret tryEnqueueEvent getProjectState = do
+buildServer port tlsConfig infos ghSecret tryEnqueueEvent getProjectState = do
   -- Create a semaphore that will be signalled when the server is ready.
   readySem <- atomically $ newTSem 0
   let signalReady     = atomically $ signalTSem readySem
@@ -192,7 +198,7 @@ buildServer port tlsConfig info ghSecret tryEnqueueEvent getProjectState = do
   -- Build the Scotty app, but do not start serving yet, as that would never
   -- return, so we wouldn't have the opportunity to return the 'blockUntilReady'
   -- function to the caller.
-  app <- scottyApp $ router info ghSecret serveEnqueueEvent getProjectState
+  app <- scottyApp $ router infos ghSecret serveEnqueueEvent getProjectState
   let runServer = runServerMaybeTls tlsConfig settings app
 
   -- Return two IO actions: one that will run the server (and never return),
