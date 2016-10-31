@@ -21,6 +21,7 @@
 # Near-term
 
  * Graceful shutdown when receiving sigterm
+ * Add the ability to force a rebuild
  * Keep track of recently integrated pull requests, even after they were closed
  * Support for commit message validation
  * Support for `--autosquash` rebasing
