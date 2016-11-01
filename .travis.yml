@@ -1,4 +1,5 @@
-language: generic
+# Use a minimal base image.
+language: c
 
 # Do not build other branches than these, pull requests get built anyway, and in
 # the end it is only the result of the testing branch that matters. In theory
@@ -7,28 +8,31 @@ language: generic
 # build status badge needs to come from somewhere.
 branches:
   only:
-    - master
-    - testing
+  - master
+  - testing
 
 # Do not spam me with build status emails.
 notifications:
   email: false
 
-# The Stack install script uses sudo. This does mean that we get a VM instead of
-# a container, which is slower to boot. But 20 minutes on a ~dozen minute build
-# is not that much, and it simplifies things a bit.
+# The 'stack' package is not (yet) whitelisted on Travis CI, so we need sudo to
+# be able to install it. This does mean that we get a VM instead of a container,
+# which is slower to boot. But 20 seconds on a ~dozen minute build is not that
+# much, and it simplifies things a bit.
 sudo: required
 
 cache:
   directories:
-    - $HOME/.stack/
+  - $HOME/.stack/
+
+addons:
+  apt:
+    sources:
+    - fpcomplete-precise
+    packages:
+    - stack
 
 before_install:
-  # Install the latest version of Stack via the fpco PPA.
-  - sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 575159689BEFB442
-  - sudo add-apt-repository --yes "deb http://download.fpcomplete.com/ubuntu precise main"
-  - sudo apt-get update --quiet
-  - sudo apt-get install --yes stack
   # Upgrade to the latest version of Stack, which has `list-dependencies --license`.
   # Once that makes it into stable, this is no longer required.
   - stack upgrade --git --install-ghc --no-terminal
