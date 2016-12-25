@@ -11,15 +11,16 @@
  * Serve webinterface pages
  * Test with GitHub
  * Support for basic review policy enforcement (whitelist reviewer usernames)
+ * Support for multiple repositories
 
 # Up next
 
- * Support for multiple repositories
  * Make API calls to leave comments and close pull requests
  * Automated testing for all core functionality
 
 # Near-term
 
+ * Add tests for multiproject code
  * Graceful shutdown when receiving sigterm
  * Add the ability to force a rebuild
  * Keep track of recently integrated pull requests, even after they were closed
@@ -34,6 +35,7 @@
  * Add the ability to filter pull request status by context:
    accepting pull request build status as valid is wrong,
    because GitHub makes Travis build a merge commit
+ * Clean up multiproject code
 
 # Long-term
 
