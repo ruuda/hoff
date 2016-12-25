@@ -120,18 +120,18 @@ isCommitStatusEvent event = case event of
 withServer :: (Github.EventQueue -> IO ()) -> IO ()
 withServer body = do
   -- Create an event queue with a capacity of 5 events.
-  ghQueue      <- Github.newEventQueue 5
+  ghQueue <- Github.newEventQueue 5
 
   let
     info = Project.ProjectInfo "deckard" "voight-kampff"
     tryEnqueue = Github.tryEnqueueEvent ghQueue
     -- Fake the project state, always return the empty state.
-    getProjectState = return Project.emptyProjectState
+    getProjectState = const (Just (pure Project.emptyProjectState))
 
   -- Start the server on the test port, wait until it is ready to handle
   -- requests, and then run the body with access to the queue.
   (runServer, blockUntilReady) <-
-    buildServer testPort Nothing info testSecret tryEnqueue getProjectState
+    buildServer testPort Nothing [info] testSecret tryEnqueue getProjectState
   serverAsync <- async runServer
   blockUntilReady
   body ghQueue
@@ -241,7 +241,6 @@ serverSpec = do
         status' `shouldBe` badRequest400
         msg'    `shouldBe` "missing or malformed X-Hub-Signature header"
 
-
     it "continues serving after receiving an invalid webhook" $
       withServer $ \ ghQueue -> do
         -- First send an invalid webhook with a bad payload.
@@ -254,7 +253,6 @@ serverSpec = do
         event        <- popQueue ghQueue
         (view Wreq.responseStatus goodResponse) `shouldBe` ok200
         event `shouldSatisfy` isCommitStatusEvent
-
 
     it "serves 501 not implemented for unknown webhooks" $
       withServer $ \ _ghQueue -> do

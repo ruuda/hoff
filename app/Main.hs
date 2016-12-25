@@ -135,7 +135,7 @@ main = do
     return (projectInfo, stateVar)
 
   -- Start a main event loop for every project.
-  let 
+  let
     -- TODO: This is very, very ugly. Get these per-project collections sorted
     -- out.
     zipped = zip4 (Config.projects config) projectQueues stateVars projectStates
