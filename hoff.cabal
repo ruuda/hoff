@@ -101,10 +101,10 @@ test-suite end-to-end
                -- instead of rolling my own.
                , directory    >= 1.3  && < 1.4
                , hoff
+               , http-conduit >= 2.2  && < 2.3
                , hspec        >= 2.4  && < 2.5
                , hspec-core   >= 2.4  && < 2.5
                , http-types   >= 0.9  && < 0.10
-               , lens         >= 4.15 && < 4.16
                , monad-logger >= 0.3  && < 0.4
                , random       >= 1.1  && < 1.2
                , stm          >= 2.4  && < 2.5
