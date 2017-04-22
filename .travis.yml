@@ -21,6 +21,9 @@ notifications:
 # much, and it simplifies things a bit.
 sudo: required
 
+# Use a slightly less ancient Ubuntu version than the default.
+dist: trusty
+
 cache:
   directories:
   - $HOME/.stack/
