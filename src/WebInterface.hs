@@ -94,7 +94,7 @@ viewOwner infos =
     link repo    = p $ a ! href (toValue $ repoUrl repo) $ toHtml repo
   in do
     h1 $ do
-      _ <- "Hoff\x2009/\x2009" -- U+2009 is a thin space.
+      void "Hoff\x2009/\x2009" -- U+2009 is a thin space.
       a ! href (toValue ownerUrl) $ toHtml owner
     h2 "Tracked repositories"
     assert isOk $ mapM_ link repos
@@ -110,7 +110,7 @@ viewProject info state =
   in do
     h1 $ do
       a ! href (toValue ownerUrl) $ toHtml owner
-      _ <- "\x2009/\x2009" -- U+2009 is a thin space.
+      void "\x2009/\x2009" -- U+2009 is a thin space.
       a ! href (toValue repoUrl) $ toHtml repo
 
     viewProjectQueues info state
@@ -167,7 +167,7 @@ viewPullRequestWithApproval info prId pullRequest = do
   case Project.approvedBy pullRequest of
     Just username ->
       span ! class_ "review" $ do
-        _ <- "Approved by "
+        void "Approved by "
         -- TODO: Link to approval comment, not just username.
         let url = Text.append "https://github.com/" username
         a ! href (toValue url) $ toHtml username
