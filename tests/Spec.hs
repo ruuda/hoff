@@ -36,12 +36,13 @@ import qualified Project
 -- Project config used throughout these tests.
 testProjectConfig :: ProjectConfiguration
 testProjectConfig = Config.ProjectConfiguration {
-  Config.owner = "deckard",
+  Config.owner      = "deckard",
   Config.repository = "voight-kampff",
-  Config.branch = "master",
+  Config.branch     = "master",
   Config.testBranch = "testing",
-  Config.checkout = "/tmp/deckard/voight-kampff",
-  Config.reviewers = ["deckard"]
+  Config.checkout   = "/tmp/deckard/voight-kampff",
+  Config.reviewers  = ["deckard"],
+  Config.stateFile  = "/tmp/state/deckard/voight-kampff.json"
 }
 
 -- Functions to prepare certain test states.
@@ -387,7 +388,6 @@ main = hspec $ do
       -- mainly, to enforce that the example file is kept up to date.
       Just cfg <- Config.loadConfiguration "package/example-config.json"
       Config.secret    cfg `shouldBe` "run 'head --bytes 32 /dev/urandom | base64' and paste output here"
-      Config.stateFile cfg `shouldBe` "/home/git/state.json"
       Config.port      cfg `shouldBe` 443
       Config.tls       cfg `shouldSatisfy` isNothing
 
@@ -401,6 +401,7 @@ main = hspec $ do
       Config.testBranch project `shouldBe` "testing"
       Config.checkout   project `shouldBe` "/home/git/checkouts/your-username/your-repo"
       Config.reviewers  project `shouldBe` ["your-github-username"]
+      Config.stateFile  project `shouldBe` "/home/git/state/your-username/your-repo.json"
 
   describe "EventLoop.convertGithubEvent" $ do
 

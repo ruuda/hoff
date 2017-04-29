@@ -139,14 +139,15 @@ initializeRepository originDir repoDir = do
   return shas
 
 -- Generate a project configuration to be used in the test environment.
-buildProjectConfig :: FilePath -> ProjectConfiguration
-buildProjectConfig repoDir = ProjectConfiguration {
+buildProjectConfig :: FilePath -> FilePath -> ProjectConfiguration
+buildProjectConfig repoDir stateFile = ProjectConfiguration {
   Config.owner      = "ruuda",
   Config.repository = "blog",
   Config.branch     = "master",
   Config.testBranch = "integration",
   Config.checkout   = repoDir,
-  Config.reviewers  = ["rachael", "deckard"]
+  Config.reviewers  = ["rachael", "deckard"],
+  Config.stateFile  = stateFile
 }
 
 -- Runs the main loop in a separate thread, and feeds it the given events.
@@ -202,9 +203,11 @@ withTestEnv body = do
   -- eachother.
   uuid       <- Uuid.nextRandom
   tmpBaseDir <- FileSystem.getTemporaryDirectory
-  let testDir   = tmpBaseDir </> ("testsuite-" ++ (show uuid))
-      originDir = testDir </> "repo-origin"
-      repoDir   = testDir </> "repo-local"
+  let
+    testDir   = tmpBaseDir </> ("testsuite-" ++ (show uuid))
+    originDir = testDir </> "repo-origin"
+    repoDir   = testDir </> "repo-local"
+    stateFile = testDir </> "state.json"
   -- Create and populate a test repository with a local remote "origin". Record
   -- the shas of the commits as documented in populateRepository.
   shas <- initializeRepository originDir repoDir
@@ -212,7 +215,7 @@ withTestEnv body = do
   -- Run the actual test code inside the environment that we just set up,
   -- provide it with the commit shas, the function to run the event loop, and a
   -- function to invoke Git in the cloned repository.
-  let config   = buildProjectConfig repoDir
+  let config   = buildProjectConfig repoDir stateFile
       git args = void $ callGit $ ["-C", repoDir] ++ args
   body shas (runMainEventLoop config) git
 

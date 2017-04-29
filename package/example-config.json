@@ -5,10 +5,10 @@
     "branch": "master",
     "testBranch": "testing",
     "checkout": "/home/git/checkouts/your-username/your-repo",
-    "reviewers": ["your-github-username"]
+    "reviewers": ["your-github-username"],
+    "stateFile": "/home/git/state/your-username/your-repo.json"
   }],
   "secret": "run 'head --bytes 32 /dev/urandom | base64' and paste output here",
-  "stateFile": "/home/git/state.json",
   "port": 443,
   "tls": null
 }

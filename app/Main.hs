@@ -119,8 +119,7 @@ main = do
 
   -- Restore the previous state from disk if possible, or start clean.
   projectStates <- forM (Config.projects config) $ \ pconfig -> do
-    -- TODO: Have a per-project state file.
-    projectState <- initializeProjectState (Config.stateFile config)
+    projectState <- initializeProjectState (Config.stateFile pconfig)
     let
       -- TODO: DRY.
       owner        = Config.owner pconfig
@@ -146,8 +145,7 @@ main = do
       -- the configured file, and make the new state available to the
       -- webinterface.
       publish newState = do
-        -- TODO: per project state file.
-        liftIO $ saveProjectState (Config.stateFile config) newState
+        liftIO $ saveProjectState (Config.stateFile projectConfig) newState
         liftIO $ Logic.updateStateVar stateVar newState
 
       -- When the event loop wants to get the next event, take one off the queue.
