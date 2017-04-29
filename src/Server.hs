@@ -33,7 +33,6 @@ import Configuration (TlsConfiguration)
 import Project (ProjectInfo (ProjectInfo), ProjectState)
 
 import qualified Configuration as Config
-import qualified Project
 import qualified Github
 import qualified WebInterface
 
@@ -49,7 +48,6 @@ router infos ghSecret serveEnqueueEvent getProjectState = do
   post "/hook/github"  $ withSignatureCheck ghSecret $ serveGithubWebhook serveEnqueueEvent
   get  "/hook/github"  $ serveWebhookDocs
   get  "/:owner/:repo" $ serveWebInterface infos getProjectState
-  get  "/:owner"       $ serveOwnerIndex infos
   notFound             $ serveNotFound
 
 -- Checks the signature (encoded as hexadecimal characters in 'hexDigest') of
@@ -138,20 +136,6 @@ serveIndex infos = do
   setHeader "Content-Type" "text/html; charset=utf-8"
   let title = "Hoff"
   raw $ WebInterface.renderPage title $ WebInterface.viewIndex infos
-
-serveOwnerIndex :: [ProjectInfo] -> ActionM ()
-serveOwnerIndex infos = do
-  owner <- param "owner"
-  let
-    owned = filter (\i -> Project.owner i == owner) infos
-  if null owned
-    then do
-      status notFound404
-      text "not found"
-    else do
-      setHeader "Content-Type" "text/html; charset=utf-8"
-      let title = owner
-      raw $ WebInterface.renderPage title $ WebInterface.viewOwner owned
 
 serveWebInterface :: [ProjectInfo]
                   -> (ProjectInfo -> Maybe (IO ProjectState))
