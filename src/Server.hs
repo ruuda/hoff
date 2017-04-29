@@ -33,6 +33,7 @@ import Configuration (TlsConfiguration)
 import Project (ProjectInfo (ProjectInfo), ProjectState)
 
 import qualified Configuration as Config
+import qualified Project
 import qualified Github
 import qualified WebInterface
 
@@ -141,10 +142,16 @@ serveIndex infos = do
 serveOwnerIndex :: [ProjectInfo] -> ActionM ()
 serveOwnerIndex infos = do
   owner <- param "owner"
-  setHeader "Content-Type" "text/html; charset=utf-8"
-  let title = owner
-  -- TODO: Render proper owner index.
-  raw $ WebInterface.renderPage title $ WebInterface.viewIndex infos
+  let
+    owned = filter (\i -> Project.owner i == owner) infos
+  if null owned
+    then do
+      status notFound404
+      text "not found"
+    else do
+      setHeader "Content-Type" "text/html; charset=utf-8"
+      let title = owner
+      raw $ WebInterface.renderPage title $ WebInterface.viewOwner owned
 
 serveWebInterface :: [ProjectInfo]
                   -> (ProjectInfo -> Maybe (IO ProjectState))

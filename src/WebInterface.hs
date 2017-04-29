@@ -8,8 +8,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module WebInterface (renderPage, viewIndex, viewProject) where
+module WebInterface (renderPage, viewIndex, viewOwner, viewProject) where
 
+import Control.Exception (assert)
 import Control.Monad (forM_, unless)
 import Data.FileEmbed (embedStringFile)
 import Data.Text (Text)
@@ -57,14 +58,31 @@ viewIndex _infos = do
   h1 $ "Hoff"
   p $ "TODO: index page"
 
+-- Renders the body html for an owner overview page.
+viewOwner :: [ProjectInfo] -> Html
+viewOwner infos =
+  let
+    owners       = fmap Project.owner infos
+    repos        = fmap Project.repository infos
+    owner        = owners !! 0
+    isOk         = all (== owner) owners
+    ownerUrl     = format "/{}" [owner]
+    repoUrl repo = format "/{}/{}" [owner, repo]
+    link repo    = p $ a ! href (toValue $ repoUrl repo) $ toHtml repo
+  in do
+    h1 $ do
+      _ <- "Hoff\x2009/\x2009" -- U+2009 is a thin space.
+      a ! href (toValue ownerUrl) $ toHtml owner
+    h2 "Tracked repositories"
+    assert isOk $ mapM_ link repos
+
 -- Renders the body html for the status page of a project.
 viewProject :: ProjectInfo -> ProjectState -> Html
 viewProject info state =
   let
     owner = Project.owner info
     repo  = Project.repository info
-    -- TODO: Actually point these links at internal pages?
-    ownerUrl = format "https://github.com/{}" [owner]
+    ownerUrl = format "/{}" [owner]
     repoUrl  = format "https://github.com/{}/{}" (owner, repo)
   in do
     h1 $ do
