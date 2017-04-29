@@ -86,7 +86,7 @@ viewProject info state =
   let
     owner = Project.owner info
     repo  = Project.repository info
-    ownerUrl = format "/{}" [owner]
+    ownerUrl = format "https://github.com/{}" [owner]
     repoUrl  = format "https://github.com/{}/{}" (owner, repo)
   in do
     h1 $ do
