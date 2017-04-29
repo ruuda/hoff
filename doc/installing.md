@@ -61,11 +61,12 @@ public key to the new account. (Paste the output of `sudo cat
 
 ## Adding a repository
 
-Hoff keeps a checkout of the repository it manages. (TODO: multiple
-repositories.) Currently it does not handle the initial clone automatically.
-(TODO: automate.) Create a directory to keep these checkouts:
+Hoff keeps a checkout of the repositories it manages. Currently it does not
+handle the initial clone automatically. (TODO: automate.) Create a directory to
+keep these checkouts, and also for the state files:
 
     $ sudo --user git mkdir /home/git/checkouts
+    $ sudo --user git mkdir /home/git/state
 
 I’ll be using the repository `ruuda/bogus` in this example. On GitHub, add the
 bot account to this repository as a collaborator, to give it push access (and
@@ -77,11 +78,12 @@ Now we can clone the repository on the server as the `git` user. I created a
 subdirectory per GitHub owner to avoid collisions when the server manages
 repositories for multiple owners.
 
+    $ sudo --user git mkdir /home/git/state/ruuda
     $ sudo --user git mkdir /home/git/checkouts/ruuda
     $ cd $_
     $ sudo --user git HOME=/home/git git clone git@github.com:ruuda/bogus
 
-Accept the unknown host prompt.
+Accept the unknown host prompt (do [validate the fingerprints][fingerprints]).
 
 Finally, the daemon must be told about the repository in the config file:
 
@@ -98,21 +100,21 @@ The meaning of the fields is as follows:
    other purposes. I used `testing`.
  * *Checkout*: The full path to the checkout. `/home/git/checkouts/ruuda/bogus`
    in my case.
+ * *StateFile*: The path to the file where the daemon saves its state, so it
+   can remember the set of open pull requests across restarts. I use
+   `/home/git/state/ruuda/bogus.json`. TODO: urge to back up this file regularly.
+
+There are a few global options too:
+
  * *Secret*: The secret used to verify the authenticity of GitHub webhooks.
    You can run `head --bytes 32 /dev/urandom | base64` to generate a secure
    256-bit secret that doesn’t require any character to be escaped in the json
    file.
-
-There are a few global options too:
-
  * *Port*: The port at which the webhook server is exposed. The systemd unit
    ensures that the daemon has permissions to run on priviliged ports (such as
    80 and 443) without having to run as root.
  * *TLS*: Can be used to make the server serve https instead of insecure http.
    See the [TLS guide](tls.md) for more details.
- * *StateFile*: The path to the file where the daemon saves its state, so it
-   can remember the set of open pull requests across restarts. The default
-   `/home/git/state.json` is fine. TODO: urge to back up this file regularly.
 
 Restart the daemon to pick up the new configuration, and verify that it started
 properly:
@@ -124,9 +126,8 @@ properly:
 
 On GitHub, go to the repository settings and add a new webhook. The payload url
 should be `http://yourserver.com/hook/github`, with content type
-application/json. (TODO: put owner and repo in the url.) Enter the secret
-generated in the previous section, and select the following events to be
-delivered:
+application/json. Enter the secret generated in the previous section, and select
+the following events to be delivered:
 
  * *Pull request*, to make the daemon aware of new or closed pull requests.
  * *Issue comment*, to listen for LGTM stamps.
@@ -145,3 +146,5 @@ application in action. Remember to also set up a CI service like Travis CI to
 provide the build status updates.
 
 TODO: Proper usage manual.
+
+[fingerprints]: https://help.github.com/articles/github-s-ssh-key-fingerprints/
