@@ -11,7 +11,7 @@
 module WebInterface (renderPage, viewIndex, viewOwner, viewProject) where
 
 import Control.Exception (assert)
-import Control.Monad (forM_, unless)
+import Control.Monad (forM_, unless, void)
 import Data.FileEmbed (embedStringFile)
 import Data.Text (Text)
 import Data.Text.Format.Params (Params)
@@ -53,11 +53,33 @@ renderPage pageTitle bodyHtml = renderHtml $ docTypeHtml $ do
     div ! id "content" $
       bodyHtml
 
+-- Render an "owner/repo" link.
+viewProjectInfo :: ProjectInfo -> Html
+viewProjectInfo info =
+  let
+    owner = Project.owner info
+    repo  = Project.repository info
+    repoUrl  = format "/{}/{}" [owner, repo]
+  in
+    p $ do
+      a ! href (toValue repoUrl) $ do
+        toHtml owner
+        void "\x2009/\x2009" -- U+2009 is a thin space.
+        toHtml repo
+
 -- Renders the body html for the index page.
 viewIndex :: [ProjectInfo] -> Html
-viewIndex _infos = do
-  h1 $ "Hoff"
-  p $ "TODO: index page"
+viewIndex infos =
+  let
+  in do
+    h1 "Hoff"
+    h2 "About"
+    p $ do
+      void "Hoff is a gatekeeper for your commits. See "
+      a ! href "https://github.com/ruuda/hoff" $ "github.com/ruuda/hoff"
+      void " for more information."
+    h2 "Tracked repositories"
+    mapM_ viewProjectInfo infos
 
 -- Renders the body html for an owner overview page.
 viewOwner :: [ProjectInfo] -> Html

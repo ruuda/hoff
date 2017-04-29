@@ -45,11 +45,11 @@ router
   -> (ProjectInfo -> Maybe (IO ProjectState))
   -> ScottyM ()
 router infos ghSecret serveEnqueueEvent getProjectState = do
+  get  "/"             $ serveIndex infos
   post "/hook/github"  $ withSignatureCheck ghSecret $ serveGithubWebhook serveEnqueueEvent
   get  "/hook/github"  $ serveWebhookDocs
   get  "/:owner/:repo" $ serveWebInterface infos getProjectState
   get  "/:owner"       $ serveOwnerIndex infos
-  get  "/"             $ serveIndex infos
   notFound             $ serveNotFound
 
 -- Checks the signature (encoded as hexadecimal characters in 'hexDigest') of
