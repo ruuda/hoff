@@ -8,7 +8,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module WebInterface (renderPage, viewProject) where
+module WebInterface (renderPage, viewIndex, viewProject) where
 
 import Control.Monad (forM_, unless)
 import Data.FileEmbed (embedStringFile)
@@ -50,6 +50,12 @@ renderPage pageTitle bodyHtml = renderHtml $ docTypeHtml $ do
   body $
     div ! id "content" $
       bodyHtml
+
+-- Renders the body html for the index page.
+viewIndex :: [ProjectInfo] -> Html
+viewIndex _infos = do
+  h1 $ "Hoff"
+  p $ "TODO: index page"
 
 -- Renders the body html for the status page of a project.
 viewProject :: ProjectInfo -> ProjectState -> Html

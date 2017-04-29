@@ -19,7 +19,7 @@ import Data.ByteString (ByteString)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Network.HTTP.Types (badRequest400, notFound404, notImplemented501, serviceUnavailable503)
-import Web.Scotty (ActionM, ScottyM, body, get, header, jsonData, notFound, post, raw, scottyApp, setHeader, status, text)
+import Web.Scotty (ActionM, ScottyM, body, get, header, jsonData, notFound, param, post, raw, scottyApp, setHeader, status, text)
 
 import qualified Data.ByteString.Base16 as Base16
 import qualified Data.ByteString.Lazy as LBS
@@ -30,24 +30,26 @@ import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.Wai.Handler.WarpTLS as Warp
 
 import Configuration (TlsConfiguration)
-import Project (ProjectInfo, ProjectState)
+import Project (ProjectInfo (ProjectInfo), ProjectState)
 
 import qualified Configuration as Config
 import qualified Github
-import qualified Project
 import qualified WebInterface
 
 -- Router for the web server.
-router :: [ProjectInfo]
-       -> Text
-       -> (Github.WebhookEvent -> ActionM ())
-       -> (ProjectInfo -> Maybe (IO ProjectState))
-       -> ScottyM ()
+router
+  :: [ProjectInfo]
+  -> Text
+  -> (Github.WebhookEvent -> ActionM ())
+  -> (ProjectInfo -> Maybe (IO ProjectState))
+  -> ScottyM ()
 router infos ghSecret serveEnqueueEvent getProjectState = do
-  post "/hook/github" $ withSignatureCheck ghSecret $ serveGithubWebhook serveEnqueueEvent
-  get  "/hook/github" $ serveWebhookDocs
-  get  "/"            $ serveWebInterface infos getProjectState
-  notFound            $ serveNotFound
+  post "/hook/github"  $ withSignatureCheck ghSecret $ serveGithubWebhook serveEnqueueEvent
+  get  "/hook/github"  $ serveWebhookDocs
+  get  "/:owner/:repo" $ serveWebInterface infos getProjectState
+  get  "/:owner"       $ serveOwnerIndex infos
+  get  "/"             $ serveIndex infos
+  notFound             $ serveNotFound
 
 -- Checks the signature (encoded as hexadecimal characters in 'hexDigest') of
 -- the message, given the secret, and the actual message bytes.
@@ -130,18 +132,38 @@ serveWebhookDocs = do
   status badRequest400
   text "expecting POST request at /hook/github"
 
+serveIndex :: [ProjectInfo] -> ActionM ()
+serveIndex infos = do
+  setHeader "Content-Type" "text/html; charset=utf-8"
+  let title = "Hoff"
+  raw $ WebInterface.renderPage title $ WebInterface.viewIndex infos
+
+serveOwnerIndex :: [ProjectInfo] -> ActionM ()
+serveOwnerIndex infos = do
+  owner <- param "owner"
+  setHeader "Content-Type" "text/html; charset=utf-8"
+  let title = owner
+  -- TODO: Render proper owner index.
+  raw $ WebInterface.renderPage title $ WebInterface.viewIndex infos
+
 serveWebInterface :: [ProjectInfo]
                   -> (ProjectInfo -> Maybe (IO ProjectState))
                   -> ActionM ()
 serveWebInterface infos getProjectState = do
-  let info = head infos -- TODO: Actually deal with multiple projects.
-  -- TODO: Use project info from url. But we don't need to do dynamic lookup,
-  -- we can just construct the router properly at startup time.
-  let Just getState = getProjectState info
-  state <- liftIO $ getState
-  setHeader "Content-Type" "text/html; charset=utf-8"
-  let title = Text.concat [Project.owner info, "/", Project.repository info]
-  raw $ WebInterface.renderPage title $ WebInterface.viewProject info state
+  owner <- param "owner"
+  repo  <- param "repo"
+  let
+    info = ProjectInfo owner repo
+    Just getState = getProjectState info
+  if not (info `elem` infos)
+    then do
+      status notFound404
+      text "not found"
+    else do
+      state <- liftIO $ getState
+      setHeader "Content-Type" "text/html; charset=utf-8"
+      let title = Text.concat [owner, "/", repo]
+      raw $ WebInterface.renderPage title $ WebInterface.viewProject info state
 
 serveNotFound :: ActionM ()
 serveNotFound = do
