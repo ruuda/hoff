@@ -46,7 +46,7 @@ script:
   # Match the licenses of dependencies agains a whitelist, and fail if anything
   # is not whitelisted. YAML has this arcane feature where an exclamation mark
   # has special meaning, so the entire command is wrapped in single quotes.
-  - '! stack list-dependencies --license --no-include-base | egrep -v "BSD3|MIT|ghc-prim|hoff|integer-gmp|template-haskell"'
+  - '! stack list-dependencies --license --no-include-base | egrep -v "BSD2|BSD3|MIT|ghc-prim|hoff|integer-gmp|template-haskell"'
 
   # As CI is running on a Debian-like system, test building
   # the package here too.
