@@ -45,10 +45,10 @@ format :: Params ps => Text.Format -> ps -> Text
 format formatString params = toStrict $ Text.format formatString params
 
 -- A branch is identified by its name.
-data Branch = Branch Text deriving (Eq)
+newtype Branch = Branch Text deriving (Eq)
 
 -- A commit hash is stored as its hexadecimal representation.
-data Sha = Sha Text deriving (Eq)
+newtype Sha = Sha Text deriving (Eq)
 
 instance Show Branch where
   show (Branch branch) = Text.unpack branch
