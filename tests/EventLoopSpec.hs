@@ -258,7 +258,7 @@ eventLoopSpec = parallel $ do
     it "handles a non-conflicting non-fast-forwardable pull request" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6] = shas
-            -- Note that at the remote, refs/pull/4/head points to c6.
+            -- Note that at the remote, refs/pull/6/head points to c6.
             pr6 = PullRequestId 6
 
         -- Commit c6 is two commits ahead and one behind of master, so
