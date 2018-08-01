@@ -77,18 +77,22 @@ pushNewHead newHead = liftF $ PushNewHead newHead id
 
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> GitOperation a
-runAction config action = case action of
-  Pure x -> return x
-  Free (TryIntegrate (ref, sha) h) -> do
-    -- TODO: Change types in config to be 'Branch', not 'Text'.
-    maybeSha <- Git.tryIntegrate ref sha (Git.Branch $ Config.branch config) (Git.Branch $ Config.testBranch config)
-    runAction config $ h maybeSha
-  Free (PushNewHead sha h) -> do
-    pushResult <- Git.push sha (Git.Branch $ Config.branch config)
-    runAction config $ h pushResult
-  Free (LeaveComment _pr _body x) ->
-    -- TODO: Implement GitHub API.
-    runAction config x
+runAction config = continueWith
+  where
+    continueWith action = case action of
+      Pure x -> return x
+      Free (TryIntegrate (ref, sha) cont) -> do
+        -- TODO: Change types in config to be 'Branch', not 'Text'.
+        maybeSha <- Git.tryIntegrate ref sha
+          (Git.Branch $ Config.branch config)
+          (Git.Branch $ Config.testBranch config)
+        continueWith (cont maybeSha)
+      Free (PushNewHead sha cont) -> do
+        pushResult <- Git.push sha (Git.Branch $ Config.branch config)
+        continueWith (cont pushResult)
+      Free (LeaveComment _pr _body cont) ->
+        -- TODO: Implement GitHub API.
+        continueWith cont
 
 data Event
   -- GitHub events
