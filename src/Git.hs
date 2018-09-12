@@ -38,12 +38,14 @@ import Data.Text (Text)
 import Data.Text.Format.Params (Params)
 import Data.Text.Lazy (toStrict)
 import System.Directory (doesDirectoryExist)
+import System.Environment (getEnvironment)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath ((</>))
-import System.Process.Text (readProcessWithExitCode)
+import System.Process.Text (readCreateProcessWithExitCode)
 
 import qualified Data.Text as Text
 import qualified Data.Text.Format as Text
+import qualified System.Process as Process
 
 import Configuration (UserConfiguration)
 
@@ -139,10 +141,20 @@ isLeft (Right _) = False
 -- exit code and stderr on error.
 callGit :: (MonadIO m, MonadLogger m) => [String] -> m (Either (ExitCode, Text) Text)
 callGit args = do
-  let commandText = Text.concat $ intersperse " " $ fmap Text.pack args
-      logMessage  = Text.append "executing git " commandText
+  currentEnv <- liftIO getEnvironment
+  let
+    commandText  = Text.concat $ intersperse " " $ fmap Text.pack args
+    logMessage   = Text.append "executing git " commandText
+    stdinContent = ""
+    process = (Process.proc "git" args) {
+      -- Prepend GIT_EDITOR to the environment and set it to /usr/bin/true.
+      -- For an interactive rebase, this ensures that we close the editor
+      -- immediately.
+      Process.env = Just $ ("GIT_EDITOR", "true") : currentEnv
+    }
+    runProcess = readCreateProcessWithExitCode process stdinContent
   logInfoN logMessage
-  (exitCode, output, errors) <- liftIO $ readProcessWithExitCode "git" args ""
+  (exitCode, output, errors) <- liftIO runProcess
   if exitCode == ExitSuccess
     then return $ Right output
     else return $ Left (exitCode, errors)
@@ -192,7 +204,14 @@ runGit userConfig repoDir operation =
       continueWith $ cont pushResult
 
     Free (Rebase sha branch cont) -> do
-      result <- callGitInRepo ["rebase", "origin/" ++ (show branch), show sha]
+      -- Do an interactive rebase with editor set to /usr/bin/true, so we just
+      -- accept the default action, which is effectively a non-interactive rebase.
+      -- The interactive rebase is required for --autosquash, which automatically
+      -- puts !fixup and !squash commits in the right place.
+      result <- callGitInRepo
+        [ "rebase", "--interactive", "--autosquash"
+        , "origin/" ++ (show branch), show sha
+        ]
       case result of
         Left (code, message) -> do
           -- Rebase failed, call the continuation with no rebased sha, but first
