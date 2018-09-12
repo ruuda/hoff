@@ -54,6 +54,8 @@ callGit args = fmap (either undefined id) $ runNoLoggingT $ Git.callGit args
 --                \     ^----------- master
 --                 `-- c3'       <-- alternative (pr 3)
 --
+--   c6 -- c7 -- c8 -- c7f <-------- fixup (pr 8)
+--
 populateRepository :: FilePath -> IO [Sha]
 populateRepository dir =
   let writeFile fname msg  = Prelude.writeFile (dir </> fname) (msg ++ "\n")
@@ -112,13 +114,31 @@ populateRepository dir =
       gitAdd "holden.txt"
       c6 <- gitCommit "c6: Add response"
 
+      -- Make a chain with a fixup commit.
+      gitBranch "fixup" c6
+      appendFile "holden.txt" "They're just questions Leon."
+      gitAdd "holden.txt"
+      c7 <- gitCommit "c7: Elaborate on response"
+
+      appendFile "leon.txt" "Do you make up these questions, Mr. Holden?"
+      gitAdd "leon.txt"
+      c8 <- gitCommit "c8: Add question (not in chronological order)"
+
+      appendFile "holden.txt" "It's a test, designed to provoke an emotional response."
+      gitAdd "holden.txt"
+      -- There is nothing special about a fixup commit, apart from the message
+      -- starting with "fixup!". Rather than committing with --fixup, we can
+      -- just generate that message manually here.
+      c7f <- gitCommit "fixup! c7: Elaborate on response"
+
       -- Assign a pull request ref to some commits, like how they would exist
       -- on GitHub. This enables fetching them later.
       gitSetRef "refs/pull/3/head" c3'
       gitSetRef "refs/pull/4/head" c4
       gitSetRef "refs/pull/6/head" c6
+      gitSetRef "refs/pull/8/head" c7f
 
-      return [c0, c1, c2, c3, c3', c4, c5, c6]
+      return [c0, c1, c2, c3, c3', c4, c5, c6, c7, c7f, c8]
 
 -- Sets up two repositories: one with a few commits in the origin directory, and
 -- a clone of that in the repository directory. The clone ensures that the
@@ -257,7 +277,7 @@ eventLoopSpec = parallel $ do
 
     it "handles a fast-forwardable pull request" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
-        let [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6] = shas
+        let [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
             -- Note that at the remote, refs/pull/4/head points to c4.
             pr4 = PullRequestId 4
 
@@ -275,7 +295,7 @@ eventLoopSpec = parallel $ do
 
     it "handles a non-conflicting non-fast-forwardable pull request" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
-        let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6] = shas
+        let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6, _c7, _c7f, _c8] = shas
             -- Note that at the remote, refs/pull/6/head points to c6.
             pr6 = PullRequestId 6
 
@@ -299,7 +319,7 @@ eventLoopSpec = parallel $ do
 
     it "handles multiple pull requests" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
-        let [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6] = shas
+        let [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
             pr4 = PullRequestId 4
             pr6 = PullRequestId 6
 
@@ -331,7 +351,7 @@ eventLoopSpec = parallel $ do
 
     it "skips conflicted pull requests" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
-        let [_c0, _c1, _c2, _c3, c3', c4, _c5, _c6] = shas
+        let [_c0, _c1, _c2, _c3, c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
             pr3 = PullRequestId 3
             pr4 = PullRequestId 4
 
@@ -364,7 +384,7 @@ eventLoopSpec = parallel $ do
 
     it "restarts the sequence after a rejected push" $ do
       history <- withTestEnv $ \ shas runLoop git -> do
-        let [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6] = shas
+        let [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
             pr6 = PullRequestId 6
 
         state <- runLoop Project.emptyProjectState
