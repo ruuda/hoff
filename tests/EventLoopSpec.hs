@@ -65,7 +65,6 @@ populateRepository dir =
       gitConfig key value  = void $ git ["config", key, value]
       gitAdd file          = void $ git ["add", file]
       gitBranch name sha   = void $ git ["checkout", "-b", name, show sha]
-      gitCheckout brname   = void $ git ["checkout", brname]
       gitSetRef name sha   = void $ git ["update-ref", name, show sha]
       getHeadSha           = fmap (Sha . Text.strip) $ git ["rev-parse", "@"]
       -- Commits with the given message and returns the sha of the new commit.
@@ -96,7 +95,6 @@ populateRepository dir =
       appendFile "tyrell.txt" "Would you like to be modified?"
       gitAdd "tyrell.txt"
       c4 <- gitCommit "c4: Add Tyrell  response"
-      gitCheckout "master"
 
       -- Now make an alternative commit that conflicts with c3.
       gitBranch "alternative" c2
@@ -130,6 +128,11 @@ populateRepository dir =
       -- starting with "fixup!". Rather than committing with --fixup, we can
       -- just generate that message manually here.
       c7f <- gitCommit "fixup! c7: Elaborate on response"
+
+      -- Switch to a branch that is not otherwise used. Because the repository
+      -- is not bare, a push to a branch that we have checked out may fail, so
+      -- we check out a branch that is never pushed to.
+      gitBranch "unused" c3
 
       -- Assign a pull request ref to some commits, like how they would exist
       -- on GitHub. This enables fetching them later.
@@ -420,3 +423,95 @@ eventLoopSpec = parallel $ do
         Project.getIntegrationCandidate state'' `shouldBe` Nothing
 
       history `shouldBe` ["c0", "c1", "c2", "c3", "c4", "c5", "c6"]
+
+    it "applies fixup commits during rebase, even if fast forward is possible" $ do
+      history <- withTestEnv $ \ shas runLoop _git -> do
+        let
+          [_c0, _c1, _c2, _c3, _c3', _c4, _c5, _c6, _c7, c7f, _c8] = shas
+          pr8 = PullRequestId 8
+
+        state <- runLoop Project.emptyProjectState
+          [
+            Logic.PullRequestOpened pr8 c7f "Add test results" "deckard",
+            Logic.CommentAdded pr8 "rachael" $ Text.pack $ "LGTM " ++ (show c7f)
+          ]
+
+        -- Extract the sha of the rebased commit from the project state, and
+        -- tell the loop that building the commit succeeded.
+        let
+          Just (_prId, pullRequest)     = Project.getIntegrationCandidate state
+          Project.Integrated rebasedSha = Project.integrationStatus pullRequest
+        void $ runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
+
+      -- We expect the fixup commit (which was last) to be squashed into c7, so
+      -- now c8 is the last commit, and there are no others. Note that if the
+      -- fixup had failed, there would be an extra commit, with fixup in the
+      -- title.
+      history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6", "c7", "c8"]
+
+    it "applies fixup commits during rebase, also if a push happened" $ do
+      history <- withTestEnv $ \ shas runLoop git -> do
+        let
+          [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, c7f, _c8] = shas
+          pr8 = PullRequestId 8
+
+        state <- runLoop Project.emptyProjectState
+          [
+            Logic.PullRequestOpened pr8 c7f "Add test results" "deckard",
+            Logic.CommentAdded pr8 "rachael" $ Text.pack $ "LGTM " ++ (show c7f)
+          ]
+
+        git ["fetch", "origin", "ahead"] -- The ref for commit c4.
+        git ["push", "origin", (show c4) ++ ":refs/heads/master"]
+
+        -- Extract the sha of the rebased commit from the project state, and
+        -- tell the loop that building the commit succeeded.
+        let
+          Just (_prId, pullRequest)     = Project.getIntegrationCandidate state
+          Project.Integrated rebasedSha = Project.integrationStatus pullRequest
+        state' <- runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
+
+        -- Again notify build success, now for the new commit.
+        let
+          Just (_prId, pullRequest')      = Project.getIntegrationCandidate state'
+          Project.Integrated rebasedSha'  = Project.integrationStatus pullRequest'
+        void $ runLoop state' [Logic.BuildStatusChanged rebasedSha' BuildSucceeded]
+
+      -- We expect the fixup commit (which was last) to be squashed into c7, so
+      -- now c8 is the last commit, and there are no others. This time c4 and c5
+      -- are included too, because we manually pushed them.
+      history `shouldBe` ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8"]
+
+    it "does not apply fixup commits if the commit to fix is not on the branch" $ do
+      history <- withTestEnv $ \ shas runLoop git -> do
+        let
+          [_c0, _c1, _c2, _c3, _c3', _c4, _c5, _c6, _c7, c7f, c8] = shas
+          pr8 = PullRequestId 8
+
+        -- The commit graph looks like "c7 -- c8 -- c7f", where c7 needs to be
+        -- fixed up. We now already push c8 to master, so the only thing left in
+        -- the pull request is the fixup commit, with nothing to fix up, because
+        -- the bad commit c7 is already on master. Note that origin/master is
+        -- not a parent of c8, so we force-push.
+        git ["fetch", "origin", "fixup"] -- The ref for commit c7f.
+        git ["push", "--force", "origin", (show c8) ++ ":refs/heads/master"]
+
+        state <- runLoop Project.emptyProjectState
+          [
+            Logic.PullRequestOpened pr8 c7f "Add test results" "deckard",
+            Logic.CommentAdded pr8 "rachael" $ Text.pack $ "LGTM " ++ (show c7f)
+          ]
+
+        -- Extract the sha of the rebased commit from the project state, and
+        -- tell the loop that building the commit succeeded.
+        let
+          Just (_prId, pullRequest)     = Project.getIntegrationCandidate state
+          Project.Integrated rebasedSha = Project.integrationStatus pullRequest
+        state' <- runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
+
+        -- The pull request should have been integrated properly, so there
+        -- should not be a new candidate.
+        Project.getIntegrationCandidate state' `shouldBe` Nothing
+
+      -- Here we expect the fixup commit to linger behind.
+      history `shouldBe` ["c0", "c1", "c2", "c5", "c6", "c7", "c8", "fixup! c7"]
