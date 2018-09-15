@@ -386,7 +386,7 @@ main = hspec $ do
       -- This test loads the example configuration file that is packaged. It
       -- serves two purposes: to test that loading a config file works, but
       -- mainly, to enforce that the example file is kept up to date.
-      Just cfg <- Config.loadConfiguration "package/example-config.json"
+      Right cfg <- Config.loadConfiguration "package/example-config.json"
       Config.secret    cfg `shouldBe` "run 'head --bytes 32 /dev/urandom | base64' and paste output here"
       Config.port      cfg `shouldBe` 443
       Config.tls       cfg `shouldSatisfy` isNothing
@@ -394,6 +394,7 @@ main = hspec $ do
       let
         projects = Config.projects cfg
         project  = head projects
+        user     = Config.user cfg
 
       Config.owner      project `shouldBe` "your-github-username-or-organization"
       Config.repository project `shouldBe` "your-repo"
@@ -402,6 +403,11 @@ main = hspec $ do
       Config.checkout   project `shouldBe` "/home/git/checkouts/your-username/your-repo"
       Config.reviewers  project `shouldBe` ["your-github-username"]
       Config.stateFile  project `shouldBe` "/home/git/state/your-username/your-repo.json"
+
+      Config.name user              `shouldBe` "CI Bot"
+      Config.email user             `shouldBe` "cibot@example.com"
+      Config.sshIdentityFile user   `shouldBe` "/home/git/.ssh/id_ed25519"
+      Config.sshKnownHostsFile user `shouldBe` "/home/git/.ssh/known_hosts"
 
   describe "EventLoop.convertGithubEvent" $ do
 

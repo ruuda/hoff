@@ -29,7 +29,7 @@ import Test.Hspec
 import qualified Data.UUID.V4 as Uuid
 import qualified System.Directory as FileSystem
 
-import Configuration (ProjectConfiguration (ProjectConfiguration))
+import Configuration (ProjectConfiguration, UserConfiguration)
 import Git (Sha (..))
 import Project (BuildStatus (..), IntegrationStatus (..), ProjectState, PullRequestId (..))
 
@@ -140,7 +140,7 @@ initializeRepository originDir repoDir = do
 
 -- Generate a project configuration to be used in the test environment.
 buildProjectConfig :: FilePath -> FilePath -> ProjectConfiguration
-buildProjectConfig repoDir stateFile = ProjectConfiguration {
+buildProjectConfig repoDir stateFile = Config.ProjectConfiguration {
   Config.owner      = "ruuda",
   Config.repository = "blog",
   Config.branch     = "master",
@@ -150,9 +150,22 @@ buildProjectConfig repoDir stateFile = ProjectConfiguration {
   Config.stateFile  = stateFile
 }
 
+-- Dummy user configuration used in test environment.
+userConfig :: UserConfiguration
+userConfig = Config.UserConfiguration {
+  Config.name              = "A Blade Runner",
+  Config.email             = "automation@tyrell.com",
+  Config.sshIdentityFile   = "/outerspace/.ssh/id_ed25519",
+  Config.sshKnownHostsFile = "/outerspace/.ssh/known_hosts"
+}
+
 -- Runs the main loop in a separate thread, and feeds it the given events.
-runMainEventLoop :: ProjectConfiguration -> ProjectState -> [Logic.Event] -> IO ProjectState
-runMainEventLoop config initialState events = do
+runMainEventLoop
+  :: ProjectConfiguration
+  -> ProjectState
+  -> [Logic.Event]
+  -> IO ProjectState
+runMainEventLoop projectConfig initialState events = do
   -- Like the actual application, start a new thread to run the main event loop.
   -- Use 'async' here, a higher-level wrapper around 'forkIO', to wait for the
   -- thread to stop later. Discard log messages from the event loop, to avoid
@@ -165,7 +178,12 @@ runMainEventLoop config initialState events = do
       getNextEvent  = liftIO $ Logic.dequeueEvent queue
   finalStateAsync  <- async
     $ runNoLoggingT
-    $ EventLoop.runLogicEventLoop config getNextEvent publish initialState
+    $ EventLoop.runLogicEventLoop
+        userConfig
+        projectConfig
+        getNextEvent
+        publish
+        initialState
 
   -- Enqueue all provided events.
   forM_ events (Logic.enqueueEvent queue)

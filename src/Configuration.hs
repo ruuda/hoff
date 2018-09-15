@@ -37,9 +37,10 @@ data ProjectConfiguration = ProjectConfiguration
 
 data UserConfiguration = UserConfiguration
   {
-    name :: Text,         -- Name used for Git committer.
-    email :: Text,        -- Email address used for Git committer.
-    secretKey :: FilePath -- The path to the secret key to use for ssh.
+    name :: Text,                 -- Name used for Git committer.
+    email :: Text,                -- Email address used for Git committer.
+    sshIdentityFile :: FilePath,  -- The path to the secret key to use for ssh.
+    sshKnownHostsFile :: FilePath -- The path to the ssh known_hosts file.
   }
   deriving (Generic)
 
