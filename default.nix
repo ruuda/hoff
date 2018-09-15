@@ -65,15 +65,16 @@ let
     phases = [ "unpackPhase" "buildPhase" "checkPhase" "installPhase" ];
     doCheck = true;
     unpackPhase = ''
+      mkdir package
       cp ${./hoff.cabal} hoff.cabal
       cp ${./license} license
       cp ${./nixpkgs-pinned.nix} nixpkgs-pinned.nix
       cp ${./nixpkgs} nixpkgs
+      cp ${./package/example-config.json} package/example-config.json
       cp ${./readme.md} readme.md
       cp ${./shell.nix} shell.nix
       cp ${./stack.yaml} stack.yaml
       cp -r ${./app} app
-      cp -r ${./package} package
       cp -r ${./src} src
       cp -r ${./static} static
       cp -r ${./tests} tests
