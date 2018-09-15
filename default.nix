@@ -14,6 +14,19 @@ let
     sha256 = "0dnwv3yfmfncabqgspin1dshiaykbqh3iymn7y6d048fmlkdf272";
   }) { inherit lib; };
 
+  # Make an override of the Git package in Nixpkgs without bells and whistles,
+  # to cut down on the closure size. These features are nice for interactive
+  # use, but not needed for Hoff which only scripts against the parts of Git
+  # that don't need e.g. Perl or Python support.
+  gitMinimal = git.override {
+    svnSupport = false;
+    perlSupport = false;
+    guiSupport = false;
+    withManual = false;
+    pythonSupport = false;
+    withpcre2 = false;
+  };
+
   # The Stackage snapshot that Hoff depends on, precompiled.
   hoffDeps = stdenv.mkDerivation {
     name = "hoff-deps";
@@ -99,7 +112,7 @@ let
   # those links will point to the right places.
   imageDir = stdenv.mkDerivation {
     name = "hoff-filesystem";
-    buildInputs = [ hoff git ];
+    buildInputs = [ hoff gitMinimal ];
     buildCommand = ''
       # Although we only need /nix/store and /usr/bin, we need to create the
       # other directories too so systemd can mount the API virtual filesystems
@@ -120,8 +133,8 @@ let
       mkdir -p $out/var/tmp
       ln -s /usr/bin $out/bin
       ln -s ${hoff}/bin/hoff $out/usr/bin/hoff
-      ln -s ${git}/bin/git $out/usr/bin/git
-      closureInfo=${closureInfo { rootPaths = [ hoff git ]; }}
+      ln -s ${gitMinimal}/bin/git $out/usr/bin/git
+      closureInfo=${closureInfo { rootPaths = [ hoff gitMinimal ]; }}
       for file in $(cat $closureInfo/store-paths); do
         echo "copying $file"
         cp --archive $file $out/nix/store
@@ -130,5 +143,24 @@ let
   };
 
 in
-  imageDir
-  # hoff
+  stdenv.mkDerivation {
+    name = "hoff.img";
+
+    nativeBuildInputs = [ squashfsTools ];
+    buildInputs = [ imageDir ];
+
+    buildCommand =
+      ''
+        # Generate the squashfs image. Pass the -no-fragments option to make
+        # the build reproducible; apparently splitting fragments is a
+        # nondeterministic multithreaded process. Also set processors to 1 for
+        # the same reason.
+        mksquashfs ${imageDir} $out \
+          -no-fragments      \
+          -processors 1      \
+          -all-root          \
+          -b 1048576         \
+          -comp xz           \
+          -Xdict-size 100%   \
+      '';
+  }
