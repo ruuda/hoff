@@ -44,7 +44,7 @@ import qualified Project
 -- Invokes Git with the given arguments, returns its stdout. Crashes if invoking
 -- Git failed. Discards all logging.
 callGit :: [String] -> IO Text
-callGit args = fmap (either undefined id) $ runNoLoggingT $ Git.callGit args
+callGit args = fmap (either undefined id) $ runNoLoggingT $ Git.callGit userConfig args
 
 -- Populates the repository with the following history:
 --
