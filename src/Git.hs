@@ -16,6 +16,7 @@ module Git
   Sha (..),
   callGit,
   clone,
+  doesGitDirExist,
   fetchBranch,
   forcePush,
   push,
@@ -34,7 +35,9 @@ import Data.List (intersperse)
 import Data.Text (Text)
 import Data.Text.Format.Params (Params)
 import Data.Text.Lazy (toStrict)
+import System.Directory (doesDirectoryExist)
 import System.Exit (ExitCode (ExitSuccess))
+import System.FilePath ((</>))
 import System.Process.Text (readProcessWithExitCode)
 
 import qualified Data.Text as Text
@@ -99,6 +102,7 @@ data GitOperationFree a
   | Push Sha Branch (PushResult -> a)
   | Rebase Sha Branch (Maybe Sha -> a)
   | Clone RemoteUrl (CloneResult -> a)
+  | DoesGitDirExist (Bool -> a)
   deriving (Functor)
 
 type GitOperation = Free GitOperationFree
@@ -117,6 +121,9 @@ rebase sha ontoBranch = liftF $ Rebase sha ontoBranch id
 
 clone :: RemoteUrl -> GitOperation CloneResult
 clone url = liftF $ Clone url id
+
+doesGitDirExist :: GitOperation Bool
+doesGitDirExist = liftF $ DoesGitDirExist id
 
 isLeft :: Either a b -> Bool
 isLeft (Left _)  = True
@@ -201,6 +208,7 @@ runGit repoDir operation =
         [ "clone"
         , "--config", "transfer.fsckObjects=true"
         , "--config", "user.name=TODO"
+        , "--config", "user.email=TODO"
         , show url, repoDir
         ]
       case result of
@@ -209,6 +217,10 @@ runGit repoDir operation =
           continueWith (cont CloneFailed)
         Right _ ->
           continueWith (cont CloneOk)
+
+    Free (DoesGitDirExist cont) -> do
+      exists <- liftIO $ doesDirectoryExist (repoDir </> ".git")
+      continueWith (cont exists)
 
 -- Fetches the target branch, rebases the candidate on top of the target branch,
 -- and if that was successfull, force-pushses the resulting commits to the test
