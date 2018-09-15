@@ -120,9 +120,12 @@ let
       # there, when the image is used. For /var, for systemd-nspawn only /var is
       # sufficient, but in a unit with PrivateTmp=true, we also need /var/tmp,
       # because systemd mounts a tmpfs there. /run is not needed by the systemd
-      # unit, but it is required by systemd-nspawn, so we add it too.
+      # unit, but it is required by systemd-nspawn, so we add it too. And
+      # finally, systemd wants to create symlinks in /lib for some reason and
+      # that fails on a readonly filesystem.
       mkdir -p $out/dev
       mkdir -p $out/etc/hoff
+      mkdir -p $out/lib
       mkdir -p $out/nix/store
       mkdir -p $out/proc
       mkdir -p $out/run
@@ -131,7 +134,7 @@ let
       mkdir -p $out/usr/bin
       mkdir -p $out/usr/lib/systemd/system
       mkdir -p $out/var/cache/hoff
-      mkdir -p $out/var/hoff
+      mkdir -p $out/var/lib/hoff
       mkdir -p $out/var/tmp
 
       # Make a localtime so that systemd-nspawn can bind-mount the host
