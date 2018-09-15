@@ -1,24 +1,27 @@
 # Installing
 
 This document details how to install Hoff on your own server. I will be using
-a server running Ubuntu 16.04 here.
+a server running CoreOS here, although the same steps should work for e.g.
+Ubuntu 18.04.
 
 The application consists of a single binary that opens a server at a configured
 port, and then runs until it is killed. Log messages are written to stdout. This
-makes the application work well with systemd.
+makes the application work well with systemd. Furthermore, Hoff can be packaged
+as a self-contained squashfs image for easy deployment and secure operation.
 
 ## Building a package
 
-TODO: Better compiling guide. For now, navigate to the `package` directory on
-a development machine and run
+The squashfs image can be built with [Nix][nix]:
 
-    $ ./build-binary.sh
-    $ VERSION=0.0.0 ./build-package.sh
+    $ nix build --out-link hoff.img
 
-This will produce a deb package that you can copy to your server and install.
+You can copy over `hoff.img` to your server. Alternatively, you can build the
+binary only, and assemble your own package:
 
-NOTE: Although this approach still works, a new approach (building a
-self-contained squashfs image) is under development.
+    $ stack build
+    $ $(stack path --local-install-root)/bin/hoff
+
+The systemd service file is in `package/hoff.service`.
 
 ## Installing the package
 
@@ -43,24 +46,22 @@ Verify that everything is up and running:
 
 ## Setting up the user
 
-The application runs as the `git` user, which needs its own Git configuration,
-and a key pair to connect to GitHub. Let’s start with the Git config:
+The application needs a key pair to connect to GitHub:
 
-    $ sudo --user git HOME=/home/git git config --global user.name 'CI Bot'
-    $ sudo --user git HOME=/home/git git config --global user.email 'cibot@example.com'
-    $ sudo --user git HOME=/home/git git config --global transfer.fsckObjects true
+    $ sudo mkdir /etc/hoff
+    $ sudo ssh-keygen -t ed25519 -f /etc/hoff/id_ed25519
 
-Next, generate a key pair:
+Leave the passphrase empty to allow the key to be used without human
+interaction. Next, we need to pre-populate the know hosts file that Hoff tells
+Git to use when connecting to a server.
 
-    $ sudo --user git ssh-keygen -t ed25519
+    $ sudo ssh -o UserKnownHostsFile=/etc/hoff/known_hosts github.com
 
-Save it in `/home/git/.ssh/id_ed25519`, and leave the passphrase empty to allow
-the key to be used without human interaction.
-
-Finally, we need a GitHub account that will be used for fetching and pushing.
-I recommend creating a separate account for this purpose. On GitHub, add the
-public key to the new account. (Paste the output of `sudo cat
-/home/git/.ssh/id_ed25519.pub` into the key field under “SSH and GPG keys”.)
+[Validate the fingerprints][fingerprints] and then accept the unknown host
+prompt. Finally, we need a GitHub account that will be used for fetching and
+pushing. I recommend creating a separate account for this purpose. On GitHub,
+add the public key to the new account. (Paste the output of `sudo cat
+/etc/hoff/id_ed25519.pub` into the key field under “SSH and GPG keys”.)
 
 ## Adding a repository
 
@@ -151,3 +152,4 @@ provide the build status updates.
 TODO: Proper usage manual.
 
 [fingerprints]: https://help.github.com/articles/github-s-ssh-key-fingerprints/
+[nix]:          https://nixos.org/nix
