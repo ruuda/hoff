@@ -15,6 +15,7 @@ module Git
   PushResult (..),
   Sha (..),
   callGit,
+  clone,
   fetchBranch,
   forcePush,
   push,
@@ -50,11 +51,16 @@ newtype Branch = Branch Text deriving (Eq)
 -- A commit hash is stored as its hexadecimal representation.
 newtype Sha = Sha Text deriving (Eq)
 
+newtype RemoteUrl = RemoteUrl Text deriving (Eq)
+
 instance Show Branch where
   show (Branch branch) = Text.unpack branch
 
 instance Show Sha where
   show (Sha sha) = Text.unpack sha
+
+instance Show RemoteUrl where
+  show (RemoteUrl url) = Text.unpack url
 
 instance FromJSON Branch where
   parseJSON (String str) = return (Branch str)
@@ -70,9 +76,21 @@ instance FromJSON Sha where
 instance ToJSON Sha where
   toJSON (Sha str) = String str
 
+instance FromJSON RemoteUrl where
+  parseJSON (String url) = pure (RemoteUrl url)
+  parseJSON _            = mzero
+
+instance ToJSON RemoteUrl where
+  toJSON (RemoteUrl url) = String url
+
 data PushResult
   = PushOk
   | PushRejected
+  deriving (Eq, Show)
+
+data CloneResult
+  = CloneOk
+  | CloneFailed
   deriving (Eq, Show)
 
 data GitOperationFree a
@@ -80,6 +98,7 @@ data GitOperationFree a
   | ForcePush Sha Branch a
   | Push Sha Branch (PushResult -> a)
   | Rebase Sha Branch (Maybe Sha -> a)
+  | Clone RemoteUrl (CloneResult -> a)
   deriving (Functor)
 
 type GitOperation = Free GitOperationFree
@@ -95,6 +114,9 @@ push sha remoteBranch = liftF $ Push sha remoteBranch id
 
 rebase :: Sha -> Branch -> GitOperation (Maybe Sha)
 rebase sha ontoBranch = liftF $ Rebase sha ontoBranch id
+
+clone :: RemoteUrl -> GitOperation CloneResult
+clone url = liftF $ Clone url id
 
 isLeft :: Either a b -> Bool
 isLeft (Left _)  = True
@@ -115,55 +137,78 @@ callGit args = do
 -- Interpreter for the GitOperation free monad that starts Git processes and
 -- parses its output.
 runGit :: (MonadIO m, MonadLogger m) => FilePath -> GitOperation a -> m a
-runGit repoDir operation = case operation of
-  Pure result -> return result
-  Free (FetchBranch branch cont) -> do
-    result <- callGitInRepo ["fetch", "origin", show branch]
-    case result of
-      Left  _ -> logWarnN "warning: git fetch failed"
-      Right _ -> return ()
-    continueWith cont
-  Free (ForcePush sha branch cont) -> do
-    -- TODO: Make Sha and Branch constructors sanitize data, otherwise this
-    -- could run unintended Git commands.
-    -- Note: the remote branch is prefixed with 'refs/heads/' to specify the
-    -- branch unambiguously. This will make Git create the branch if it does
-    -- not exist.
-    result <- callGitInRepo ["push", "--force", "origin", (show sha) ++ ":refs/heads/" ++ (show branch)]
-    case result of
-      Left  _ -> logWarnN "warning: git push --force failed"
-      Right _ -> return ()
-    continueWith cont
-  Free (Push sha branch cont) -> do
-    result <- callGitInRepo ["push", "origin", (show sha) ++ ":refs/heads/" ++ (show branch)]
-    let pushResult = case result of
-          Left  _ -> PushRejected
-          Right _ -> PushOk
-    when (pushResult == PushRejected) $ logInfoN "push was rejected"
-    continueWith $ cont pushResult
-  Free (Rebase sha branch cont) -> do
-    result <- callGitInRepo ["rebase", "origin/" ++ (show branch), show sha]
-    case result of
-      Left (code, message) -> do
-        -- Rebase failed, call the continuation with no rebased sha, but first
-        -- abort the rebase.
-        -- TODO: Don't spam the log with these, a failed rebase is expected.
-        logInfoN $ format "git rebase failed with code {}: {}" (show code, message)
-        abortResult <- callGitInRepo ["rebase", "--abort"]
-        when (isLeft abortResult) $ logWarnN "warning: git rebase --abort failed"
-        continueWith $ cont Nothing
-      Right _ -> do
-        revResult <- callGitInRepo ["rev-parse", "@"]
-        case revResult of
-          Left  _   -> do
-            logWarnN "warning: git rev-parse failed"
-            continueWith $ cont Nothing
-          Right newSha -> continueWith $ cont $ Just $ Sha $ Text.strip newSha
-  where
+runGit repoDir operation =
+  let
     -- Pass the -C /path/to/checkout option to Git, to run operations in the
     -- repository without having to change the working directory.
     callGitInRepo args = callGit $ ["-C", repoDir] ++ args
     continueWith       = runGit repoDir
+  in case operation of
+    Pure result -> return result
+
+    Free (FetchBranch branch cont) -> do
+      result <- callGitInRepo ["fetch", "origin", show branch]
+      case result of
+        Left  _ -> logWarnN "warning: git fetch failed"
+        Right _ -> return ()
+      continueWith cont
+
+    Free (ForcePush sha branch cont) -> do
+      -- TODO: Make Sha and Branch constructors sanitize data, otherwise this
+      -- could run unintended Git commands.
+      -- Note: the remote branch is prefixed with 'refs/heads/' to specify the
+      -- branch unambiguously. This will make Git create the branch if it does
+      -- not exist.
+      result <- callGitInRepo ["push", "--force", "origin", (show sha) ++ ":refs/heads/" ++ (show branch)]
+      case result of
+        Left  _ -> logWarnN "warning: git push --force failed"
+        Right _ -> return ()
+      continueWith cont
+
+    Free (Push sha branch cont) -> do
+      result <- callGitInRepo ["push", "origin", (show sha) ++ ":refs/heads/" ++ (show branch)]
+      let pushResult = case result of
+            Left  _ -> PushRejected
+            Right _ -> PushOk
+      when (pushResult == PushRejected) $ logInfoN "push was rejected"
+      continueWith $ cont pushResult
+
+    Free (Rebase sha branch cont) -> do
+      result <- callGitInRepo ["rebase", "origin/" ++ (show branch), show sha]
+      case result of
+        Left (code, message) -> do
+          -- Rebase failed, call the continuation with no rebased sha, but first
+          -- abort the rebase.
+          -- TODO: Don't spam the log with these, a failed rebase is expected.
+          logInfoN $ format "git rebase failed with code {}: {}" (show code, message)
+          abortResult <- callGitInRepo ["rebase", "--abort"]
+          when (isLeft abortResult) $ logWarnN "warning: git rebase --abort failed"
+          continueWith $ cont Nothing
+        Right _ -> do
+          revResult <- callGitInRepo ["rev-parse", "@"]
+          case revResult of
+            Left  _   -> do
+              logWarnN "warning: git rev-parse failed"
+              continueWith $ cont Nothing
+            Right newSha -> continueWith $ cont $ Just $ Sha $ Text.strip newSha
+
+    Free (Clone url cont) -> do
+      result <- callGit
+        -- Pass some config flags, that get applied as the repository is
+        -- initialized, before the clone. This means we can enable fsckObjects
+        -- and have the clone be checked.
+        -- TODO: Recursive clone?
+        [ "clone"
+        , "--config", "transfer.fsckObjects=true"
+        , "--config", "user.name=TODO"
+        , show url, repoDir
+        ]
+      case result of
+        Left (code, message) -> do
+          logInfoN $ format "git clone failed with code {}: {}" (show code, message)
+          continueWith (cont CloneFailed)
+        Right _ ->
+          continueWith (cont CloneOk)
 
 -- Fetches the target branch, rebases the candidate on top of the target branch,
 -- and if that was successfull, force-pushses the resulting commits to the test
