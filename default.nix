@@ -131,9 +131,15 @@ let
       mkdir -p $out/var/cache/hoff
       mkdir -p $out/var/hoff
       mkdir -p $out/var/tmp
+
+      # Make a localtime so that systemd-nspawn can bind-mount the host
+      # localtime over it, mainly to suppress the warning.
+      touch $out/etc/localtime
+
       ln -s /usr/bin $out/bin
       ln -s ${hoff}/bin/hoff $out/usr/bin/hoff
       ln -s ${gitMinimal}/bin/git $out/usr/bin/git
+
       closureInfo=${closureInfo { rootPaths = [ hoff gitMinimal ]; }}
       for file in $(cat $closureInfo/store-paths); do
         echo "copying $file"
