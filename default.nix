@@ -146,6 +146,7 @@ let
       ln -s ${gitMinimal}/bin/git $out/usr/bin/git
 
       cp ${./package/hoff.service} $out/usr/lib/systemd/system/hoff.service
+      cp ${./package/os-release}   $out/usr/lib/os-release
 
       closureInfo=${closureInfo { rootPaths = [ hoff gitMinimal ]; }}
       for file in $(cat $closureInfo/store-paths); do
