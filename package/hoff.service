@@ -26,13 +26,17 @@ CacheDirectory=hoff
 ConfigurationDirectory=hoff
 
 PrivateTmp=true
-PrivateDevices=true
 PrivateUsers=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 MemoryDenyWriteExecute=true
 
-ExecStart=/usr/bin/hoff /etc/hoff.json
+# NOTE: PrivateDevices is not enabled for now due to a bug in systemd 239.
+# See https://github.com/systemd/systemd/9737. A fix has been merged, but
+# it is not clear what release will contain the fix.
+# PrivateDevices=true
+
+ExecStart=/usr/bin/hoff /etc/hoff/config.json
 Restart=on-failure
 RestartSec=10
 
