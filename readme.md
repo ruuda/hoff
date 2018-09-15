@@ -46,6 +46,14 @@ To run the application locally:
 
 You probably want to edit the config file before running.
 
+To run Hoff on a server, you can build a self-contained squashfs file system
+image with [Nix][nix]:
+
+    $ nix build --out-link hoff.img
+
+The image includes Hoff and all of its dependencies (Git, SSH). You can run it
+with systemd. TODO: Make it work with portablectl.
+
 ## Further reading
 
 More information is available in the doc directory:
@@ -68,4 +76,5 @@ given in the license.
 [travis]:             https://travis-ci.org/ruuda/hoff
 [not-rocket-science]: https://graydon2.dreamwidth.org/1597.html
 [stack]:              https://haskellstack.org
+[nix]:                https://nixos.org/nix/
 [apache2]:            https://www.apache.org/licenses/LICENSE-2.0

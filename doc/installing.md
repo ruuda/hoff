@@ -17,6 +17,9 @@ a development machine and run
 
 This will produce a deb package that you can copy to your server and install.
 
+NOTE: Although this approach still works, a new approach (building a
+self-contained squashfs image) is under development.
+
 ## Installing the package
 
 On the server, install the package:
