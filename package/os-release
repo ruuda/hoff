@@ -1,0 +1,5 @@
+# This file exists because systemd demands an /usr/lib/os-release
+# file to be able to attach images that contain portable services.
+# "portablectl inspect" displays the value of PORTABLE_PRETTY_NAME.
+PORTABLE_PRETTY_NAME=Hoff
+HOME_URL=https://github.com/ruuda/hoff
