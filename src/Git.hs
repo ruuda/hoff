@@ -45,6 +45,10 @@ import System.Process.Text (readProcessWithExitCode)
 import qualified Data.Text as Text
 import qualified Data.Text.Format as Text
 
+import Configuration (UserConfiguration)
+
+import qualified Configuration as Config
+
 -- Conversion function because of Haskell string type madness. This is just
 -- Text.format, but returning a strict Text instead of a lazy one.
 format :: Params ps => Text.Format -> ps -> Text
@@ -145,13 +149,18 @@ callGit args = do
 
 -- Interpreter for the GitOperation free monad that starts Git processes and
 -- parses its output.
-runGit :: (MonadIO m, MonadLogger m) => FilePath -> GitOperation a -> m a
-runGit repoDir operation =
+runGit
+  :: (MonadIO m, MonadLogger m)
+  => UserConfiguration
+  -> FilePath
+  -> GitOperation a
+  -> m a
+runGit userConfig repoDir operation =
   let
     -- Pass the -C /path/to/checkout option to Git, to run operations in the
     -- repository without having to change the working directory.
     callGitInRepo args = callGit $ ["-C", repoDir] ++ args
-    continueWith       = runGit repoDir
+    continueWith       = runGit userConfig repoDir
   in case operation of
     Pure result -> return result
 
@@ -209,8 +218,8 @@ runGit repoDir operation =
         -- TODO: Recursive clone?
         [ "clone"
         , "--config", "transfer.fsckObjects=true"
-        , "--config", "user.name=TODO"
-        , "--config", "user.email=TODO"
+        , "--config", "user.name=" ++ (Text.unpack $ Config.name userConfig)
+        , "--config", "user.email=" ++ (Text.unpack $ Config.email userConfig)
         , show url, repoDir
         ]
       case result of

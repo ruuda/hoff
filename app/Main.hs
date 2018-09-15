@@ -152,10 +152,15 @@ main = do
       getNextEvent = liftIO $ Logic.dequeueEvent projectQueue
 
     -- Start a worker thread to run the main event loop for the project.
-    forkIO $ void
-           $ runStdoutLoggingT
-           $ runLogicEventLoop projectConfig getNextEvent publish projectState
-
+    forkIO
+      $ void
+      $ runStdoutLoggingT
+      $ runLogicEventLoop
+          (Config.user config)
+          projectConfig
+          getNextEvent
+          publish
+          projectState
   let
     -- When the webhook server receives an event, enqueue it on the webhook
     -- event queue if it is not full.

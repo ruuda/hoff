@@ -22,14 +22,14 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN)
 import Control.Monad.STM (atomically)
 
-import Git (runGit)
-import Configuration (ProjectConfiguration)
+import Configuration (ProjectConfiguration, UserConfiguration)
 import Github (PullRequestPayload, CommentPayload, CommitStatusPayload, WebhookEvent (..))
 import Github (eventProjectInfo)
 import Project (ProjectInfo, ProjectState, PullRequestId (..))
 
 import qualified Configuration as Config
 import qualified Data.Text as Text
+import qualified Git
 import qualified Github
 import qualified Logic
 import qualified Project
@@ -105,7 +105,8 @@ runGithubEventLoop ghQueue enqueueEvent = runLoop
 
 runLogicEventLoop
   :: (MonadIO m, MonadLogger m)
-  => ProjectConfiguration
+  => UserConfiguration
+  -> ProjectConfiguration
   -- Action that gets the next event from the queue.
   -> m (Maybe Logic.Event)
   -- Action to perform after the state has changed, such as
@@ -114,23 +115,25 @@ runLogicEventLoop
   -> (ProjectState -> m ())
   -> ProjectState
   -> m ProjectState
-runLogicEventLoop config getNextEvent publish initialState = runLoop initialState
-  where
-    repoDir = Config.checkout config
+runLogicEventLoop userConfig projectConfig getNextEvent publish initialState =
+  let
+    repoDir = Config.checkout projectConfig
+    runGit = Git.runGit userConfig repoDir
+    runAction = Logic.runAction projectConfig
     handleAndContinue state0 event = do
       -- Handle the event and then perform any additional required actions until
       -- the state reaches a fixed point (when there are no further actions to
       -- perform).
       logInfoN  $ Text.append "logic loop received event: " (Text.pack $ show event)
       logDebugN $ Text.append "state before: " (Text.pack $ show state0)
-      state1 <- runGit repoDir $ Logic.runAction config $ Logic.handleEvent config event state0
-      state2 <- runGit repoDir $ Logic.runAction config $ Logic.proceedUntilFixedPoint state1
+      state1 <- runGit $ runAction $ Logic.handleEvent projectConfig event state0
+      state2 <- runGit $ runAction $ Logic.proceedUntilFixedPoint state1
       publish state2
       logDebugN $ Text.append "state after: " (Text.pack $ show state2)
       runLoop state2
     runLoop state = do
       -- Before anything, clone the repository if there is no clone.
-      runGit repoDir $ Logic.ensureCloned config
+      runGit $ Logic.ensureCloned projectConfig
       -- Take one event off the queue, block if there is none.
       eventOrStopSignal <- getNextEvent
       -- Queue items are of type 'Maybe Event'; 'Nothing' signals loop
@@ -138,3 +141,5 @@ runLogicEventLoop config getNextEvent publish initialState = runLoop initialStat
       case eventOrStopSignal of
         Just event -> handleAndContinue state event
         Nothing    -> return state
+  in
+    runLoop initialState
