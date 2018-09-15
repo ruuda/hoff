@@ -17,7 +17,7 @@ module Configuration
 )
 where
 
-import Data.Aeson (FromJSON, decodeStrict')
+import Data.Aeson (FromJSON, eitherDecodeStrict')
 import Data.ByteString (readFile)
 import Data.Text (Text)
 import GHC.Generics
@@ -81,5 +81,5 @@ instance FromJSON UserConfiguration
 
 -- Reads and parses the configuration. Returns Nothing if parsing failed, but
 -- crashes if the file could not be read.
-loadConfiguration :: FilePath -> IO (Maybe Configuration)
-loadConfiguration = fmap decodeStrict' . readFile
+loadConfiguration :: FilePath -> IO (Either String Configuration)
+loadConfiguration = fmap eitherDecodeStrict' . readFile

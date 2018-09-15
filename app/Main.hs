@@ -48,8 +48,8 @@ loadConfigOrExit :: FilePath -> IO Configuration
 loadConfigOrExit fname = do
   maybeConfig <- Config.loadConfiguration fname
   case maybeConfig of
-    Just config -> return config
-    Nothing -> die $ "Failed to parse configuration file '" ++ fname ++ "'."
+    Right config -> return config
+    Left msg -> die $ "Failed to parse configuration file '" ++ fname ++ "'.\n" ++ msg
 
 initializeProjectState :: FilePath -> IO ProjectState
 initializeProjectState fname = do
