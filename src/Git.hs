@@ -151,7 +151,7 @@ callGit userConfig args = do
     logMessage   = Text.append "executing git " commandText
     stdinContent = ""
     sshCommand   = intercalate " "
-      [ "ssh"
+      [ "/usr/bin/ssh"
       , "-o", "IdentityFile=" ++ (Config.sshIdentityFile userConfig)
       , "-o", "UserKnownHostsFile=" ++ (Config.sshKnownHostsFile userConfig)
       ]
