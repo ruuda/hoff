@@ -129,6 +129,8 @@ runLogicEventLoop config getNextEvent publish initialState = runLoop initialStat
       logDebugN $ Text.append "state after: " (Text.pack $ show state2)
       runLoop state2
     runLoop state = do
+      -- Before anything, clone the repository if there is no clone.
+      runGit repoDir $ Logic.ensureCloned config
       -- Take one event off the queue, block if there is none.
       eventOrStopSignal <- getNextEvent
       -- Queue items are of type 'Maybe Event'; 'Nothing' signals loop

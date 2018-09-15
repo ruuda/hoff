@@ -18,6 +18,7 @@ module Logic
   dequeueEvent,
   enqueueEvent,
   enqueueStopSignal,
+  ensureCloned,
   handleEvent,
   newEventQueue,
   newStateVar,
