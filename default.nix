@@ -142,8 +142,10 @@ let
       touch $out/etc/localtime
 
       ln -s /usr/bin $out/bin
-      ln -s ${hoff}/bin/hoff $out/usr/bin/hoff
-      ln -s ${gitMinimal}/bin/git $out/usr/bin/git
+      ln -s ${coreutils}/bin/true  $out/usr/bin/true
+      ln -s ${gitMinimal}/bin/git  $out/usr/bin/git
+      ln -s ${hoff}/bin/hoff       $out/usr/bin/hoff
+      ln -s ${openssh}/bin/ssh     $out/usr/bin/ssh
 
       cp ${./package/hoff.service} $out/usr/lib/systemd/system/hoff.service
       cp ${./package/os-release}   $out/usr/lib/os-release
