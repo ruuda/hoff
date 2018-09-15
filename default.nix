@@ -128,6 +128,7 @@ let
       mkdir -p $out/sys
       mkdir -p $out/tmp
       mkdir -p $out/usr/bin
+      mkdir -p $out/usr/lib/systemd/system
       mkdir -p $out/var/cache/hoff
       mkdir -p $out/var/hoff
       mkdir -p $out/var/tmp
@@ -139,6 +140,8 @@ let
       ln -s /usr/bin $out/bin
       ln -s ${hoff}/bin/hoff $out/usr/bin/hoff
       ln -s ${gitMinimal}/bin/git $out/usr/bin/git
+
+      cp ${./package/hoff.service} $out/usr/lib/systemd/system/hoff.service
 
       closureInfo=${closureInfo { rootPaths = [ hoff gitMinimal ]; }}
       for file in $(cat $closureInfo/store-paths); do
