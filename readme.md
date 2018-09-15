@@ -50,6 +50,12 @@ To run Hoff on a server, you can build a self-contained squashfs file system
 image with [Nix][nix]:
 
     $ nix build --out-link hoff.img
+    $ cp package/example-config.json config.json
+    $ sudo systemd-nspawn \
+      --ephemeral         \
+      --image hoff.img    \
+      --bind-ro=$PWD:/etc \
+      -- /usr/bin/hoff /etc/config.json
 
 The image includes Hoff and all of its dependencies (Git, SSH). You can run it
 with systemd. TODO: Make it work with portablectl.
