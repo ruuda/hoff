@@ -84,9 +84,10 @@ convertGithubEvent event = case event of
   Comment payload      -> eventFromCommentPayload payload
 
 -- The event loop that converts GitHub webhook events into logic events.
-runGithubEventLoop :: (MonadIO m, MonadLogger m)
-                   => Github.EventQueue
-                   -> (ProjectInfo -> Logic.Event -> IO ()) -> m ()
+runGithubEventLoop
+  :: (MonadIO m, MonadLogger m)
+  => Github.EventQueue
+  -> (ProjectInfo -> Logic.Event -> IO ()) -> m ()
 runGithubEventLoop ghQueue enqueueEvent = runLoop
   where
     shouldHandle ghEvent = (ghEvent /= Ping)
@@ -102,16 +103,17 @@ runGithubEventLoop ghQueue enqueueEvent = runLoop
           maybe (return ()) (liftIO . enqueueEvent projectInfo) converted
       runLoop
 
-runLogicEventLoop :: (MonadIO m, MonadLogger m)
-                  => ProjectConfiguration
-                  -- Action that gets the next event from the queue.
-                  -> m (Maybe Logic.Event)
-                  -- Action to perform after the state has changed, such as
-                  -- persisting the new state, and making it available to the
-                  -- webinterface.
-                  -> (ProjectState -> m ())
-                  -> ProjectState
-                  -> m ProjectState
+runLogicEventLoop
+  :: (MonadIO m, MonadLogger m)
+  => ProjectConfiguration
+  -- Action that gets the next event from the queue.
+  -> m (Maybe Logic.Event)
+  -- Action to perform after the state has changed, such as
+  -- persisting the new state, and making it available to the
+  -- webinterface.
+  -> (ProjectState -> m ())
+  -> ProjectState
+  -> m ProjectState
 runLogicEventLoop config getNextEvent publish initialState = runLoop initialState
   where
     repoDir = Config.checkout config
