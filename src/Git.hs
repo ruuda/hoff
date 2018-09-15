@@ -11,12 +11,14 @@
 module Git
 (
   Branch (..),
+  CloneResult (..),
   GitOperation,
   PushResult (..),
+  RemoteUrl (..),
   Sha (..),
   callGit,
   clone,
-  doesGitDirExist,
+  doesGitDirectoryExist,
   fetchBranch,
   forcePush,
   push,
@@ -102,7 +104,7 @@ data GitOperationFree a
   | Push Sha Branch (PushResult -> a)
   | Rebase Sha Branch (Maybe Sha -> a)
   | Clone RemoteUrl (CloneResult -> a)
-  | DoesGitDirExist (Bool -> a)
+  | DoesGitDirectoryExist (Bool -> a)
   deriving (Functor)
 
 type GitOperation = Free GitOperationFree
@@ -122,8 +124,8 @@ rebase sha ontoBranch = liftF $ Rebase sha ontoBranch id
 clone :: RemoteUrl -> GitOperation CloneResult
 clone url = liftF $ Clone url id
 
-doesGitDirExist :: GitOperation Bool
-doesGitDirExist = liftF $ DoesGitDirExist id
+doesGitDirectoryExist :: GitOperation Bool
+doesGitDirectoryExist = liftF $ DoesGitDirectoryExist id
 
 isLeft :: Either a b -> Bool
 isLeft (Left _)  = True
@@ -213,12 +215,12 @@ runGit repoDir operation =
         ]
       case result of
         Left (code, message) -> do
-          logInfoN $ format "git clone failed with code {}: {}" (show code, message)
+          logWarnN $ format "git clone failed with code {}: {}" (show code, message)
           continueWith (cont CloneFailed)
         Right _ ->
           continueWith (cont CloneOk)
 
-    Free (DoesGitDirExist cont) -> do
+    Free (DoesGitDirectoryExist cont) -> do
       exists <- liftIO $ doesDirectoryExist (repoDir </> ".git")
       continueWith (cont exists)
 

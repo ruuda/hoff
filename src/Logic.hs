@@ -7,6 +7,7 @@
 
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Logic
 (
@@ -32,7 +33,7 @@ where
 import Control.Concurrent.STM.TMVar (TMVar, newTMVar, readTMVar, swapTMVar)
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Exception (assert)
-import Control.Monad (mfilter, void)
+import Control.Monad (mfilter, when, void)
 import Control.Monad.Free (Free (..), liftF)
 import Control.Monad.STM (atomically)
 import Data.Maybe (fromJust, fromMaybe, isJust, maybe)
@@ -77,18 +78,41 @@ pushNewHead newHead = liftF $ PushNewHead newHead id
 
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> GitOperation a
-runAction config action = case action of
-  Pure x -> return x
-  Free (TryIntegrate (ref, sha) h) -> do
-    -- TODO: Change types in config to be 'Branch', not 'Text'.
-    maybeSha <- Git.tryIntegrate ref sha (Git.Branch $ Config.branch config) (Git.Branch $ Config.testBranch config)
-    runAction config $ h maybeSha
-  Free (PushNewHead sha h) -> do
-    pushResult <- Git.push sha (Git.Branch $ Config.branch config)
-    runAction config $ h pushResult
-  Free (LeaveComment _pr _body x) ->
-    -- TODO: Implement GitHub API.
-    runAction config x
+runAction config action =
+  let
+    continueWith = runAction config
+  in case action of
+    Pure result -> return result
+    Free (TryIntegrate (ref, sha) cont) -> do
+      ensureCloned config
+      -- TODO: Change types in config to be 'Branch', not 'Text'.
+      maybeSha <- Git.tryIntegrate ref sha (Git.Branch $ Config.branch config) (Git.Branch $ Config.testBranch config)
+      continueWith $ cont maybeSha
+    Free (PushNewHead sha cont) -> do
+      ensureCloned config
+      pushResult <- Git.push sha (Git.Branch $ Config.branch config)
+      continueWith $ cont pushResult
+    Free (LeaveComment _pr _body cont) ->
+      -- TODO: Implement GitHub API.
+      continueWith cont
+
+ensureCloned :: ProjectConfiguration -> GitOperation ()
+ensureCloned config =
+  let
+    url = format "git@github.com:{}/{}.git" (Config.owner config, Config.repository config)
+    -- Just a very basic retry, no exponential backoff or anything. Also, the
+    -- reason that the clone fails might not be a temporary issue, but still;
+    -- retrying is the best thing we could do.
+    cloneWithRetry 0 = pure ()
+    cloneWithRetry (triesLeft :: Int) = do
+      result <- Git.clone (Git.RemoteUrl url)
+      case result of
+        Git.CloneOk -> pure ()
+        Git.CloneFailed -> cloneWithRetry (triesLeft - 1)
+  in do
+    exists <- Git.doesGitDirectoryExist
+    when (not exists) (cloneWithRetry 3)
+    pure ()
 
 data Event
   -- GitHub events
