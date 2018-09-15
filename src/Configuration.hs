@@ -12,6 +12,7 @@ module Configuration
   Configuration (..),
   ProjectConfiguration (..),
   TlsConfiguration (..),
+  UserConfiguration (..),
   loadConfiguration
 )
 where
@@ -31,6 +32,14 @@ data ProjectConfiguration = ProjectConfiguration
     checkout   :: FilePath, -- The path to a local checkout of the repository.
     reviewers  :: [Text],   -- List of GitHub usernames that are allowed to approve.
     stateFile  :: FilePath  -- The file where project state is stored.
+  }
+  deriving (Generic)
+
+data UserConfiguration = UserConfiguration
+  {
+    name :: Text,         -- Name used for Git committer.
+    email :: Text,        -- Email address used for Git committer.
+    secretKey :: FilePath -- The path to the secret key to use for ssh.
   }
   deriving (Generic)
 
@@ -58,13 +67,17 @@ data Configuration = Configuration
     port :: Int,
 
     -- Optional config for enabling https.
-    tls :: Maybe TlsConfiguration
+    tls :: Maybe TlsConfiguration,
+
+    -- Configuration of the Git user.
+    user :: UserConfiguration
   }
   deriving (Generic)
 
+instance FromJSON Configuration
 instance FromJSON ProjectConfiguration
 instance FromJSON TlsConfiguration
-instance FromJSON Configuration
+instance FromJSON UserConfiguration
 
 -- Reads and parses the configuration. Returns Nothing if parsing failed, but
 -- crashes if the file could not be read.

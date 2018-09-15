@@ -10,5 +10,10 @@
   }],
   "secret": "run 'head --bytes 32 /dev/urandom | base64' and paste output here",
   "port": 443,
-  "tls": null
+  "tls": null,
+  "user": {
+    "name": "CI Bot",
+    "email": "cibot@example.com",
+    "secretKey": "/home/git/.ssh/id_ed25519",
+  }
 }
