@@ -217,7 +217,8 @@ runGit repoDir operation =
         Left (code, message) -> do
           logWarnN $ format "git clone failed with code {}: {}" (show code, message)
           continueWith (cont CloneFailed)
-        Right _ ->
+        Right _ -> do
+          logInfoN $ format "cloned {} succesfully" [show url]
           continueWith (cont CloneOk)
 
     Free (DoesGitDirectoryExist cont) -> do
