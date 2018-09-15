@@ -1,7 +1,7 @@
 [Unit]
 Description=commit gatekeeper daemon
-After=networking.service
-Requires=networking.service
+After=network.target
+Requires=network.target
 AssertPathExists=/etc/hoff/config.json
 
 [Service]
