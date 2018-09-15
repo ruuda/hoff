@@ -33,7 +33,7 @@ import Control.Monad.Free (Free (Free, Pure), liftF)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import Data.Aeson
-import Data.List (intersperse)
+import Data.List (intersperse, intercalate)
 import Data.Text (Text)
 import Data.Text.Format.Params (Params)
 import Data.Text.Lazy (toStrict)
@@ -139,20 +139,36 @@ isLeft (Right _) = False
 
 -- Invokes Git with the given arguments. Returns its output on success, or the
 -- exit code and stderr on error.
-callGit :: (MonadIO m, MonadLogger m) => [String] -> m (Either (ExitCode, Text) Text)
-callGit args = do
+callGit
+  :: (MonadIO m, MonadLogger m)
+  => UserConfiguration
+  -> [String]
+  -> m (Either (ExitCode, Text) Text)
+callGit userConfig args = do
   currentEnv <- liftIO getEnvironment
   let
     commandText  = Text.concat $ intersperse " " $ fmap Text.pack args
     logMessage   = Text.append "executing git " commandText
     stdinContent = ""
+    sshCommand   = intercalate " "
+      [ "ssh"
+      , "-o", "IdentityFile=" ++ (Config.sshIdentityFile userConfig)
+      , "-o", "UserKnownHostsFile=" ++ (Config.sshKnownHostsFile userConfig)
+      ]
     process = (Process.proc "git" args) {
       -- Prepend GIT_EDITOR to the environment and set it to "true".
       -- For an interactive rebase, this ensures that we close the editor
       -- immediately. Note that sometimes true is /usr/bin/true and sometimes
       -- it is /bin/true, so we have use /usr/bin/env to locate it, assuming
-      -- that env is in a consistent location.
-      Process.env = Just $ ("GIT_EDITOR", "/usr/bin/env true") : currentEnv
+      -- that env is in a consistent location.  Also use a custom ssh command,
+      -- in order to select the location of the secret key. Finally, tell Git to
+      -- not prompt for things such as passphrases, because there is no
+      -- interactive terminal.
+      Process.env = Just
+        $ ("GIT_EDITOR", "/usr/bin/env true")
+        : ("GIT_SSH_COMMAND", sshCommand)
+        : ("GIT_TERMINAL_PROMPT", "0")
+        : currentEnv
     }
     runProcess = readCreateProcessWithExitCode process stdinContent
   logInfoN logMessage
@@ -173,7 +189,7 @@ runGit userConfig repoDir operation =
   let
     -- Pass the -C /path/to/checkout option to Git, to run operations in the
     -- repository without having to change the working directory.
-    callGitInRepo args = callGit $ ["-C", repoDir] ++ args
+    callGitInRepo args = callGit userConfig $ ["-C", repoDir] ++ args
     continueWith       = runGit userConfig repoDir
   in case operation of
     Pure result -> return result
@@ -232,7 +248,7 @@ runGit userConfig repoDir operation =
             Right newSha -> continueWith $ cont $ Just $ Sha $ Text.strip newSha
 
     Free (Clone url cont) -> do
-      result <- callGit
+      result <- callGit userConfig
         -- Pass some config flags, that get applied as the repository is
         -- initialized, before the clone. This means we can enable fsckObjects
         -- and have the clone be checked.
