@@ -235,7 +235,18 @@ type GitRunner = [String] -> IO ()
 -- prefixes of the remote master branch log. The body function is provided with
 -- the shas of the test repository and a function to run the event loop.
 withTestEnv :: ([Sha] -> LoopRunner -> GitRunner -> IO ()) -> IO [Text]
-withTestEnv body = do
+withTestEnv = fmap fst . withTestEnv'
+
+-- Sets up a test environment with an actual Git repository on the file system,
+-- and a thread running the main event loop. Then invokes the body, and tears
+-- down the test environment afterwards. Returns a list of commit message
+-- prefixes of the remote master branch log, and also all remote branches. The
+-- body function is provided with the shas of the test repository and a function
+-- to run the event loop.
+withTestEnv'
+  :: ([Sha] -> LoopRunner -> GitRunner -> IO ())
+  -> IO ([Text], [Branch])
+withTestEnv' body = do
   -- To run these tests, a real repository has to be made somewhere. Do that in
   -- /tmp because it can be mounted as a ramdisk, so it is fast and we don't
   -- unnecessarily wear out SSDs. Put a uuid in there to ensure we don't
@@ -267,23 +278,26 @@ withTestEnv body = do
   -- (Commits do: the same rebase operation can produce commits with different
   -- shas depending on the time of the rebase.)
   masterLog <- callGit ["-C", originDir, "log", "--format=%s", "master"]
-  let commits = reverse $ fmap (Text.takeWhile (/= ':')) $ Text.lines masterLog
+  branchesRaw <- callGit ["-C", originDir, "branch", "--format=%(refname:short)"]
+  let
+    commits = reverse $ fmap (Text.takeWhile (/= ':')) $ Text.lines masterLog
+    branches = fmap Branch $ Text.lines branchesRaw
 
   makeWritableRecursive testDir
   FileSystem.removeDirectoryRecursive testDir
-  return commits
+  pure (commits, branches)
 
 eventLoopSpec :: Spec
 eventLoopSpec = parallel $ do
   describe "The main event loop" $ do
 
     it "handles a fast-forwardable pull request" $ do
-      history <- withTestEnv $ \ shas runLoop _git -> do
+      (history, branches) <- withTestEnv' $ \ shas runLoop _git -> do
         let
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
           -- Note that at the remote, refs/pull/4/head points to c4.
           pr4 = PullRequestId 4
-          branch = Branch "results/leon"
+          branch = Branch "ahead"
 
         -- Commit c4 is one commit ahead of master, so integrating it can be done
         -- with a fast-forward merge. Run the main event loop for these events
@@ -294,15 +308,18 @@ eventLoopSpec = parallel $ do
             Logic.CommentAdded pr4 "rachael" $ Text.pack $ "LGTM " ++ (show c4),
             Logic.BuildStatusChanged c4 BuildSucceeded
           ]
-
       history `shouldBe` ["c0", "c1", "c2", "c3", "c4"]
+      -- The remote branch ("ahead") should also be deleted after a succesful
+      -- promotion, but the other branches should be left untouched.
+      branches `shouldMatchList`
+        fmap Branch ["intro", "master", "alternative", "fixup", "unused", "integration"]
 
     it "handles a non-conflicting non-fast-forwardable pull request" $ do
-      history <- withTestEnv $ \ shas runLoop _git -> do
+      (history, branches) <- withTestEnv' $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6, _c7, _c7f, _c8] = shas
             -- Note that at the remote, refs/pull/6/head points to c6.
             pr6 = PullRequestId 6
-            branch = Branch "results/leon"
+            branch = Branch "intro"
 
         -- Commit c6 is two commits ahead and one behind of master, so
         -- integrating it produces new rebased commits.
@@ -321,14 +338,18 @@ eventLoopSpec = parallel $ do
         void $ runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
 
       history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6"]
+      -- The remote branch ("intro") should also be deleted after a succesful
+      -- promotion, but the other branches should be left untouched.
+      branches `shouldMatchList`
+        fmap Branch ["ahead", "master", "alternative", "fixup", "unused", "integration"]
 
     it "handles multiple pull requests" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
             pr4 = PullRequestId 4
             pr6 = PullRequestId 6
-            br4 = Branch "results/leon"
-            br6 = Branch "results/rachael"
+            br4 = Branch "ahead"
+            br6 = Branch "intro"
 
         state <- runLoop Project.emptyProjectState
           [
@@ -357,12 +378,12 @@ eventLoopSpec = parallel $ do
       history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6", "c4"]
 
     it "skips conflicted pull requests" $ do
-      history <- withTestEnv $ \ shas runLoop _git -> do
+      (history, branches) <- withTestEnv' $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
             pr3 = PullRequestId 3
             pr4 = PullRequestId 4
-            br3 = Branch "results/leon"
-            br4 = Branch "results/rachael"
+            br3 = Branch "alternative"
+            br4 = Branch "ahead"
 
         -- Commit c3' conflicts with master, so a rebase should be attempted, but
         -- because it conflicts, the next pull request should be considered.
@@ -390,13 +411,15 @@ eventLoopSpec = parallel $ do
       -- We did not send a build status notification for c4, so it should not
       -- have been integrated.
       history `shouldBe` ["c0", "c1", "c2", "c3"]
+      -- The conflicted branch should not have been deleted.
+      branches `shouldContain` [Branch "alternative"]
 
     it "restarts the sequence after a rejected push" $ do
-      history <- withTestEnv $ \ shas runLoop git -> do
+      (history, branches) <- withTestEnv' $ \ shas runLoop git -> do
         let
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
           pr6 = PullRequestId 6
-          branch = Branch "add-results"
+          branch = Branch "intro"
 
         state <- runLoop Project.emptyProjectState
           [
@@ -431,13 +454,14 @@ eventLoopSpec = parallel $ do
         Project.getIntegrationCandidate state'' `shouldBe` Nothing
 
       history `shouldBe` ["c0", "c1", "c2", "c3", "c4", "c5", "c6"]
+      branches `shouldNotContain` [Branch "intro"]
 
     it "applies fixup commits during rebase, even if fast forward is possible" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
         let
           [_c0, _c1, _c2, _c3, _c3', _c4, _c5, _c6, _c7, c7f, _c8] = shas
           pr8 = PullRequestId 8
-          branch = Branch "add-results"
+          branch = Branch "fixup"
 
         state <- runLoop Project.emptyProjectState
           [
@@ -463,7 +487,7 @@ eventLoopSpec = parallel $ do
         let
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, c7f, _c8] = shas
           pr8 = PullRequestId 8
-          branch = Branch "add-results"
+          branch = Branch "fixup"
 
         state <- runLoop Project.emptyProjectState
           [
@@ -497,7 +521,7 @@ eventLoopSpec = parallel $ do
         let
           [_c0, _c1, _c2, _c3, _c3', _c4, _c5, _c6, _c7, c7f, c8] = shas
           pr8 = PullRequestId 8
-          branch = Branch "add-results"
+          branch = Branch "fixup"
 
         -- The commit graph looks like "c7 -- c8 -- c7f", where c7 needs to be
         -- fixed up. We now already push c8 to master, so the only thing left in
