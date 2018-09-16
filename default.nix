@@ -148,16 +148,16 @@ let
       touch $out/etc/resolv.conf
 
       ln -s /usr/bin $out/bin
+      ln -s ${coreutils}/bin/cat   $out/usr/bin/cat
+      ln -s ${coreutils}/bin/cp    $out/usr/bin/cp
       ln -s ${coreutils}/bin/env   $out/usr/bin/env
       ln -s ${coreutils}/bin/mkdir $out/usr/bin/mkdir
       ln -s ${coreutils}/bin/rm    $out/usr/bin/rm
-      ln -s ${coreutils}/bin/wc    $out/usr/bin/wc
-      ln -s ${coreutils}/bin/cat   $out/usr/bin/cat
-      ln -s ${coreutils}/bin/tr    $out/usr/bin/tr
-      ln -s ${coreutils}/bin/cp    $out/usr/bin/cp
-      ln -s ${coreutils}/bin/uname $out/usr/bin/uname
       ln -s ${coreutils}/bin/test  $out/usr/bin/test
+      ln -s ${coreutils}/bin/tr    $out/usr/bin/tr
       ln -s ${coreutils}/bin/true  $out/usr/bin/true
+      ln -s ${coreutils}/bin/uname $out/usr/bin/uname
+      ln -s ${coreutils}/bin/wc    $out/usr/bin/wc
       ln -s ${gitMinimal}/bin/git  $out/usr/bin/git
       ln -s ${hoff}/bin/hoff       $out/usr/bin/hoff
       ln -s ${openssh}/bin/ssh     $out/usr/bin/ssh
