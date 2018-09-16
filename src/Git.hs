@@ -150,7 +150,7 @@ callGit args = do
       -- Prepend GIT_EDITOR to the environment and set it to /usr/bin/true.
       -- For an interactive rebase, this ensures that we close the editor
       -- immediately.
-      Process.env = Just $ ("GIT_EDITOR", "true") : currentEnv
+      Process.env = Just $ ("GIT_EDITOR", "/usr/bin/true") : currentEnv
     }
     runProcess = readCreateProcessWithExitCode process stdinContent
   logInfoN logMessage
