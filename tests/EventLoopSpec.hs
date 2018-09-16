@@ -30,7 +30,7 @@ import qualified Data.UUID.V4 as Uuid
 import qualified System.Directory as FileSystem
 
 import Configuration (ProjectConfiguration, UserConfiguration)
-import Git (Sha (..))
+import Git (Branch (..), Sha (..))
 import Project (BuildStatus (..), IntegrationStatus (..), ProjectState, PullRequestId (..))
 
 import qualified Configuration as Config
@@ -279,16 +279,18 @@ eventLoopSpec = parallel $ do
 
     it "handles a fast-forwardable pull request" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
-        let [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
-            -- Note that at the remote, refs/pull/4/head points to c4.
-            pr4 = PullRequestId 4
+        let
+          [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
+          -- Note that at the remote, refs/pull/4/head points to c4.
+          pr4 = PullRequestId 4
+          branch = Branch "results/leon"
 
         -- Commit c4 is one commit ahead of master, so integrating it can be done
         -- with a fast-forward merge. Run the main event loop for these events
         -- and discard the final state by using 'void'.
         void $ runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr4 c4 "Add Leon test results" "deckard",
+            Logic.PullRequestOpened pr4 branch c4 "Add Leon test results" "deckard",
             Logic.CommentAdded pr4 "rachael" $ Text.pack $ "LGTM " ++ (show c4),
             Logic.BuildStatusChanged c4 BuildSucceeded
           ]
@@ -300,12 +302,13 @@ eventLoopSpec = parallel $ do
         let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6, _c7, _c7f, _c8] = shas
             -- Note that at the remote, refs/pull/6/head points to c6.
             pr6 = PullRequestId 6
+            branch = Branch "results/leon"
 
         -- Commit c6 is two commits ahead and one behind of master, so
         -- integrating it produces new rebased commits.
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr6 c6 "Add Leon test results" "deckard",
+            Logic.PullRequestOpened pr6 branch c6 "Add Leon test results" "deckard",
             Logic.CommentAdded pr6 "rachael" $ Text.pack $ "LGTM " ++ (show c6)
           ]
 
@@ -324,11 +327,13 @@ eventLoopSpec = parallel $ do
         let [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
             pr4 = PullRequestId 4
             pr6 = PullRequestId 6
+            br4 = Branch "results/leon"
+            br6 = Branch "results/rachael"
 
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr4 c4 "Add Leon test results" "deckard",
-            Logic.PullRequestOpened pr6 c6 "Add Rachael test results" "deckard",
+            Logic.PullRequestOpened pr4 br4 c4 "Add Leon test results" "deckard",
+            Logic.PullRequestOpened pr6 br6 c6 "Add Rachael test results" "deckard",
             -- Note that although c4 has a lower pull request number, c6 should
             -- still be integrated first because it was approved earlier.
             Logic.CommentAdded pr6 "rachael" $ Text.pack $ "LGTM " ++ (show c6),
@@ -356,13 +361,15 @@ eventLoopSpec = parallel $ do
         let [_c0, _c1, _c2, _c3, c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
             pr3 = PullRequestId 3
             pr4 = PullRequestId 4
+            br3 = Branch "results/leon"
+            br4 = Branch "results/rachael"
 
         -- Commit c3' conflicts with master, so a rebase should be attempted, but
         -- because it conflicts, the next pull request should be considered.
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr3 c3' "Add Leon test results" "deckard",
-            Logic.PullRequestOpened pr4 c4 "Add Rachael test results" "deckard",
+            Logic.PullRequestOpened pr3 br3 c3' "Add Leon test results" "deckard",
+            Logic.PullRequestOpened pr4 br4 c4 "Add Rachael test results" "deckard",
             Logic.CommentAdded pr3 "rachael" $ Text.pack $ "LGTM " ++ (show c3'),
             Logic.CommentAdded pr4 "rachael" $ Text.pack $ "LGTM " ++ (show c4)
           ]
@@ -386,12 +393,14 @@ eventLoopSpec = parallel $ do
 
     it "restarts the sequence after a rejected push" $ do
       history <- withTestEnv $ \ shas runLoop git -> do
-        let [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
-            pr6 = PullRequestId 6
+        let
+          [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
+          pr6 = PullRequestId 6
+          branch = Branch "add-results"
 
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr6 c6 "Add test results" "deckard",
+            Logic.PullRequestOpened pr6 branch c6 "Add test results" "deckard",
             Logic.CommentAdded pr6 "rachael" $ Text.pack $ "LGTM " ++ (show c6)
           ]
 
@@ -428,10 +437,11 @@ eventLoopSpec = parallel $ do
         let
           [_c0, _c1, _c2, _c3, _c3', _c4, _c5, _c6, _c7, c7f, _c8] = shas
           pr8 = PullRequestId 8
+          branch = Branch "add-results"
 
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr8 c7f "Add test results" "deckard",
+            Logic.PullRequestOpened pr8 branch c7f "Add test results" "deckard",
             Logic.CommentAdded pr8 "rachael" $ Text.pack $ "LGTM " ++ (show c7f)
           ]
 
@@ -453,10 +463,11 @@ eventLoopSpec = parallel $ do
         let
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, c7f, _c8] = shas
           pr8 = PullRequestId 8
+          branch = Branch "add-results"
 
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr8 c7f "Add test results" "deckard",
+            Logic.PullRequestOpened pr8 branch c7f "Add test results" "deckard",
             Logic.CommentAdded pr8 "rachael" $ Text.pack $ "LGTM " ++ (show c7f)
           ]
 
@@ -486,6 +497,7 @@ eventLoopSpec = parallel $ do
         let
           [_c0, _c1, _c2, _c3, _c3', _c4, _c5, _c6, _c7, c7f, c8] = shas
           pr8 = PullRequestId 8
+          branch = Branch "add-results"
 
         -- The commit graph looks like "c7 -- c8 -- c7f", where c7 needs to be
         -- fixed up. We now already push c8 to master, so the only thing left in
@@ -497,7 +509,7 @@ eventLoopSpec = parallel $ do
 
         state <- runLoop Project.emptyProjectState
           [
-            Logic.PullRequestOpened pr8 c7f "Add test results" "deckard",
+            Logic.PullRequestOpened pr8 branch c7f "Add test results" "deckard",
             Logic.CommentAdded pr8 "rachael" $ Text.pack $ "LGTM " ++ (show c7f)
           ]
 

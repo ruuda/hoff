@@ -47,14 +47,14 @@ testProjectConfig = Config.ProjectConfiguration {
 
 -- Functions to prepare certain test states.
 
-singlePullRequestState :: PullRequestId -> Sha -> Text -> ProjectState
-singlePullRequestState pr prSha prAuthor =
-  let event = PullRequestOpened pr prSha "Untitled" prAuthor
+singlePullRequestState :: PullRequestId -> Branch -> Sha -> Text -> ProjectState
+singlePullRequestState pr prBranch prSha prAuthor =
+  let event = PullRequestOpened pr prBranch prSha "Untitled" prAuthor
   in  handleEventFlat event Project.emptyProjectState
 
-candidateState :: PullRequestId -> Sha -> Text -> Sha -> ProjectState
-candidateState pr prSha prAuthor candidateSha =
-  let state0 = singlePullRequestState pr prSha prAuthor
+candidateState :: PullRequestId -> Branch -> Sha -> Text -> Sha -> ProjectState
+candidateState pr prBranch prSha prAuthor candidateSha =
+  let state0 = singlePullRequestState pr prBranch prSha prAuthor
       state1 = Project.setIntegrationStatus pr (Project.Integrated candidateSha) state0
   in  state1 { Project.integrationCandidate = Just pr }
 
@@ -114,7 +114,7 @@ main = hspec $ do
   describe "Logic.handleEvent" $ do
 
     it "handles PullRequestOpened" $ do
-      let event = PullRequestOpened (PullRequestId 3) (Sha "e0f") "title" "lisa"
+      let event = PullRequestOpened (PullRequestId 3) (Branch "p") (Sha "e0f") "title" "lisa"
           state = handleEventFlat event Project.emptyProjectState
       state `shouldSatisfy` Project.existsPullRequest (PullRequestId 3)
       let pr = fromJust $ Project.lookupPullRequest (PullRequestId 3) state
@@ -124,8 +124,8 @@ main = hspec $ do
       Project.buildStatus pr `shouldBe` Project.BuildNotStarted
 
     it "handles PullRequestClosed" $ do
-      let event1 = PullRequestOpened (PullRequestId 1) (Sha "abc") "title" "peter"
-          event2 = PullRequestOpened (PullRequestId 2) (Sha "def") "title" "jack"
+      let event1 = PullRequestOpened (PullRequestId 1) (Branch "p") (Sha "abc") "title" "peter"
+          event2 = PullRequestOpened (PullRequestId 2) (Branch "q") (Sha "def") "title" "jack"
           event3 = PullRequestClosed (PullRequestId 1)
           state  = handleEventsFlat [event1, event2, event3] Project.emptyProjectState
       state `shouldSatisfy` not . Project.existsPullRequest (PullRequestId 1)
@@ -133,19 +133,19 @@ main = hspec $ do
 
     it "handles closing the integration candidate PR" $ do
       let event  = PullRequestClosed (PullRequestId 1)
-          state  = candidateState (PullRequestId 1) (Sha "ea0") "frank" (Sha "cf4")
+          state  = candidateState (PullRequestId 1) (Branch "p") (Sha "ea0") "frank" (Sha "cf4")
           state' = handleEventFlat event state
       Project.integrationCandidate state' `shouldBe` Nothing
 
     it "does not modify the integration candidate if a different PR was closed" $ do
       let event  = PullRequestClosed (PullRequestId 1)
-          state  = candidateState (PullRequestId 2) (Sha "a38") "franz" (Sha "ed0")
+          state  = candidateState (PullRequestId 2) (Branch "p") (Sha "a38") "franz" (Sha "ed0")
           state' = handleEventFlat event state
       Project.integrationCandidate state' `shouldBe` (Just $ PullRequestId 2)
 
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
-          state0 = singlePullRequestState (PullRequestId 1) (Sha "abc") "alice"
+          state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "abc") "alice"
           state1 = Project.setApproval (PullRequestId 1) (Just "hatter") state0
           state2 = handleEventFlat event state1
           pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
@@ -155,7 +155,7 @@ main = hspec $ do
 
     it "resets the build status after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
-          state0 = singlePullRequestState (PullRequestId 1) (Sha "abc") "thomas"
+          state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "abc") "thomas"
           state1 = Project.setBuildStatus (PullRequestId 1) Project.BuildPending state0
           state2 = handleEventFlat event state1
           pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
@@ -165,7 +165,7 @@ main = hspec $ do
 
     it "ignores false positive commit changed events" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "000")
-          state0 = singlePullRequestState (PullRequestId 1) (Sha "000") "cindy"
+          state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "000") "cindy"
           state1 = Project.setApproval (PullRequestId 1) (Just "daniel") state0
           state2 = Project.setBuildStatus (PullRequestId 1) Project.BuildPending state1
           state3 = handleEventFlat event state2
@@ -173,7 +173,7 @@ main = hspec $ do
       -- TODO: Also assert that no actions are performed.
 
     it "sets approval after a stamp from a reviewer" $ do
-      let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "toby"
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "toby"
           -- Note: "deckard" is marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "deckard" "LGTM 6412ef5"
           state' = handleEventFlat event state
@@ -181,7 +181,7 @@ main = hspec $ do
       Project.approvedBy pr `shouldBe` Just "deckard"
 
     it "does not set approval after a stamp from a non-reviewer" $ do
-      let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "toby"
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "toby"
           -- Note: the comment is a valid LGTM stamp, but "rachael" is not
           -- marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "rachael" "LGTM 6412ef5"
@@ -190,7 +190,7 @@ main = hspec $ do
       Project.approvedBy pr `shouldBe` Nothing
 
     it "does not set approval after a random comment" $ do
-      let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "patrick"
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "patrick"
           -- Test coments with 2 words and more or less. (The stamp expects
           -- exactly two words.)
           event1 = CommentAdded (PullRequestId 1) "thomas" "We're up all night"
@@ -201,7 +201,7 @@ main = hspec $ do
       Project.approvedBy pr `shouldBe` Nothing
 
     it "requires a long enough sha for approval" $ do
-      let state  = singlePullRequestState (PullRequestId 1) (Sha "6412ef5") "sacha"
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
           -- A 6-character sha is not long enough for approval.
           event  = CommentAdded (PullRequestId 1) "richard" "LGTM 6412ef"
           state' = handleEventFlat event state
@@ -210,15 +210,15 @@ main = hspec $ do
 
     it "handles a build status change of the integration candidate" $ do
       let event  = BuildStatusChanged (Sha "84c") Project.BuildSucceeded
-          state  = candidateState (PullRequestId 1) (Sha "a38") "johanna" (Sha "84c")
+          state  = candidateState (PullRequestId 1) (Branch "p") (Sha "a38") "johanna" (Sha "84c")
           state' = handleEventFlat event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.buildStatus pr `shouldBe` Project.BuildSucceeded
 
     it "ignores a build status change of random shas" $ do
-      let event0 = PullRequestOpened (PullRequestId 2) (Sha "0ad") "title" "harry"
+      let event0 = PullRequestOpened (PullRequestId 2) (Branch "p") (Sha "0ad") "title" "harry"
           event1 = BuildStatusChanged (Sha "0ad") Project.BuildSucceeded
-          state  = candidateState (PullRequestId 1) (Sha "a38") "harry" (Sha "84c")
+          state  = candidateState (PullRequestId 1) (Branch "p") (Sha "a38") "harry" (Sha "84c")
           state' = handleEventsFlat [event0, event1] state
           pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
           pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 2) state'
@@ -231,7 +231,7 @@ main = hspec $ do
 
     it "finds a new candidate" $ do
       let state = Project.setApproval (PullRequestId 1) (Just "fred") $
-                  singlePullRequestState (PullRequestId 1) (Sha "f34") "sally"
+                  singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "f34") "sally"
           (state', actions)  = proceedUntilFixedPointFlat (Just (Sha "38c")) PushRejected state
           (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
       Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c")
@@ -242,6 +242,7 @@ main = hspec $ do
     it "pushes after a successful build" $ do
       let pullRequest = PullRequest
             {
+              Project.branch            = Branch "results/rachael",
               Project.sha               = Sha "f35",
               Project.title             = "Add my test results",
               Project.author            = "rachael",
@@ -265,6 +266,7 @@ main = hspec $ do
       -- and is ready to be pushed to master.
       let pullRequest = PullRequest
             {
+              Project.branch            = Branch "results/rachael",
               Project.sha               = Sha "f35",
               Project.title             = "Add my test results",
               Project.author            = "rachael",
@@ -291,6 +293,7 @@ main = hspec $ do
     it "picks a new candidate from the queue after a successful push" $ do
       let pullRequest1 = PullRequest
             {
+              Project.branch            = Branch "results/leon",
               Project.sha               = Sha "f35",
               Project.title             = "Add Leon test results",
               Project.author            = "rachael",
@@ -300,6 +303,7 @@ main = hspec $ do
             }
           pullRequest2 = PullRequest
             {
+              Project.branch            = Branch "results/rachael",
               Project.sha               = Sha "f37",
               Project.title             = "Add my test results",
               Project.author            = "rachael",
@@ -415,6 +419,7 @@ main = hspec $ do
           , owner      = "deckard"
           , repository = "repo"
           , number     = 1
+          , branch     = Branch "results"
           , sha        = Sha "b26354"
           , title      = "Add test results"
           , author     = "rachael"
@@ -424,14 +429,14 @@ main = hspec $ do
       let payload = testPullRequestPayload Github.Opened
           Just event = convertGithubEvent $ Github.PullRequest payload
       event `shouldBe`
-        (PullRequestOpened (PullRequestId 1) (Sha "b26354") "Add test results" "rachael")
+        (PullRequestOpened (PullRequestId 1) (Branch "results") (Sha "b26354") "Add test results" "rachael")
 
     it "converts a pull request reopened event" $ do
       let payload = testPullRequestPayload Github.Reopened
           Just event = convertGithubEvent $ Github.PullRequest payload
       -- Reopened is treated just like opened, there is no memory in the system.
       event `shouldBe`
-        (PullRequestOpened (PullRequestId 1) (Sha "b26354") "Add test results" "rachael")
+        (PullRequestOpened (PullRequestId 1) (Branch "results") (Sha "b26354") "Add test results" "rachael")
 
     it "converts a pull request closed event" $ do
       let payload = testPullRequestPayload Github.Closed
@@ -500,8 +505,8 @@ main = hspec $ do
 
     it "can be restored exactly after roundtripping through json" $ do
       let emptyState  = Project.emptyProjectState
-          singleState = singlePullRequestState (PullRequestId 1) (Sha "071") "deckard"
-          candState   = candidateState (PullRequestId 2) (Sha "073") "rachael" (Sha "079")
+          singleState = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "071") "deckard"
+          candState   = candidateState (PullRequestId 2) (Branch "p") (Sha "073") "rachael" (Sha "079")
           Just emptyState'  = decode $ encode emptyState
           Just singleState' = decode $ encode singleState
           Just candState'   = decode $ encode candState
@@ -515,7 +520,7 @@ main = hspec $ do
       uuid       <- Uuid.nextRandom
       tmpBaseDir <- getTemporaryDirectory
       let fname = tmpBaseDir </> ("state-" ++ (show uuid) ++ ".json")
-          state = singlePullRequestState (PullRequestId 1) (Sha "071") "deckard"
+          state = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "071") "deckard"
       Project.saveProjectState fname state
       Just state' <- Project.loadProjectState fname
       state `shouldBe` state'

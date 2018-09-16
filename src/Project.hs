@@ -46,7 +46,7 @@ import Data.List (intersect)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import GHC.Generics
-import Git (Sha (..))
+import Git (Branch (..), Sha (..))
 import Prelude hiding (readFile, writeFile)
 import System.Directory (renameFile)
 
@@ -85,6 +85,7 @@ data PullRequestStatus
 data PullRequest = PullRequest
   {
     sha               :: Sha,
+    branch            :: Branch,
     title             :: Text,
     author            :: Text,
     approvedBy        :: Maybe Text,
@@ -144,10 +145,18 @@ emptyProjectState = ProjectState {
 
 -- Inserts a new pull request into the project, with approval set to Nothing,
 -- build status to BuildNotStarted, and integration status to NotIntegrated.
-insertPullRequest :: PullRequestId -> Sha -> Text -> Text -> ProjectState -> ProjectState
-insertPullRequest (PullRequestId n) prSha prTitle prAuthor state =
+insertPullRequest
+  :: PullRequestId
+  -> Branch
+  -> Sha
+  -> Text
+  -> Text
+  -> ProjectState
+  -> ProjectState
+insertPullRequest (PullRequestId n) prBranch prSha prTitle prAuthor state =
   let pullRequest = PullRequest {
         sha               = prSha,
+        branch            = prBranch,
         title             = prTitle,
         author            = prAuthor,
         approvedBy        = Nothing,

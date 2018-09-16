@@ -117,7 +117,7 @@ ensureCloned config =
 
 data Event
   -- GitHub events
-  = PullRequestOpened PullRequestId Sha Text Text -- PR, sha, title, author.
+  = PullRequestOpened PullRequestId Branch Sha Text Text -- PR, branch, sha, title, author.
   -- The commit changed event may contain false positives: it may be received
   -- even if the commit did not really change. This is because GitHub just
   -- sends a "something changed" event along with the new state.
@@ -162,20 +162,22 @@ readStateVar var = atomically $ readTMVar var
 
 handleEvent :: ProjectConfiguration -> Event -> ProjectState -> Action ProjectState
 handleEvent config event = case event of
-  PullRequestOpened pr sha title author -> handlePullRequestOpened pr sha title author
-  PullRequestCommitChanged pr sha       -> handlePullRequestCommitChanged pr sha
-  PullRequestClosed pr                  -> handlePullRequestClosed pr
-  CommentAdded pr author body           -> handleCommentAdded config pr author body
-  BuildStatusChanged sha status         -> handleBuildStatusChanged sha status
+  PullRequestOpened pr branch sha title author -> handlePullRequestOpened pr branch sha title author
+  PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
+  PullRequestClosed pr            -> handlePullRequestClosed pr
+  CommentAdded pr author body     -> handleCommentAdded config pr author body
+  BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
 
-handlePullRequestOpened :: PullRequestId
-                        -> Sha
-                        -> Text
-                        -> Text
-                        -> ProjectState
-                        -> Action ProjectState
-handlePullRequestOpened pr sha title author =
-  return . Pr.insertPullRequest pr sha title author
+handlePullRequestOpened
+  :: PullRequestId
+  -> Branch
+  -> Sha
+  -> Text
+  -> Text
+  -> ProjectState
+  -> Action ProjectState
+handlePullRequestOpened pr branch sha title author =
+  return . Pr.insertPullRequest pr branch sha title author
 
 handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> Action ProjectState
 handlePullRequestCommitChanged pr newSha state =
@@ -187,9 +189,10 @@ handlePullRequestCommitChanged pr newSha state =
     update pullRequest =
       let
         oldSha   = Pr.sha pullRequest
+        branch   = Pr.branch pullRequest
         title    = Pr.title pullRequest
         author   = Pr.author pullRequest
-        newState = closedState >>= handlePullRequestOpened pr newSha title author
+        newState = closedState >>= handlePullRequestOpened pr branch newSha title author
       in
         -- If the change notification was a false positive, ignore it.
         if oldSha == newSha then return state else newState
