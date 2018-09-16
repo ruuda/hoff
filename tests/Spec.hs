@@ -62,7 +62,7 @@ candidateState pr prBranch prSha prAuthor candidateSha =
 
 data ActionFlat
   = ATryIntegrate (Branch, Sha)
-  | APushNewHead Sha
+  | ATryPromote Branch Sha
   | ALeaveComment PullRequestId Text
   deriving (Eq, Show)
 
@@ -76,10 +76,10 @@ runActionWithInit integrateResult pushResult actions action =
         let (result, acts') = runActionWithInit integrateResult pushResult actions cont
         in  (result, act : acts')
   in case action of
-    Pure result                   -> (result, [])
-    Free (TryIntegrate candi h)   -> prepend (h integrateResult) $ ATryIntegrate candi
-    Free (PushNewHead headSha h)  -> prepend (h pushResult) $ APushNewHead headSha
-    Free (LeaveComment pr body x) -> prepend x $ ALeaveComment pr body
+    Pure result                          -> (result, [])
+    Free (TryIntegrate candi h)          -> prepend (h integrateResult) $ ATryIntegrate candi
+    Free (TryPromote prBranch headSha h) -> prepend (h pushResult) $ ATryPromote prBranch headSha
+    Free (LeaveComment pr body x)        -> prepend x $ ALeaveComment pr body
 
 -- Simulates running the action. Pretends that integration always conflicts.
 -- Pretends that pushing is always successful.
@@ -259,7 +259,7 @@ main = hspec $ do
           candidate         = Project.getIntegrationCandidate state'
       -- After a successful push, the candidate should be gone.
       candidate `shouldBe` Nothing
-      actions   `shouldBe` [APushNewHead (Sha "38d")]
+      actions   `shouldBe` [ATryPromote (Branch "results/rachael") (Sha "38d")]
 
     it "restarts the sequence after a rejected push" $ do
       -- Set up a pull request that has gone through the review and build cycle,
@@ -286,7 +286,7 @@ main = hspec $ do
 
       Project.integrationStatus pullRequest' `shouldBe` Project.Integrated (Sha "38e")
       Project.buildStatus       pullRequest' `shouldBe` Project.BuildPending
-      actions `shouldBe` [ APushNewHead (Sha "38d")
+      actions `shouldBe` [ ATryPromote (Branch "results/rachael") (Sha "38d")
                          , ATryIntegrate (Branch "refs/pull/1/head", Sha "f35")
                          ]
 
