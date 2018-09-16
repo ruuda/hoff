@@ -8,6 +8,9 @@ AssertPathExists=/etc/hoff/config.json
 RootImage=/home/ruud/repos/hoff/hoff.img
 MountAPIVFS=true
 
+# Take hostname resolution config from the host system.
+BindReadOnlyPaths=/etc/resolv.conf
+
 # Make systemd allocate a user on the fly, so we don't have to create
 # one as part of an installation procedure.
 User=hoff

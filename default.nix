@@ -138,8 +138,9 @@ let
       mkdir -p $out/var/tmp
 
       # Make a localtime so that systemd-nspawn can bind-mount the host
-      # localtime over it, mainly to suppress the warning.
-      touch $out/etc/localtime
+      # localtime over it, mainly to suppress the warning. Also resolv.conf
+      # so we can bind-mount it.
+      touch $out/etc/localtime $out/etc/resolv.conf
 
       ln -s /usr/bin $out/bin
       ln -s ${coreutils}/bin/true  $out/usr/bin/true
