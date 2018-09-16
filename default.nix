@@ -150,11 +150,19 @@ let
       cp ${./package/hoff.service} $out/usr/lib/systemd/system/hoff.service
       cp ${./package/os-release}   $out/usr/lib/os-release
 
-      closureInfo=${closureInfo { rootPaths = [ hoff gitMinimal ]; }}
+      closureInfo=${closureInfo { rootPaths = [ hoff gitMinimal systemd ]; }}
       for file in $(cat $closureInfo/store-paths); do
         echo "copying $file"
         cp --archive $file $out/nix/store
       done
+
+      # Configure glibc to use the systemd NSS plugin, in order to make
+      # the guest glibc pick up whatever DynamicUser= produced.
+      chmod +w $out${glibc}/lib $out${glibc}/etc
+      printf "passwd: systemd\ngroup: systemd\n" > $out/etc/nsswitch.conf
+      printf "passwd: systemd\ngroup: systemd\n" > $out${glibc}/etc/nsswitch.conf
+      cp ${systemd}/lib/libnss_systemd* $out${glibc}/lib
+      chmod -w $out${glibc}/lib $out${glibc}/etc
     '';
   };
 
