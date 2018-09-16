@@ -125,10 +125,12 @@ let
       # that fails on a readonly filesystem.
       mkdir -p $out/dev
       mkdir -p $out/etc/hoff
+      mkdir -p $out/etc/ssh
       mkdir -p $out/lib
       mkdir -p $out/nix/store
       mkdir -p $out/proc
       mkdir -p $out/run
+      mkdir -p $out/run/systemd/dynamic-uid
       mkdir -p $out/sys
       mkdir -p $out/tmp
       mkdir -p $out/usr/bin
@@ -151,6 +153,10 @@ let
       cp ${./package/hoff.service} $out/usr/lib/systemd/system/hoff.service
       cp ${./package/os-release}   $out/usr/lib/os-release
 
+      # Build GitHub's public key into the image, so ssh in the guest never
+      # needs to prompt to accept fingerprints.
+      cp ${./package/github-known-hosts} $out/etc/ssh/ssh_known_hosts
+
       closureInfo=${closureInfo { rootPaths = [ hoff gitMinimal systemd ]; }}
       for file in $(cat $closureInfo/store-paths); do
         echo "copying $file"
@@ -159,11 +165,8 @@ let
 
       # Configure glibc to use the systemd NSS plugin, in order to make
       # the guest glibc pick up whatever DynamicUser= produced.
-      chmod +w $out${glibc}/lib $out${glibc}/etc
       printf "passwd: systemd\ngroup: systemd\n" > $out/etc/nsswitch.conf
-      printf "passwd: systemd\ngroup: systemd\n" > $out${glibc}/etc/nsswitch.conf
-      cp ${systemd}/lib/libnss_systemd* $out${glibc}/lib
-      chmod -w $out${glibc}/lib $out${glibc}/etc
+      cp ${systemd}/lib/libnss_systemd* $out/lib
     '';
   };
 

@@ -11,13 +11,22 @@ MountAPIVFS=true
 # Take hostname resolution config from the host system.
 BindReadOnlyPaths=/etc/resolv.conf
 
+# Bind the path on which systemd exposes the uid used to implement DynamicUser=.
+# libnss_systemd.so then reads this. Found through stracing "whoami".
+# Alternatively, /run/dbus/system_bus_socket can be exposed, but that would give
+# the guest access to the entire host dbus. Mounting only dynamic-uid seems to
+# be the safer option.
+BindReadOnlyPaths=/run/systemd/dynamic-uid
+
+# Ensure that /lib/libnss_systemd.so can be loaded by glibc. This library is
+# used to implement the DynamicUser= feature.
+Environment=LD_LIBRARY_PATH=/lib
+
 # Make systemd allocate a user on the fly, so we don't have to create
 # one as part of an installation procedure.
-# User=hoff
-# Group=hoff
-# DynamicUser=true
-User=nobody
-Group=nobody
+User=hoff
+Group=hoff
+DynamicUser=true
 
 # Allow binding to priviliged ports (e.g. 80 and 443) as non-root user.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
