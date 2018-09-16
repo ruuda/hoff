@@ -13,9 +13,11 @@ BindReadOnlyPaths=/etc/resolv.conf
 
 # Make systemd allocate a user on the fly, so we don't have to create
 # one as part of an installation procedure.
-User=hoff
-Group=hoff
-DynamicUser=true
+# User=hoff
+# Group=hoff
+# DynamicUser=true
+User=nobody
+Group=nobody
 
 # Allow binding to priviliged ports (e.g. 80 and 443) as non-root user.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
