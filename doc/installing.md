@@ -46,22 +46,35 @@ Verify that everything is up and running:
 
 ## Setting up the user
 
-The application needs a key pair to connect to GitHub:
+The systemd service file included runs Hoff as the `hoff` user, that we need to
+create first:
+
+    $ sudo useradd --system --user-group hoff
+
+The application needs a key pair to connect to GitHub. Because the `hoff` system
+user has no home directory, we will put it in `/etc/hoff` instead.
 
     $ sudo mkdir /etc/hoff
-    $ sudo ssh-keygen -t ed25519 -f /etc/hoff/id_ed25519
+    $ sudo chown hoff:hoff /etc/hoff
+    $ sudo --user hoff ssh-keygen -t ed25519 -f /etc/hoff/id_ed25519
 
 Leave the passphrase empty to allow the key to be used without human
-interaction. Next, we need to pre-populate the know hosts file that Hoff tells
-Git to use when connecting to a server.
+interaction. To tell SSH where the key is, we also create an SSH config file:
 
-    $ sudo ssh -o UserKnownHostsFile=/etc/hoff/known_hosts github.com
+    $ echo "IdentityFile /etc/hoff/id_ed25519" | sudo tee --append /etc/hoff/ssh_config
+    $ echo "CheckHostIP no"                    | sudo tee --append /etc/hoff/ssh_config
 
-[Validate the fingerprints][fingerprints] and then accept the unknown host
-prompt. Finally, we need a GitHub account that will be used for fetching and
-pushing. I recommend creating a separate account for this purpose. On GitHub,
-add the public key to the new account. (Paste the output of `sudo cat
-/etc/hoff/id_ed25519.pub` into the key field under “SSH and GPG keys”.)
+Here we also set `CheckHostIP no`, so SSH does not emit a warning when the IP
+address of a host changes. Hoff ships with an `/etc/ssh/ssh_known_hosts` file
+that contains GitHub's public key in the filesystem image, so there is no need
+to accept any [fingerprints][fingerprints]. Because the `ssh_known_hosts` file
+is readonly, we can *only* connect to GitHub, and only if the public key that we
+baked into the image has not changed.
+
+Finally, we need a GitHub account that will be used for fetching and pushing. I
+recommend creating a separate account for this purpose. On GitHub, add the
+public key to the new account. Paste the output of `sudo cat
+/etc/hoff/id_ed25519.pub` into the key field under “SSH and GPG keys”.
 
 ## Adding a repository
 
