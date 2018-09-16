@@ -147,10 +147,12 @@ callGit args = do
     logMessage   = Text.append "executing git " commandText
     stdinContent = ""
     process = (Process.proc "git" args) {
-      -- Prepend GIT_EDITOR to the environment and set it to /usr/bin/true.
+      -- Prepend GIT_EDITOR to the environment and set it to "true".
       -- For an interactive rebase, this ensures that we close the editor
-      -- immediately.
-      Process.env = Just $ ("GIT_EDITOR", "/usr/bin/true") : currentEnv
+      -- immediately. Note that sometimes true is /usr/bin/true and sometimes
+      -- it is /bin/true, so we have use /usr/bin/env to locate it, assuming
+      -- that env is in a consistent location.
+      Process.env = Just $ ("GIT_EDITOR", "/usr/bin/env true") : currentEnv
     }
     runProcess = readCreateProcessWithExitCode process stdinContent
   logInfoN logMessage
