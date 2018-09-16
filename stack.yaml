@@ -1,6 +1,5 @@
 resolver: lts-9.0
 nix:
-  enable: true
   shell-file: shell.nix
 
   # Make Stack look for "nixpks" in this repository,
