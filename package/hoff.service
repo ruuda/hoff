@@ -26,7 +26,9 @@ Environment=LD_LIBRARY_PATH=/lib
 # one as part of an installation procedure.
 User=hoff
 Group=hoff
-DynamicUser=true
+# TODO(ruuda): Make it work later. For now, a user needs to be created as part
+# of installation.
+# DynamicUser=true
 
 # Allow binding to priviliged ports (e.g. 80 and 443) as non-root user.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
