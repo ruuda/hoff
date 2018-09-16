@@ -149,6 +149,7 @@ let
 
       ln -s /usr/bin $out/bin
       ln -s ${coreutils}/bin/env   $out/usr/bin/env
+      ln -s ${coreutils}/bin/mkdir $out/usr/bin/mkdir
       ln -s ${coreutils}/bin/true  $out/usr/bin/true
       ln -s ${gitMinimal}/bin/git  $out/usr/bin/git
       ln -s ${hoff}/bin/hoff       $out/usr/bin/hoff
