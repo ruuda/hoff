@@ -33,7 +33,7 @@ import Control.Monad.Free (Free (Free, Pure), liftF)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import Data.Aeson
-import Data.List (intersperse, intercalate)
+import Data.List (intersperse)
 import Data.Text (Text)
 import Data.Text.Format.Params (Params)
 import Data.Text.Lazy (toStrict)
@@ -150,11 +150,6 @@ callGit userConfig args = do
     commandText  = Text.concat $ intersperse " " $ fmap Text.pack args
     logMessage   = Text.append "executing git " commandText
     stdinContent = ""
-    sshCommand   = intercalate " "
-      [ "/usr/bin/ssh"
-      , "-o", "IdentityFile=" ++ (Config.sshIdentityFile userConfig)
-      , "-o", "UserKnownHostsFile=" ++ (Config.sshKnownHostsFile userConfig)
-      ]
     process = (Process.proc "git" args) {
       -- Prepend GIT_EDITOR to the environment and set it to "true".
       -- For an interactive rebase, this ensures that we close the editor
@@ -166,7 +161,7 @@ callGit userConfig args = do
       -- interactive terminal.
       Process.env = Just
         $ ("GIT_EDITOR", "/usr/bin/env true")
-        : ("GIT_SSH_COMMAND", sshCommand)
+        : ("GIT_SSH_COMMAND", "/usr/bin/ssh -F " ++ (Config.sshConfigFile userConfig))
         : ("GIT_TERMINAL_PROMPT", "0")
         : currentEnv
     }

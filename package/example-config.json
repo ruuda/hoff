@@ -14,7 +14,6 @@
   "user": {
     "name": "CI Bot",
     "email": "cibot@example.com",
-    "sshIdentityFile": "/home/git/.ssh/id_ed25519",
-    "sshKnownHostsFile": "/home/git/.ssh/known_hosts"
+    "sshConfigFile": "/home/git/.ssh/config"
   }
 }

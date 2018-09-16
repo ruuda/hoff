@@ -404,10 +404,9 @@ main = hspec $ do
       Config.reviewers  project `shouldBe` ["your-github-username"]
       Config.stateFile  project `shouldBe` "/home/git/state/your-username/your-repo.json"
 
-      Config.name user              `shouldBe` "CI Bot"
-      Config.email user             `shouldBe` "cibot@example.com"
-      Config.sshIdentityFile user   `shouldBe` "/home/git/.ssh/id_ed25519"
-      Config.sshKnownHostsFile user `shouldBe` "/home/git/.ssh/known_hosts"
+      Config.name user          `shouldBe` "CI Bot"
+      Config.email user         `shouldBe` "cibot@example.com"
+      Config.sshConfigFile user `shouldBe` "/home/git/.ssh/config"
 
   describe "EventLoop.convertGithubEvent" $ do
 

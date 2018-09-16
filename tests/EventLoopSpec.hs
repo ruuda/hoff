@@ -176,10 +176,9 @@ buildProjectConfig repoDir stateFile = Config.ProjectConfiguration {
 -- Dummy user configuration used in test environment.
 userConfig :: UserConfiguration
 userConfig = Config.UserConfiguration {
-  Config.name              = "A Blade Runner",
-  Config.email             = "automation@tyrell.com",
-  Config.sshIdentityFile   = "/outerspace/.ssh/id_ed25519",
-  Config.sshKnownHostsFile = "/outerspace/.ssh/known_hosts"
+  Config.name          = "A Blade Runner",
+  Config.email         = "automation@tyrell.com",
+  Config.sshConfigFile = "/outerspace/.ssh/config"
 }
 
 -- Runs the main loop in a separate thread, and feeds it the given events.
