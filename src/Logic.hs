@@ -65,7 +65,7 @@ format formatString params = toStrict $ Text.format formatString params
 
 data ActionFree a
   = TryIntegrate (Branch, Sha) (Maybe Sha -> a)
-  | PushNewHead Sha (PushResult -> a)
+  | TryPromote Branch Sha (PushResult -> a)
   | LeaveComment PullRequestId Text a
   deriving (Functor)
 
@@ -74,8 +74,12 @@ type Action = Free ActionFree
 tryIntegrate :: (Branch, Sha) -> Action (Maybe Sha)
 tryIntegrate candidate = liftF $ TryIntegrate candidate id
 
-pushNewHead :: Sha -> Action PushResult
-pushNewHead newHead = liftF $ PushNewHead newHead id
+-- Try to fast-forward the remote target branch (usually master) to the new sha.
+-- Before doing so, force-push that thas to the pull request branch, and after
+-- success, delete the pull request branch. These steps ensure that Github marks
+-- the pull request as merged, rather than closed.
+tryPromote :: Branch -> Sha -> Action PushResult
+tryPromote prBranch newHead = liftF $ TryPromote prBranch newHead id
 
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> GitOperation a
@@ -89,9 +93,11 @@ runAction config action =
       -- TODO: Change types in config to be 'Branch', not 'Text'.
       maybeSha <- Git.tryIntegrate ref sha (Git.Branch $ Config.branch config) (Git.Branch $ Config.testBranch config)
       continueWith $ cont maybeSha
-    Free (PushNewHead sha cont) -> do
+    Free (TryPromote prBranch sha cont) -> do
       ensureCloned config
+      Git.forcePush sha prBranch
       pushResult <- Git.push sha (Git.Branch $ Config.branch config)
+      when (pushResult == PushOk) (Git.pushDelete prBranch)
       continueWith $ cont pushResult
     Free (LeaveComment _pr _body cont) ->
       -- TODO: Implement GitHub API.
@@ -316,10 +322,11 @@ pushCandidate (pullRequestId, pullRequest) state = do
   let approved  = isJust $ Pr.approvedBy pullRequest
       succeeded = Pr.buildStatus pullRequest == BuildSucceeded
       status    = Pr.integrationStatus pullRequest
+      prBranch  = Pr.branch pullRequest
       newHead   = assert (approved && succeeded) $ case status of
         Integrated sha -> sha
         _              -> error "inconsistent state: build succeeded for non-integrated pull request"
-  pushResult <- pushNewHead newHead
+  pushResult <- tryPromote prBranch newHead
   case pushResult of
     -- If the push worked, then this was the final stage of the pull
     -- request; reset the integration candidate.
