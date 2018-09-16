@@ -5,7 +5,7 @@ Requires=network.target
 AssertPathExists=/etc/hoff/config.json
 
 [Service]
-RootImage=/home/ruud/repos/hoff/hoff.img
+RootImage=/home/ruud/hoff.img
 MountAPIVFS=true
 
 # Take hostname resolution config from the host system.
@@ -17,6 +17,9 @@ BindReadOnlyPaths=/etc/resolv.conf
 # the guest access to the entire host dbus. Mounting only dynamic-uid seems to
 # be the safer option.
 BindReadOnlyPaths=/run/systemd/dynamic-uid
+
+# Or, in the absence of dynamic users, ordinary passwd.
+BindReadOnlyPaths=/etc/passwd /etc/group
 
 # Ensure that /lib/libnss_systemd.so can be loaded by glibc. This library is
 # used to implement the DynamicUser= feature.
@@ -42,7 +45,7 @@ CacheDirectory=hoff
 ConfigurationDirectory=hoff
 
 PrivateTmp=true
-PrivateUsers=true
+# PrivateUsers=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 MemoryDenyWriteExecute=true

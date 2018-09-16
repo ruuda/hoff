@@ -141,8 +141,11 @@ let
 
       # Make a localtime so that systemd-nspawn can bind-mount the host
       # localtime over it, mainly to suppress the warning. Also resolv.conf
-      # so we can bind-mount it.
-      touch $out/etc/localtime $out/etc/resolv.conf
+      # so we can bind-mount it, and passwd and group.
+      touch $out/etc/group
+      touch $out/etc/localtime
+      touch $out/etc/passwd
+      touch $out/etc/resolv.conf
 
       ln -s /usr/bin $out/bin
       ln -s ${coreutils}/bin/true  $out/usr/bin/true
@@ -165,7 +168,7 @@ let
 
       # Configure glibc to use the systemd NSS plugin, in order to make
       # the guest glibc pick up whatever DynamicUser= produced.
-      printf "passwd: systemd\ngroup: systemd\n" > $out/etc/nsswitch.conf
+      printf "passwd: files systemd\ngroup: files systemd\n" > $out/etc/nsswitch.conf
       cp ${systemd}/lib/libnss_systemd* $out/lib
     '';
   };

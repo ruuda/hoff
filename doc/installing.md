@@ -76,7 +76,22 @@ recommend creating a separate account for this purpose. On GitHub, add the
 public key to the new account. Paste the output of `sudo cat
 /etc/hoff/id_ed25519.pub` into the key field under “SSH and GPG keys”.
 
-## Adding a repository
+## Adding a repostory
+
+    $ sudo mkdir -p /var/lib/hoff /var/cache/hoff
+    $ sudo chown hoff:hoff /var/lib/hoff /var/cache/hoff
+    $ sudo -e /etc/hoff/config.json
+    $ sudo cp hoff.service /etc/systemd/system
+    $ sudo -e /etc/systemd/system/hoff.service
+    $ sudo systemctl daemon-reload
+    $ sudo systemctl enable hoff
+    $ sudo systemctl start hoff
+
+Then check if we are up and running:
+
+    $ sudo journalctl --pager-end --unit hoff
+
+## Adding a repository (old)
 
 Hoff keeps a checkout of the repositories it manages. Currently it does not
 handle the initial clone automatically. (TODO: automate.) Create a directory to
