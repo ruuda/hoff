@@ -88,7 +88,7 @@ let
       "stack --nix --stack-root ${hoffDeps}"
       "ls dependencief --license"
       "|"
-      "egrep -v 'Apache-2|BSD2|BSD3|MIT|PublicDomain"
+      "egrep -v 'Apache-2|BSD2|BSD3|MIT|PublicDomain'"
     ];
     installPhase = builtins.concatStringsSep " " [
       "mkdir -p $out/bin"
