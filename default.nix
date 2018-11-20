@@ -75,17 +75,13 @@ let
       cp -r ${./tests} tests
     '';
     buildPhase = builtins.concatStringsSep " " [
-      "stack build"
-      "--nix"
-      "--stack-root ${hoffDeps}"
+      "stack --nix --stack-root ${hoffDeps}"
       # See also the note about --split-objs in hoffDeps.
-      "--split-objs"
+      "build --split-objs"
     ];
     checkPhase = builtins.concatStringsSep " " [
-      "stack test"
-      "--nix"
-      "--stack-root ${hoffDeps}"
-      "--split-objs"
+      "stack --nix --stack-root ${hoffDeps}"
+      "test --split-objs"
       "\n"
       # Match the licenses of dependencies agains a whitelist,
       # and fail if anything is not whitelisted. Grep -v returns
@@ -98,11 +94,8 @@ let
     installPhase = builtins.concatStringsSep " " [
       "mkdir -p $out/bin"
       "\n"
-      "stack install"
-      "--nix"
-      "--stack-root ${hoffDeps}"
-      "--local-bin-path $out/bin"
-      "--split-objs"
+      "stack --nix --stack-root ${hoffDeps}"
+      "install --split-objs --local-bin-path $out/bin"
     ];
   };
 
