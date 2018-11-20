@@ -23,5 +23,6 @@ install:
   - cachix use hoff
 
 script:
+  - cachix push hoff --watch-store &
   - stack build --nix
   - nix-build -j2 | cachix push hoff
