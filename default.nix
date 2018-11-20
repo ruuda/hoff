@@ -86,9 +86,9 @@ let
       # Match the licenses of dependencies agains a whitelist,
       # and fail if anything is not whitelisted.
       "stack --nix --stack-root ${hoffDeps}"
-      "list-dependencies --license --no-include-base"
+      "ls dependencief --license"
       "|"
-      "egrep -v 'BSD2|BSD3|MIT|ghc-prim|hoff|integer-gmp|template-haskell'"
+      "egrep -v 'Apache-2|BSD2|BSD3|MIT|PublicDomain"
     ];
     installPhase = builtins.concatStringsSep " " [
       "mkdir -p $out/bin"
