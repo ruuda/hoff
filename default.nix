@@ -86,6 +86,14 @@ let
       "--nix"
       "--stack-root ${hoffDeps}"
       "--split-objs"
+      "\n"
+      # Match the licenses of dependencies agains a whitelist,
+      # and fail if anything is not whitelisted.
+      "stack list-dependencies"
+      "--license"
+      "--no-include-base"
+      "|"
+      "egrep -v 'BSD2|BSD3|MIT|ghc-prim|hoff|integer-gmp|template-haskell'"
     ];
     installPhase = builtins.concatStringsSep " " [
       "mkdir -p $out/bin"
