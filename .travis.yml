@@ -1,5 +1,4 @@
-# Use a minimal base image.
-language: c
+language: nix
 
 # Do not build other branches than these, pull requests get built anyway, and in
 # the end it is only the result of the testing branch that matters. In theory
@@ -15,34 +14,7 @@ branches:
 notifications:
   email: false
 
-# The 'stack' package is not (yet) whitelisted on Travis CI, so we need sudo to
-# be able to install it. This does mean that we get a VM instead of a container,
-# which is slower to boot. But 20 seconds on a ~dozen minute build is not that
-# much, and it simplifies things a bit.
-sudo: required
-
-# Use a slightly less ancient Ubuntu version than the default.
-dist: trusty
-
 cache:
   directories:
   - $HOME/.stack/
   - $TRAVIS_BUILD_DIR/.stack-work/
-
-addons:
-  apt:
-    sources:
-    - fpcomplete-precise
-    packages:
-    - stack
-
-install:
-  - stack setup --no-terminal
-
-script:
-  - stack build -j2 --no-terminal
-  - stack test -j2 --no-terminal
-
-  # As CI is running on a Debian-like system, test building
-  # the package here too.
-  - cd package && VERSION=0.0.0 ./build-package.sh
