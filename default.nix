@@ -86,7 +86,7 @@ let
       # Match the licenses of dependencies agains a whitelist,
       # and fail if anything is not whitelisted.
       "stack --nix --stack-root ${hoffDeps}"
-      "ls dependencief --license"
+      "ls dependencies --license"
       "|"
       "egrep -v 'Apache-2|BSD2|BSD3|MIT|PublicDomain'"
     ];
