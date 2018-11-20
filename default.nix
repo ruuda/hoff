@@ -89,7 +89,7 @@ let
       "! stack --nix --stack-root ${hoffDeps}"
       "ls dependencies --license"
       "|"
-      "egrep -v 'BSD2|BSD3|MIT|ghc-prim|hoff|integer-gmp|template-haskell'"
+      "egrep -v 'Apache-2|BSD2|BSD3|MIT|PublicDomain"
     ];
     installPhase = builtins.concatStringsSep " " [
       "mkdir -p $out/bin"
