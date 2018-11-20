@@ -18,7 +18,7 @@ env:
   global:
     - secure: "dsZ/be0d8W3hqgBciOk1jQYhK4sqoS9BC5rLhlOFUe8PAQYjmRoQKFDRvMvxJi+rmVcqz2gjRlPEszBxhwBTlol8lEvNHXcPn8vJtimwUedNGk7EiTskEY2Zxnd8jnrTW/txP7mvhkygVV18II7t20SgPF0uR/Wi0ejIUhGf2wU4YCE+jmD0xuBjsstPedjocBS92cNJJj+jMRVXqnfPbYompsoXO8gdZ+5v20M9+SCRl1vSuHCWTpHJOD3b8p/+YhqgiNWHuykQ7NkPj+ZBfwFShUqmATLlncVWIZwZp0CQ6hSk0u39ZFITIJE/xnGl/IC/QD2NikALUFIz3AljYlf8mn/L1wY5POS7rRA1PpwLAR/Dt2OrgRoBI6Paf8Y52Ra74KFFJ8VqlAqlih1cJ/+5CDDE5WKuwDrLO0ozBrJOYb3fCFvKiyT1BFqpxVvN5nvRMeaeHAK0zozoRzLwoBWPgEMtOznzCjeqxVdsG6PZ84ABanEGanoJ/g07lzTHc5Is52+1lMnvz5dy90U6pcw34t4tH7ScS/UjhttWq7Nrrf29bVSob5uAGyJv2+WfWFVa/+CoksPoBwStgKIo/ibIj0qw5GLCcjuaHkw48Ip6k4dnP6FupDW9PxKpQWxgoIx6R2hJBXi1Kw4iiR5hGil3PvuPudwXFoEl28T+t/c="
 
-setup:
+install:
   - nix-env --install --file import-nixpkgs-pinned.nix --attr cachix stack
   - cachix use hoff
 
