@@ -134,6 +134,9 @@ Below are some of the projects that inspired this project:
    integration strategy is to do a merge, which creates an ugly history. The
    original implementation of Bors did not scale very well, so a more robust
    rewrite called [Homu][homu] was created.
+ * [Zuul][zuul], a commit queue that speculatively starts builds for changes to
+   be integrated after changes that are being tested. When builds usually pass,
+   this allows for higher throughput.
 
 [bors]:     https://github.com/graydon/bors
 [gerrit]:   https://www.gerritcodereview.com/
@@ -144,3 +147,4 @@ Below are some of the projects that inspired this project:
 [iron]:     https://github.com/janestreet/iron
 [mondrian]: https://www.youtube.com/watch?v=sMql3Di4Kgc
 [rietveld]: https://github.com/rietveld-codereview/rietveld
+[zuul]:     https://zuul-ci.org/
