@@ -16,5 +16,8 @@ in
     name = "hoff-devenv";
     # TODO: Use gitMinimal one https://github.com/NixOS/nixpkgs/pull/74213 lands
     # on nixpkgs-unstable. (It is in staging at the time of writing.)
-    paths = [ pkgs.git pkgs.stack ];
+    paths = [
+      pkgs.git
+      pkgs.stack
+    ];
   }
