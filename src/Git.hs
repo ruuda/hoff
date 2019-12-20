@@ -13,6 +13,7 @@ module Git
   Branch (..),
   CloneResult (..),
   GitOperation,
+  GitOperationFree,
   PushResult (..),
   RemoteUrl (..),
   Sha (..),

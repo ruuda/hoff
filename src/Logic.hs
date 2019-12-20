@@ -35,18 +35,20 @@ import Control.Concurrent.STM.TMVar (TMVar, newTMVar, readTMVar, swapTMVar)
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Exception (assert)
 import Control.Monad (mfilter, when, void)
-import Control.Monad.Free (Free (..), liftF)
+import Control.Monad.Free (Free (..), liftF, hoistFree)
 import Control.Monad.STM (atomically)
 import Data.Maybe (fromJust, fromMaybe, isJust, maybe)
 import Data.Text (Text)
 import Data.Text.Format.Params (Params)
 import Data.Text.Lazy (toStrict)
+import Data.Functor.Sum (Sum (InL, InR))
 
 import qualified Data.Text as Text
 import qualified Data.Text.Format as Text
 
 import Configuration (ProjectConfiguration)
-import Git (Branch (..), GitOperation, PushResult (..), Sha (..))
+import Git (Branch (..), GitOperation, GitOperationFree, PushResult (..), Sha (..))
+import GithubApi (GithubOperation, GithubOperationFree)
 import Project (BuildStatus (..))
 import Project (IntegrationStatus (..))
 import Project (ProjectState)
@@ -54,6 +56,7 @@ import Project (PullRequest)
 import Project (PullRequestId (..))
 
 import qualified Git
+import qualified GithubApi
 import qualified Project as Pr
 import qualified Configuration as Config
 
@@ -71,6 +74,8 @@ data ActionFree a
 
 type Action = Free ActionFree
 
+type Operation = Free (Sum GitOperationFree GithubOperationFree)
+
 tryIntegrate :: (Branch, Sha) -> Action (Maybe Sha)
 tryIntegrate candidate = liftF $ TryIntegrate candidate id
 
@@ -81,26 +86,43 @@ tryIntegrate candidate = liftF $ TryIntegrate candidate id
 tryPromote :: Branch -> Sha -> Action PushResult
 tryPromote prBranch newHead = liftF $ TryPromote prBranch newHead id
 
+-- Leave a comment on the given pull request.
+leaveComment :: PullRequestId -> Text -> Action ()
+leaveComment pr body = liftF $ LeaveComment pr body ()
+
 -- Interpreter that translates high-level actions into more low-level ones.
-runAction :: ProjectConfiguration -> Action a -> GitOperation a
+runAction
+  :: ProjectConfiguration
+  -> Action a
+  -> Operation a
 runAction config action =
   let
     continueWith = runAction config
+
+    doGit :: GitOperation a -> Operation a
+    doGit = hoistFree InL
+
+    doGithub :: GithubOperation a -> Operation a
+    doGithub = hoistFree InR
+
   in case action of
-    Pure result -> return result
+    Pure result -> pure result
+
     Free (TryIntegrate (ref, sha) cont) -> do
-      ensureCloned config
+      doGit $ ensureCloned config
       -- TODO: Change types in config to be 'Branch', not 'Text'.
-      maybeSha <- Git.tryIntegrate ref sha (Git.Branch $ Config.branch config) (Git.Branch $ Config.testBranch config)
+      maybeSha <- doGit $ Git.tryIntegrate ref sha (Git.Branch $ Config.branch config) (Git.Branch $ Config.testBranch config)
       continueWith $ cont maybeSha
+
     Free (TryPromote prBranch sha cont) -> do
-      ensureCloned config
-      Git.forcePush sha prBranch
-      pushResult <- Git.push sha (Git.Branch $ Config.branch config)
-      when (pushResult == PushOk) (Git.pushDelete prBranch)
+      doGit $ ensureCloned config
+      doGit $ Git.forcePush sha prBranch
+      pushResult <- doGit $ Git.push sha (Git.Branch $ Config.branch config)
+      when (pushResult == PushOk) (doGit $ Git.pushDelete prBranch)
       continueWith $ cont pushResult
-    Free (LeaveComment _pr _body cont) ->
-      -- TODO: Implement GitHub API.
+
+    Free (LeaveComment pr body cont) -> do
+      doGithub $ GithubApi.leaveComment pr body
       continueWith cont
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
@@ -281,11 +303,12 @@ proceedCandidate :: (PullRequestId, PullRequest) -> ProjectState -> Action Proje
 proceedCandidate (pullRequestId, pullRequest) state =
   case Pr.buildStatus pullRequest of
     BuildNotStarted -> error "integration candidate build should at least be pending"
-    BuildPending    -> return state
+    BuildPending    -> pure state
     BuildSucceeded  -> pushCandidate (pullRequestId, pullRequest) state
-    -- If the build failed, this is no longer a candidate.
-    -- TODO: Leave a comment on the pull request, perhaps post to chatroom.
-    BuildFailed     -> return $ Pr.setIntegrationCandidate Nothing state
+    BuildFailed     -> do
+      -- If the build failed, this is no longer a candidate.
+      leaveComment pullRequestId "The build failed."
+      pure $ Pr.setIntegrationCandidate Nothing state
 
 -- Given a pull request id, returns the name of the GitHub ref for that pull
 -- request, so it can be fetched.
@@ -311,6 +334,7 @@ tryIntegratePullRequest pr state =
       Just sha -> pure
         -- If it succeeded, update the integration candidate, and set the build
         -- to pending, as pushing should have triggered a build.
+        -- TODO: Leave a comment that we are testing.
         $ Pr.setIntegrationStatus pr (Integrated sha)
         $ Pr.setBuildStatus pr BuildPending
         $ Pr.setIntegrationCandidate (Just pr)
