@@ -67,7 +67,7 @@ format :: Params ps => Text.Format -> ps -> Text
 format formatString params = toStrict $ Text.format formatString params
 
 data ActionFree a
-  = TryIntegrate (Branch, Sha) (Maybe Sha -> a)
+  = TryIntegrate Text (Branch, Sha) (Maybe Sha -> a)
   | TryPromote Branch Sha (PushResult -> a)
   | LeaveComment PullRequestId Text a
   deriving (Functor)
@@ -82,8 +82,8 @@ doGit = hoistFree InL
 doGithub :: GithubOperation a -> Operation a
 doGithub = hoistFree InR
 
-tryIntegrate :: (Branch, Sha) -> Action (Maybe Sha)
-tryIntegrate candidate = liftF $ TryIntegrate candidate id
+tryIntegrate :: Text -> (Branch, Sha) -> Action (Maybe Sha)
+tryIntegrate mergeMessage candidate = liftF $ TryIntegrate mergeMessage candidate id
 
 -- Try to fast-forward the remote target branch (usually master) to the new sha.
 -- Before doing so, force-push that thas to the pull request branch, and after
@@ -108,10 +108,15 @@ runAction config action =
   in case action of
     Pure result -> pure result
 
-    Free (TryIntegrate (ref, sha) cont) -> do
+    Free (TryIntegrate message (ref, sha) cont) -> do
       doGit $ ensureCloned config
       -- TODO: Change types in config to be 'Branch', not 'Text'.
-      maybeSha <- doGit $ Git.tryIntegrate ref sha (Git.Branch $ Config.branch config) (Git.Branch $ Config.testBranch config)
+      maybeSha <- doGit $ Git.tryIntegrate
+        message
+        ref
+        sha
+        (Git.Branch $ Config.branch config)
+        (Git.Branch $ Config.testBranch config)
       continueWith $ cont maybeSha
 
     Free (TryPromote prBranch sha cont) -> do
@@ -320,11 +325,15 @@ getPullRequestRef (PullRequestId n) = Branch $ format "refs/pull/{}/head" [n]
 tryIntegratePullRequest :: PullRequestId -> ProjectState -> Action ProjectState
 tryIntegratePullRequest pr state =
   let
-    candidateSha = Pr.sha $ fromJust $ Pr.lookupPullRequest pr state
+    PullRequestId prNumber = pr
+    pullRequest  = fromJust $ Pr.lookupPullRequest pr state
+    approvedBy   = fromJust $ Pr.approvedBy pullRequest
+    candidateSha = Pr.sha pullRequest
     candidateRef = getPullRequestRef pr
     candidate = (candidateRef, candidateSha)
+    mergeMessage = format "Merge #{}\n\nApproved-by: {}" (prNumber, approvedBy)
   in do
-    result <- tryIntegrate candidate
+    result <- tryIntegrate mergeMessage candidate
     case result of
       Nothing  -> do
         -- If integrating failed, perform no further actions but do set the

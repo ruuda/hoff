@@ -7,6 +7,7 @@
 
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Git
 (
@@ -112,6 +113,8 @@ data GitOperationFree a
   | PushDelete Branch a
   | Push Sha Branch (PushResult -> a)
   | Rebase Sha Branch (Maybe Sha -> a)
+  | Merge Sha Text (Maybe Sha -> a)
+  | Checkout Branch a
   | Clone RemoteUrl (CloneResult -> a)
   | DoesGitDirectoryExist (Bool -> a)
   deriving (Functor)
@@ -132,6 +135,14 @@ pushDelete remoteBranch = liftF $ PushDelete remoteBranch ()
 
 rebase :: Sha -> Branch -> GitOperation (Maybe Sha)
 rebase sha ontoBranch = liftF $ Rebase sha ontoBranch id
+
+merge :: Sha -> Text -> GitOperation (Maybe Sha)
+merge sha message = liftF $ Merge sha message id
+
+-- Check out the commit that origin/<branch> points to. So we end up in a
+-- detached HEAD state.
+checkout :: Branch -> GitOperation ()
+checkout branch = liftF $ Checkout branch ()
 
 clone :: RemoteUrl -> GitOperation CloneResult
 clone url = liftF $ Clone url id
@@ -181,7 +192,9 @@ callGit userConfig args = do
 -- Interpreter for the GitOperation free monad that starts Git processes and
 -- parses its output.
 runGit
-  :: (MonadIO m, MonadLogger m)
+  :: forall m a
+   . MonadIO m
+  => MonadLogger m
   => UserConfiguration
   -> FilePath
   -> GitOperationFree a
@@ -191,6 +204,17 @@ runGit userConfig repoDir operation =
     -- Pass the -C /path/to/checkout option to Git, to run operations in the
     -- repository without having to change the working directory.
     callGitInRepo args = callGit userConfig $ ["-C", repoDir] ++ args
+
+    getHead :: m (Maybe Sha)
+    getHead = do
+      revResult <- callGitInRepo ["rev-parse", "@"]
+      case revResult of
+        Left  _   -> do
+          logWarnN "warning: git rev-parse failed"
+          pure Nothing
+        Right newSha ->
+          pure $ Just $ Sha $ Text.strip newSha
+
   in case operation of
     FetchBranch branch cont -> do
       result <- callGitInRepo ["fetch", "origin", show branch]
@@ -245,12 +269,39 @@ runGit userConfig repoDir operation =
           when (isLeft abortResult) $ logWarnN "warning: git rebase --abort failed"
           pure $ cont Nothing
         Right _ -> do
-          revResult <- callGitInRepo ["rev-parse", "@"]
-          case revResult of
-            Left  _   -> do
-              logWarnN "warning: git rev-parse failed"
-              pure $ cont Nothing
-            Right newSha -> pure $ cont $ Just $ Sha $ Text.strip newSha
+          rev <- getHead
+          pure $ cont rev
+
+    Merge sha message cont -> do
+      result <- callGitInRepo
+        [ "merge"
+        , "--no-ff"
+        , "-m"
+        , Text.unpack message
+        , show sha
+        ]
+      case result of
+        Left (code, output) -> do
+          -- Merge failed, call the continuation with no rebased sha, but first
+          -- abort the merge, if any.
+          logInfoN $ format "git merge failed with code {}: {}" (show code, output)
+          abortResult <- callGitInRepo ["merge", "--abort"]
+          when (isLeft abortResult) $ logWarnN "git merge --abort failed"
+          pure $ cont Nothing
+        Right _ -> do
+          rev <- getHead
+          pure $ cont rev
+
+    Checkout branch cont -> do
+      branchRev <- callGitInRepo ["rev-parse", "origin/" ++ (show branch)]
+      case branchRev of
+        Left _ -> do
+          logWarnN "git rev-parse failed"
+          pure cont
+        Right sha -> do
+          result <- callGitInRepo ["checkout", Text.unpack $ Text.strip sha]
+          when (isLeft result) $ logWarnN "git checkout failed"
+          pure cont
 
     Clone url cont -> do
       result <- callGit userConfig
@@ -279,8 +330,8 @@ runGit userConfig repoDir operation =
 -- Fetches the target branch, rebases the candidate on top of the target branch,
 -- and if that was successfull, force-pushses the resulting commits to the test
 -- branch.
-tryIntegrate :: Branch -> Sha -> Branch -> Branch -> GitOperation (Maybe Sha)
-tryIntegrate candidateRef candidateSha targetBranch testBranch = do
+tryIntegrate :: Text -> Branch -> Sha -> Branch -> Branch -> GitOperation (Maybe Sha)
+tryIntegrate message candidateRef candidateSha targetBranch testBranch = do
   -- Fetch the ref for the target commit that needs to be rebased, we might not
   -- have it yet. Although Git supports fetching single commits, GitHub does
   -- not, so we fetch the /refs/pull/:id/head ref that GitHub creates for every
@@ -295,5 +346,15 @@ tryIntegrate candidateRef candidateSha targetBranch testBranch = do
   case rebaseResult of
     -- If the rebase succeeded, then this is our new integration candidate.
     -- Push it to the remote integration branch to trigger a build.
-    Just sha -> forcePush sha testBranch >> return (Just sha)
-    Nothing  -> return Nothing
+    Nothing  -> pure Nothing
+    Just sha -> do
+      -- After the rebase, we also do a (non-fast-forward) merge, to clarify
+      -- that this is a single unit of change; a way to fake "chapters" in the
+      -- history.
+      checkout targetBranch
+      mergeResult <- merge sha message
+      case mergeResult of
+        Nothing -> pure Nothing
+        Just mergeSha -> do
+          forcePush mergeSha testBranch
+          pure $ Just mergeSha
