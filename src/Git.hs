@@ -114,8 +114,9 @@ data GitOperationFree a
   | Push Sha Branch (PushResult -> a)
   | Rebase Sha Branch (Maybe Sha -> a)
   | Merge Sha Text (Maybe Sha -> a)
-  | Checkout Branch a
+  | Checkout Branch (Maybe Sha -> a)
   | Clone RemoteUrl (CloneResult -> a)
+  | GetParent Sha (Maybe Sha -> a)
   | DoesGitDirectoryExist (Bool -> a)
   deriving (Functor)
 
@@ -140,9 +141,13 @@ merge :: Sha -> Text -> GitOperation (Maybe Sha)
 merge sha message = liftF $ Merge sha message id
 
 -- Check out the commit that origin/<branch> points to. So we end up in a
--- detached HEAD state.
-checkout :: Branch -> GitOperation ()
-checkout branch = liftF $ Checkout branch ()
+-- detached HEAD state. Returns the sha of the checked out commit.
+checkout :: Branch -> GitOperation (Maybe Sha)
+checkout branch = liftF $ Checkout branch id
+
+-- Return the parent of the given commit.
+getParent :: Sha -> GitOperation (Maybe Sha)
+getParent sha = liftF $ GetParent sha id
 
 clone :: RemoteUrl -> GitOperation CloneResult
 clone url = liftF $ Clone url id
@@ -297,11 +302,21 @@ runGit userConfig repoDir operation =
       case branchRev of
         Left _ -> do
           logWarnN "git rev-parse failed"
-          pure cont
+          pure $ cont Nothing
         Right sha -> do
-          result <- callGitInRepo ["checkout", Text.unpack $ Text.strip sha]
+          let strippedSha = Text.strip sha
+          result <- callGitInRepo ["checkout", Text.unpack strippedSha]
           when (isLeft result) $ logWarnN "git checkout failed"
-          pure cont
+          pure $ cont $ Just $ Sha strippedSha
+
+    GetParent sha cont -> do
+      parentRev <- callGitInRepo ["rev-parse", (show sha) ++ "^"]
+      case parentRev of
+        Left _ -> do
+          logWarnN "git rev-parse to get parent failed"
+          pure $ cont Nothing
+        Right parentSha ->
+          pure $ cont $ Just $ Sha $ Text.strip parentSha
 
     Clone url cont -> do
       result <- callGit userConfig
@@ -350,11 +365,20 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch = do
     Just sha -> do
       -- After the rebase, we also do a (non-fast-forward) merge, to clarify
       -- that this is a single unit of change; a way to fake "chapters" in the
-      -- history.
-      checkout targetBranch
-      mergeResult <- merge sha message
-      case mergeResult of
-        Nothing -> pure Nothing
-        Just mergeSha -> do
-          forcePush mergeSha testBranch
-          pure $ Just mergeSha
+      -- history. We only do this if there is more than one commit to integrate.
+      -- If not (when the current master is the parent of the proposed commit),
+      -- then we just take that commit as-is.
+      targetBranchSha <- checkout targetBranch
+      parentSha       <- getParent sha
+      newTip <- case parentSha of
+        Nothing -> pure $ Just sha
+        parent | parent == targetBranchSha -> pure $ Just sha
+        _moreThanOneCommitBehind           -> merge sha message
+
+      -- If both the rebase, and the (potential) merge went well, push it to the
+      -- testing branch so CI will build it.
+      case newTip of
+        Just tipSha -> forcePush tipSha testBranch
+        Nothing     -> pure ()
+
+      pure newTip
