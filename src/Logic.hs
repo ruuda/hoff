@@ -328,7 +328,8 @@ tryIntegratePullRequest pr state =
     case result of
       Nothing  -> do
         -- If integrating failed, perform no further actions but do set the
-        -- state to conflicted. TODO: Leave a comment on the PR.
+        -- state to conflicted.
+        leaveComment pr "Failed to rebase, please rebase manually."
         pure $ Pr.setIntegrationStatus pr Conflicted state
 
       Just sha -> pure
