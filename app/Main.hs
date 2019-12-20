@@ -156,6 +156,7 @@ main = do
       $ void
       $ runStdoutLoggingT
       $ runLogicEventLoop
+          config
           (Config.user config)
           projectConfig
           getNextEvent

@@ -26,13 +26,16 @@ import Control.Monad.STM (atomically)
 import Control.Monad.Free (foldFree)
 import Data.Functor.Sum (Sum (InL, InR))
 
-import Configuration (ProjectConfiguration, UserConfiguration)
+import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
+import qualified GitHub.Auth as Github3
+
+import Configuration (Configuration, ProjectConfiguration, UserConfiguration)
 import Github (PullRequestPayload, CommentPayload, CommitStatusPayload, WebhookEvent (..))
 import Github (eventProjectInfo)
-import Project (ProjectInfo, ProjectState, PullRequestId (..))
+import Project (ProjectInfo (..), ProjectState, PullRequestId (..))
 
 import qualified Configuration as Config
-import qualified Data.Text as Text
 import qualified Git
 import qualified Github
 import qualified GithubApi
@@ -120,8 +123,10 @@ runSum runF runG = go
     go (InR v) = runG v
 
 runLogicEventLoop
-  :: (MonadIO m, MonadLogger m)
-  => UserConfiguration
+  :: MonadIO m
+  => MonadLogger m
+  => Configuration
+  -> UserConfiguration
   -> ProjectConfiguration
   -- Action that gets the next event from the queue.
   -> m (Maybe Logic.Event)
@@ -131,13 +136,15 @@ runLogicEventLoop
   -> (ProjectState -> m ())
   -> ProjectState
   -> m ProjectState
-runLogicEventLoop userConfig projectConfig getNextEvent publish initialState =
+runLogicEventLoop appConfig userConfig projectConfig getNextEvent publish initialState =
   let
-    repoDir   = Config.checkout projectConfig
-    runGit    = Git.runGit userConfig repoDir
-    runGithub = GithubApi.runGithub
-    runAll    = foldFree (runSum runGit runGithub)
-    runAction = Logic.runAction projectConfig
+    repoDir     = Config.checkout projectConfig
+    auth        = Github3.OAuth $ Text.encodeUtf8 $ Config.accessToken appConfig
+    projectInfo = ProjectInfo (Config.owner projectConfig) (Config.repository projectConfig)
+    runGit      = Git.runGit userConfig repoDir
+    runGithub   = GithubApi.runGithub auth projectInfo
+    runAll      = foldFree (runSum runGit runGithub)
+    runAction   = Logic.runAction projectConfig
 
     handleAndContinue state0 event = do
       -- Handle the event and then perform any additional required actions until

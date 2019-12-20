@@ -63,6 +63,9 @@ data Configuration = Configuration
     -- alas, that is not the case.)
     secret :: Text,
 
+    -- The access token for the Github API, for leaving comments.
+    accessToken :: Text,
+
     -- The port to run the webserver on.
     port :: Int,
 

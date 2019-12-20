@@ -8,6 +8,8 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+-- This module defines high-level Github API operations, plus an interpreter to
+-- run those operations against the real API.
 module GithubApi
 (
   GithubOperationFree,
@@ -18,13 +20,19 @@ module GithubApi
 where
 
 import Control.Monad.Free (Free, liftF)
-import Control.Monad.IO.Class (MonadIO)
-import Control.Monad.Logger (MonadLogger, logInfoN)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import Data.Text (Text)
 
 import qualified Data.Text as Text
 
-import Project (PullRequestId (..))
+import qualified GitHub.Data.Id as Github3
+import qualified GitHub.Data.Name as Github3
+import qualified GitHub.Endpoints.Issues.Comments as Github3
+
+import Project (PullRequestId (..), ProjectInfo)
+
+import qualified Project
 
 data GithubOperationFree a
   = LeaveComment PullRequestId Text a
@@ -38,10 +46,20 @@ leaveComment pr remoteBranch = liftF $ LeaveComment pr remoteBranch ()
 runGithub
   :: MonadIO m
   => MonadLogger m
-  => GithubOperationFree a
+  => Github3.Auth
+  -> ProjectInfo
+  -> GithubOperationFree a
   -> m a
-runGithub operation =
+runGithub auth projectInfo operation =
   case operation of
-    LeaveComment pr body cont -> do
-      logInfoN $ Text.concat ["Should leave comment on ", Text.pack $ show pr, ": ", body]
+    LeaveComment (PullRequestId pr) body cont -> do
+      result <- liftIO $ Github3.createComment
+        auth
+        (Github3.N $ Project.owner projectInfo)
+        (Github3.N $ Project.repository projectInfo)
+        (Github3.Id pr)
+        body
+      case result of
+        Left err -> logWarnN $ Text.append "Failed to comment: " $ Text.pack $ show err
+        Right _ -> logInfoN $ Text.concat ["Posted comment on ", Text.pack $ show pr, ": ", body]
       pure cont
