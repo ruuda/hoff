@@ -29,7 +29,7 @@ import Test.Hspec
 import qualified Data.UUID.V4 as Uuid
 import qualified System.Directory as FileSystem
 
-import Configuration (ProjectConfiguration, UserConfiguration)
+import Configuration (Configuration, ProjectConfiguration, UserConfiguration)
 import Git (Branch (..), Sha (..))
 import Project (BuildStatus (..), IntegrationStatus (..), ProjectState, PullRequestId (..))
 
@@ -181,6 +181,17 @@ userConfig = Config.UserConfiguration {
   Config.sshConfigFile = "/outerspace/.ssh/config"
 }
 
+-- Dummy app configuration used in the test environment.
+appConfig :: Configuration
+appConfig = Config.Configuration
+  { Config.projects = []
+  , Config.secret = ""
+  , Config.accessToken = ""
+  , Config.port = 0
+  , Config.tls = Nothing
+  , Config.user = userConfig
+  }
+
 -- Runs the main loop in a separate thread, and feeds it the given events.
 runMainEventLoop
   :: ProjectConfiguration
@@ -195,12 +206,14 @@ runMainEventLoop projectConfig initialState events = do
   --
   -- To aid debugging when a test fails, you can replace 'runNoLoggingT' with
   -- 'runStdoutLoggingT'. You should also remove 'parallel' from main then.
-  queue            <- Logic.newEventQueue 10
-  let publish _     = return () -- Do nothing when a new state is published.
-      getNextEvent  = liftIO $ Logic.dequeueEvent queue
+  queue <- Logic.newEventQueue 10
+  let
+    publish _     = return () -- Do nothing when a new state is published.
+    getNextEvent  = liftIO $ Logic.dequeueEvent queue
   finalStateAsync  <- async
     $ runNoLoggingT
     $ EventLoop.runLogicEventLoop
+        appConfig
         userConfig
         projectConfig
         getNextEvent
@@ -266,9 +279,10 @@ withTestEnv' body = do
   -- Run the actual test code inside the environment that we just set up,
   -- provide it with the commit shas, the function to run the event loop, and a
   -- function to invoke Git in the cloned repository.
-  let config   = buildProjectConfig repoDir stateFile
-      git args = void $ callGit $ ["-C", repoDir] ++ args
-  body shas (runMainEventLoop config) git
+  let
+    projectConfig = buildProjectConfig repoDir stateFile
+    git args = void $ callGit $ ["-C", repoDir] ++ args
+  body shas (runMainEventLoop projectConfig) git
 
   -- Retrieve the log of the remote repository master branch. Only show the
   -- commit message subject lines. The repository has been setup to prefix

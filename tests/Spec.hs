@@ -61,7 +61,7 @@ candidateState pr prBranch prSha prAuthor candidateSha =
 -- Types and functions to mock running an action without actually doing anything.
 
 data ActionFlat
-  = ATryIntegrate (Branch, Sha)
+  = ATryIntegrate Text (Branch, Sha)
   | ATryPromote Branch Sha
   | ALeaveComment PullRequestId Text
   deriving (Eq, Show)
@@ -72,14 +72,16 @@ data ActionFlat
 -- return the pushResult and rebaseResult passed in here.
 runActionWithInit :: Maybe Sha -> PushResult -> [ActionFlat] -> Action a -> (a, [ActionFlat])
 runActionWithInit integrateResult pushResult actions action =
-  let prepend cont act =
-        let (result, acts') = runActionWithInit integrateResult pushResult actions cont
-        in  (result, act : acts')
-  in case action of
-    Pure result                          -> (result, [])
-    Free (TryIntegrate candi h)          -> prepend (h integrateResult) $ ATryIntegrate candi
-    Free (TryPromote prBranch headSha h) -> prepend (h pushResult) $ ATryPromote prBranch headSha
-    Free (LeaveComment pr body x)        -> prepend x $ ALeaveComment pr body
+  let
+    prepend cont act =
+      let (result, acts') = runActionWithInit integrateResult pushResult actions cont
+      in  (result, act : acts')
+  in
+    case action of
+      Pure result                          -> (result, [])
+      Free (TryIntegrate msg candi h)      -> prepend (h integrateResult) $ ATryIntegrate msg candi
+      Free (TryPromote prBranch headSha h) -> prepend (h pushResult) $ ATryPromote prBranch headSha
+      Free (LeaveComment pr body x)        -> prepend x $ ALeaveComment pr body
 
 -- Simulates running the action. Pretends that integration always conflicts.
 -- Pretends that pushing is always successful.
@@ -237,7 +239,9 @@ main = hspec $ do
       Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c")
       Project.buildStatus pullRequest       `shouldBe` Project.BuildPending
       prId    `shouldBe` PullRequestId 1
-      actions `shouldBe` [ATryIntegrate (Branch "refs/pull/1/head", Sha "f34")]
+      actions `shouldBe`
+        [ ATryIntegrate "Merge #1\n\nApproved-by: fred" (Branch "refs/pull/1/head", Sha "f34")
+        ]
 
     it "pushes after a successful build" $ do
       let pullRequest = PullRequest
@@ -286,9 +290,10 @@ main = hspec $ do
 
       Project.integrationStatus pullRequest' `shouldBe` Project.Integrated (Sha "38e")
       Project.buildStatus       pullRequest' `shouldBe` Project.BuildPending
-      actions `shouldBe` [ ATryPromote (Branch "results/rachael") (Sha "38d")
-                         , ATryIntegrate (Branch "refs/pull/1/head", Sha "f35")
-                         ]
+      actions `shouldBe`
+        [ ATryPromote (Branch "results/rachael") (Sha "38d")
+        , ATryIntegrate "Merge #1\n\nApproved-by: deckard" (Branch "refs/pull/1/head", Sha "f35")
+        ]
 
     it "picks a new candidate from the queue after a successful push" $ do
       let pullRequest1 = PullRequest
@@ -323,7 +328,9 @@ main = hspec $ do
           (state', actions) = proceedUntilFixedPointFlat (Just (Sha "38e")) PushOk state
           Just (cId, _candidate) = Project.getIntegrationCandidate state'
       cId     `shouldBe` PullRequestId 2
-      actions `shouldBe` [ATryIntegrate (Branch "refs/pull/2/head", Sha "f37")]
+      actions `shouldBe`
+        [ ATryIntegrate "Merge #2\n\nApproved-by: deckard" (Branch "refs/pull/2/head", Sha "f37")
+        ]
 
   describe "Github._Payload" $ do
 
