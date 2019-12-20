@@ -13,11 +13,16 @@ module GithubApi
   GithubOperationFree,
   GithubOperation,
   leaveComment,
+  runGithub,
 )
 where
 
-import Control.Monad.Free (Free (..), liftF)
+import Control.Monad.Free (Free, liftF)
+import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.Logger (MonadLogger, logInfoN)
 import Data.Text (Text)
+
+import qualified Data.Text as Text
 
 import Project (PullRequestId (..))
 
@@ -29,3 +34,14 @@ type GithubOperation = Free GithubOperationFree
 
 leaveComment :: PullRequestId -> Text -> GithubOperation ()
 leaveComment pr remoteBranch = liftF $ LeaveComment pr remoteBranch ()
+
+runGithub
+  :: MonadIO m
+  => MonadLogger m
+  => GithubOperationFree a
+  -> m a
+runGithub operation =
+  case operation of
+    LeaveComment pr body cont -> do
+      logInfoN $ Text.concat ["Should leave comment on ", Text.pack $ show pr, ": ", body]
+      pure cont

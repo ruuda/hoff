@@ -31,7 +31,7 @@ module Git
 where
 
 import Control.Monad (mzero, when)
-import Control.Monad.Free (Free (Free, Pure), liftF)
+import Control.Monad.Free (Free, liftF)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import Data.Aeson
@@ -184,25 +184,22 @@ runGit
   :: (MonadIO m, MonadLogger m)
   => UserConfiguration
   -> FilePath
-  -> GitOperation a
+  -> GitOperationFree a
   -> m a
 runGit userConfig repoDir operation =
   let
     -- Pass the -C /path/to/checkout option to Git, to run operations in the
     -- repository without having to change the working directory.
     callGitInRepo args = callGit userConfig $ ["-C", repoDir] ++ args
-    continueWith       = runGit userConfig repoDir
   in case operation of
-    Pure result -> return result
-
-    Free (FetchBranch branch cont) -> do
+    FetchBranch branch cont -> do
       result <- callGitInRepo ["fetch", "origin", show branch]
       case result of
         Left  _ -> logWarnN "warning: git fetch failed"
         Right _ -> return ()
-      continueWith cont
+      pure cont
 
-    Free (ForcePush sha branch cont) -> do
+    ForcePush sha branch cont -> do
       -- TODO: Make Sha and Branch constructors sanitize data, otherwise this
       -- could run unintended Git commands.
       -- Note: the remote branch is prefixed with 'refs/heads/' to specify the
@@ -212,24 +209,24 @@ runGit userConfig repoDir operation =
       case result of
         Left  _ -> logWarnN "warning: git push --force failed"
         Right _ -> return ()
-      continueWith cont
+      pure cont
 
-    Free (Push sha branch cont) -> do
+    Push sha branch cont -> do
       result <- callGitInRepo ["push", "origin", (show sha) ++ ":refs/heads/" ++ (show branch)]
       let pushResult = case result of
             Left  _ -> PushRejected
             Right _ -> PushOk
       when (pushResult == PushRejected) $ logInfoN "push was rejected"
-      continueWith $ cont pushResult
+      pure $ cont pushResult
 
-    Free (PushDelete branch cont) -> do
+    PushDelete branch cont -> do
       result <- callGitInRepo ["push", "origin", ":refs/heads/" ++ (show branch)]
       case result of
         Left  _ -> logWarnN "warning: failed to delete remote branch"
         Right _ -> pure ()
-      continueWith cont
+      pure cont
 
-    Free (Rebase sha branch cont) -> do
+    Rebase sha branch cont -> do
       -- Do an interactive rebase with editor set to /usr/bin/true, so we just
       -- accept the default action, which is effectively a non-interactive rebase.
       -- The interactive rebase is required for --autosquash, which automatically
@@ -246,16 +243,16 @@ runGit userConfig repoDir operation =
           logInfoN $ format "git rebase failed with code {}: {}" (show code, message)
           abortResult <- callGitInRepo ["rebase", "--abort"]
           when (isLeft abortResult) $ logWarnN "warning: git rebase --abort failed"
-          continueWith $ cont Nothing
+          pure $ cont Nothing
         Right _ -> do
           revResult <- callGitInRepo ["rev-parse", "@"]
           case revResult of
             Left  _   -> do
               logWarnN "warning: git rev-parse failed"
-              continueWith $ cont Nothing
-            Right newSha -> continueWith $ cont $ Just $ Sha $ Text.strip newSha
+              pure $ cont Nothing
+            Right newSha -> pure $ cont $ Just $ Sha $ Text.strip newSha
 
-    Free (Clone url cont) -> do
+    Clone url cont -> do
       result <- callGit userConfig
         -- Pass some config flags, that get applied as the repository is
         -- initialized, before the clone. This means we can enable fsckObjects
@@ -270,14 +267,14 @@ runGit userConfig repoDir operation =
       case result of
         Left (code, message) -> do
           logWarnN $ format "git clone failed with code {}: {}" (show code, message)
-          continueWith (cont CloneFailed)
+          pure $ cont CloneFailed
         Right _ -> do
           logInfoN $ format "cloned {} succesfully" [show url]
-          continueWith (cont CloneOk)
+          pure $ cont CloneOk
 
-    Free (DoesGitDirectoryExist cont) -> do
+    DoesGitDirectoryExist cont -> do
       exists <- liftIO $ doesDirectoryExist (repoDir </> ".git")
-      continueWith (cont exists)
+      pure $ cont exists
 
 -- Fetches the target branch, rebases the candidate on top of the target branch,
 -- and if that was successfull, force-pushses the resulting commits to the test

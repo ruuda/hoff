@@ -76,6 +76,12 @@ type Action = Free ActionFree
 
 type Operation = Free (Sum GitOperationFree GithubOperationFree)
 
+doGit :: GitOperation a -> Operation a
+doGit = hoistFree InL
+
+doGithub :: GithubOperation a -> Operation a
+doGithub = hoistFree InR
+
 tryIntegrate :: (Branch, Sha) -> Action (Maybe Sha)
 tryIntegrate candidate = liftF $ TryIntegrate candidate id
 
@@ -98,12 +104,6 @@ runAction
 runAction config action =
   let
     continueWith = runAction config
-
-    doGit :: GitOperation a -> Operation a
-    doGit = hoistFree InL
-
-    doGithub :: GithubOperation a -> Operation a
-    doGithub = hoistFree InR
 
   in case action of
     Pure result -> pure result
