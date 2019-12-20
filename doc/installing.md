@@ -61,6 +61,7 @@ user has no home directory, we will put it in `/etc/hoff` instead.
 Leave the passphrase empty to allow the key to be used without human
 interaction. To tell SSH where the key is, we also create an SSH config file:
 
+    $ echo "IdentitiesOnly yes"                | sudo tee --append /etc/hoff/ssh_config
     $ echo "IdentityFile /etc/hoff/id_ed25519" | sudo tee --append /etc/hoff/ssh_config
     $ echo "CheckHostIP no"                    | sudo tee --append /etc/hoff/ssh_config
 
@@ -69,7 +70,9 @@ address of a host changes. Hoff ships with an `/etc/ssh/ssh_known_hosts` file
 that contains GitHub's public key in the filesystem image, so there is no need
 to accept any [fingerprints][fingerprints]. Because the `ssh_known_hosts` file
 is readonly, we can *only* connect to GitHub, and only if the public key that we
-baked into the image has not changed.
+baked into the image has not changed. Furthermore, for testing (and also in
+general) it is useful to prevent SSH from trying all keys it can find; it should
+only use the provided file, so we set `IdentitiesOnly=yes`.
 
 Finally, we need a GitHub account that will be used for fetching and pushing. I
 recommend creating a separate account for this purpose. On GitHub, add the
