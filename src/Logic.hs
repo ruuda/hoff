@@ -295,20 +295,26 @@ getPullRequestRef (PullRequestId n) = Branch $ format "refs/pull/{}/head" [n]
 -- Integrates proposed changes from the pull request into the target branch.
 -- The pull request must exist in the project.
 tryIntegratePullRequest :: PullRequestId -> ProjectState -> Action ProjectState
-tryIntegratePullRequest pr state = fmap handleResult $ tryIntegrate candidate
-  where
+tryIntegratePullRequest pr state =
+  let
     candidateSha = Pr.sha $ fromJust $ Pr.lookupPullRequest pr state
     candidateRef = getPullRequestRef pr
-    candidate    = (candidateRef, candidateSha)
-    -- If integrating failed, perform no further actions but do set the state
-    -- to conflicted. (TODO: leave a comment on the PR?) If it succeeded, update
-    -- the integration candidate, and set the build to pending, as pushing
-    -- should have triggered a build.
-    handleResult result = case result of
-      Nothing  -> Pr.setIntegrationStatus pr Conflicted state
-      Just sha -> Pr.setIntegrationStatus pr (Integrated sha)
-                $ Pr.setBuildStatus pr BuildPending
-                $ Pr.setIntegrationCandidate (Just pr) state
+    candidate = (candidateRef, candidateSha)
+  in do
+    result <- tryIntegrate candidate
+    case result of
+      Nothing  -> do
+        -- If integrating failed, perform no further actions but do set the
+        -- state to conflicted. TODO: Leave a comment on the PR.
+        pure $ Pr.setIntegrationStatus pr Conflicted state
+
+      Just sha -> pure
+        -- If it succeeded, update the integration candidate, and set the build
+        -- to pending, as pushing should have triggered a build.
+        $ Pr.setIntegrationStatus pr (Integrated sha)
+        $ Pr.setBuildStatus pr BuildPending
+        $ Pr.setIntegrationCandidate (Just pr)
+        $ state
 
 -- Pushes the integrated commits of the given candidate pull request to the
 -- target branch. If the push fails, restarts the integration cycle for the
