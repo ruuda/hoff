@@ -332,14 +332,15 @@ tryIntegratePullRequest pr state =
         leaveComment pr "Failed to rebase, please rebase manually."
         pure $ Pr.setIntegrationStatus pr Conflicted state
 
-      Just sha -> pure
+      Just (Sha sha) -> do
         -- If it succeeded, update the integration candidate, and set the build
         -- to pending, as pushing should have triggered a build.
-        -- TODO: Leave a comment that we are testing.
-        $ Pr.setIntegrationStatus pr (Integrated sha)
-        $ Pr.setBuildStatus pr BuildPending
-        $ Pr.setIntegrationCandidate (Just pr)
-        $ state
+        leaveComment pr $ Text.concat ["Rebased as ", sha, ", waiting for CI …"]
+        pure
+          $ Pr.setIntegrationStatus pr (Integrated $ Sha sha)
+          $ Pr.setBuildStatus pr BuildPending
+          $ Pr.setIntegrationCandidate (Just pr)
+          $ state
 
 -- Pushes the integrated commits of the given candidate pull request to the
 -- target branch. If the push fails, restarts the integration cycle for the
