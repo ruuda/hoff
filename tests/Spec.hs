@@ -241,6 +241,7 @@ main = hspec $ do
       prId    `shouldBe` PullRequestId 1
       actions `shouldBe`
         [ ATryIntegrate "Merge #1\n\nApproved-by: fred" (Branch "refs/pull/1/head", Sha "f34")
+        , ALeaveComment (PullRequestId 1) "Rebased as 38c, waiting for CI \x2026"
         ]
 
     it "pushes after a successful build" $ do
@@ -293,6 +294,7 @@ main = hspec $ do
       actions `shouldBe`
         [ ATryPromote (Branch "results/rachael") (Sha "38d")
         , ATryIntegrate "Merge #1\n\nApproved-by: deckard" (Branch "refs/pull/1/head", Sha "f35")
+        , ALeaveComment (PullRequestId 1) "Rebased as 38e, waiting for CI \x2026"
         ]
 
     it "picks a new candidate from the queue after a successful push" $ do
@@ -330,6 +332,7 @@ main = hspec $ do
       cId     `shouldBe` PullRequestId 2
       actions `shouldBe`
         [ ATryIntegrate "Merge #2\n\nApproved-by: deckard" (Branch "refs/pull/2/head", Sha "f37")
+        , ALeaveComment (PullRequestId 2) "Rebased as 38e, waiting for CI \x2026"
         ]
 
   describe "Github._Payload" $ do
