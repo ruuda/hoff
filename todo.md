@@ -1,3 +1,25 @@
+# Up next
+
+ * Automated testing for all core functionality
+
+# Near-term
+
+ * Add tests for multiproject code
+ * Graceful shutdown when receiving sigterm
+ * Add the ability to force a rebuild
+ * Keep track of recently integrated pull requests, even after they were closed
+ * Support for commit message validation
+ * Generate ping event at startup
+ * Client to generate API calls for ping
+ * The ability to queue approved commits directly without requiring a pull
+   request, for personal use
+ * Append a "Reviewed-by" line to integrated commits
+ * Set timezone to UTC+0 for bot (rebased) commits
+ * Add the ability to filter pull request status by context:
+   accepting pull request build status as valid is wrong,
+   because GitHub makes Travis build a merge commit
+ * Clean up multiproject code
+
 # Done
 
  * Parse webhook data json -> event
@@ -12,36 +34,5 @@
  * Test with GitHub
  * Support for basic review policy enforcement (whitelist reviewer usernames)
  * Support for multiple repositories
-
-# Up next
-
  * Make API calls to leave comments and close pull requests
- * Automated testing for all core functionality
-
-# Near-term
-
- * Add tests for multiproject code
- * Graceful shutdown when receiving sigterm
- * Add the ability to force a rebuild
- * Keep track of recently integrated pull requests, even after they were closed
- * Support for commit message validation
  * Support for `--autosquash` rebasing
- * Generate ping event at startup
- * Client to generate API calls for ping
- * The ability to queue approved commits directly without requiring a pull
-   request, for personal use
- * Append a "Reviewed-by" line to integrated commits
- * Set timezone to UTC+0 for bot (rebased) commits
- * Add the ability to filter pull request status by context:
-   accepting pull request build status as valid is wrong,
-   because GitHub makes Travis build a merge commit
- * Clean up multiproject code
-
-# Long-term
-
- * A better way to keep track of proposed changes than pull requests,
-   with support for dependent changes
-
-# Eventually
-
- * A full code review system
