@@ -351,7 +351,7 @@ eventLoopSpec = parallel $ do
         -- 'integration' branch. Tell that building it succeeded.
         void $ runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
 
-      history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6"]
+      history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6", "Merge #6"]
       -- The remote branch ("intro") should also be deleted after a succesful
       -- promotion, but the other branches should be left untouched.
       branches `shouldMatchList`
@@ -389,7 +389,7 @@ eventLoopSpec = parallel $ do
             Project.Integrated rebasedSha' = Project.integrationStatus pullRequest4
         void $ runLoop state' [Logic.BuildStatusChanged rebasedSha' BuildSucceeded]
 
-      history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6", "c4"]
+      history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6", "Merge #6", "c4"]
 
     it "skips conflicted pull requests" $ do
       (history, branches) <- withTestEnv' $ \ shas runLoop _git -> do
@@ -467,7 +467,7 @@ eventLoopSpec = parallel $ do
         -- integrated properly, so there should not be a new candidate.
         Project.getIntegrationCandidate state'' `shouldBe` Nothing
 
-      history `shouldBe` ["c0", "c1", "c2", "c3", "c4", "c5", "c6"]
+      history `shouldBe` ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "Merge #6"]
       branches `shouldNotContain` [Branch "intro"]
 
     it "applies fixup commits during rebase, even if fast forward is possible" $ do
@@ -494,7 +494,7 @@ eventLoopSpec = parallel $ do
       -- now c8 is the last commit, and there are no others. Note that if the
       -- fixup had failed, there would be an extra commit, with fixup in the
       -- title.
-      history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6", "c7", "c8"]
+      history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6", "c7", "c8", "Merge #8"]
 
     it "applies fixup commits during rebase, also if a push happened" $ do
       history <- withTestEnv $ \ shas runLoop git -> do
@@ -528,7 +528,7 @@ eventLoopSpec = parallel $ do
       -- We expect the fixup commit (which was last) to be squashed into c7, so
       -- now c8 is the last commit, and there are no others. This time c4 and c5
       -- are included too, because we manually pushed them.
-      history `shouldBe` ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8"]
+      history `shouldBe` ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "Merge #8"]
 
     it "does not apply fixup commits if the commit to fix is not on the branch" $ do
       history <- withTestEnv $ \ shas runLoop git -> do
