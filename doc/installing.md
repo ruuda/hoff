@@ -57,9 +57,14 @@ user. You can also add the user manually:
 
 The application needs a key pair to connect to GitHub. Because the `hoff` system
 user has no home directory, we will put it in `/etc/hoff` instead. The Debian
-package creates that directory.
+package creates that directory, but the `hoff` user has no write access in it,
+so we create the files with the right owner before calling `ssh-keygen`.
 
+    $ sudo touch /etc/hoff/id_ed25519{,.pub}
+    $ sudo chown hoff:hoff /etc/hoff/id_ed25519{,.pub}
     $ sudo --user hoff ssh-keygen -t ed25519 -f /etc/hoff/id_ed25519
+    $ sudo chmod u=rw,g=,o= /etc/hoff/id_ed25519
+    $ sudo chmod u=rw,g=r,o=r /etc/hoff/id_ed25519.pub
 
 Leave the passphrase empty to allow the key to be used without human
 interaction. To tell SSH where the key is, we also create an SSH config file:
@@ -81,8 +86,8 @@ only use the provided file, so we set `IdentitiesOnly=yes`.
 
 Finally, we need a GitHub account that will be used for fetching and pushing. I
 recommend creating a separate account for this purpose. On GitHub, add the
-public key to the new account. Paste the output of `sudo cat
-/etc/hoff/id_ed25519.pub` into the key field under “SSH and GPG keys”.
+public key to the new account. Paste the output of `cat /etc/hoff/id_ed25519.pub`
+into the key field under “SSH and GPG keys”.
 
 ## Setting up directories
 
