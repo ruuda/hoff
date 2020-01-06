@@ -8,7 +8,7 @@ case "$1" in
 
     # Create a 'hoff' user if it does not exist with the same parameters as
     # below. The user gets a corresponding group named 'hoff' too.
-    adduser --system --group hoff
+    adduser --system --group --no-create-home hoff
 
     # If the config file has not been modified (when the checksum matches that
     # of the example), tell the user to do so. The sha256 of the example config
