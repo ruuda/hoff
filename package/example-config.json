@@ -5,8 +5,8 @@
     "branch": "master",
     "testBranch": "testing",
     "checkout": "/var/lib/hoff/checkouts/your-username/your-repo",
-    "reviewers": ["your-github-username"],
-    "stateFile": "/var/lib/hoff/state/your-username/your-repo.json"
+    "stateFile": "/var/lib/hoff/state/your-username/your-repo.json",
+    "reviewers": ["your-github-username"]
   }],
   "secret": "run 'head --bytes 32 /dev/urandom | base64' and paste output here",
   "accessToken": "paste a personal access token for a bot user here",
@@ -15,6 +15,6 @@
   "user": {
     "name": "CI Bot",
     "email": "cibot@example.com",
-    "sshConfigFile": "/var/lib/hoff/ssh/config"
+    "sshConfigFile": "/etc/hoff/ssh_config"
   }
 }

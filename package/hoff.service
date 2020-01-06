@@ -26,5 +26,11 @@ ExecStart=/usr/bin/hoff /etc/hoff/config.json
 Restart=on-failure
 RestartSec=10
 
+# The package provides a known-hosts file with GitHub's fingerprint. When
+# written to /etc/ssh/ssh_known_hosts, SSH will use it. But we don't want to
+# install it system-wide. So we install it in /etc/hoff, and bind-mount it into
+# place for this unit only.
+BindReadOnlyPaths=/etc/hoff/github-known-hosts:/etc/ssh/ssh_known_hosts
+
 [Install]
 WantedBy=multi-user.target

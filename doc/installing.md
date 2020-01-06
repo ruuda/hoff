@@ -1,22 +1,25 @@
 # Installing
 
 This document details how to install Hoff on your own server. I will be using
-a server running CoreOS here, although the same steps should work for e.g.
-Ubuntu 18.04.
+a server running Ubuntu 18.04 here.
 
 The application consists of a single binary that opens a server at a configured
 port, and then runs until it is killed. Log messages are written to stdout. This
-makes the application work well with systemd. Furthermore, Hoff can be packaged
-as a self-contained squashfs image for easy deployment and secure operation.
+makes the application work well with systemd.
 
 ## Building a package
 
-The squashfs image can be built with [Nix][nix]:
+Enter an environment with development dependencies available throuhg [Nix][nix]:
 
-    $ nix build --out-link hoff.img
+    $ nix run --command $SHELL
 
-You can copy over `hoff.img` to your server. Alternatively, you can build the
-binary only, and assemble your own package:
+There is a script to build a Debian package:
+
+    $ cd package
+    $ ./build-binary.sh
+    $ VERSION=1 fakeroot ./build-package.sh
+
+Alternatively, you can build the binary only, and assemble your own package:
 
     $ stack build
     $ $(stack path --local-install-root)/bin/hoff
@@ -32,8 +35,8 @@ On the server, install the package:
 This will do several things:
 
  * Install the `hoff` binary in `/usr/bin`.
- * Create the `git` user under which the daemon will run.
- * Create an example config file at `/etc/hoff.json`.
+ * Create the `hoff` user under which the daemon will run.
+ * Create an example config file at `/etc/hoff/config.json`.
 
 Enable the daemon to start it automatically at boot, and start it now:
 
@@ -46,16 +49,16 @@ Verify that everything is up and running:
 
 ## Setting up the user
 
-The systemd service file included runs Hoff as the `hoff` user, that we need to
-create first:
+The systemd service file included runs Hoff as the `hoff` user. The Debian
+package creates it, but we need to do some further setup for files owned by this
+user. You can also add the user manually:
 
-    $ sudo useradd --system --user-group hoff
+    $ sudo useradd --system --user-group --no-create-home hoff
 
 The application needs a key pair to connect to GitHub. Because the `hoff` system
-user has no home directory, we will put it in `/etc/hoff` instead.
+user has no home directory, we will put it in `/etc/hoff` instead. The Debian
+package creates that directory.
 
-    $ sudo mkdir /etc/hoff
-    $ sudo chown hoff:hoff /etc/hoff
     $ sudo --user hoff ssh-keygen -t ed25519 -f /etc/hoff/id_ed25519
 
 Leave the passphrase empty to allow the key to be used without human
@@ -64,14 +67,16 @@ interaction. To tell SSH where the key is, we also create an SSH config file:
     $ echo "IdentitiesOnly yes"                | sudo tee --append /etc/hoff/ssh_config
     $ echo "IdentityFile /etc/hoff/id_ed25519" | sudo tee --append /etc/hoff/ssh_config
     $ echo "CheckHostIP no"                    | sudo tee --append /etc/hoff/ssh_config
+    $ sudo chown hoff:hoff /etc/hoff/ssh_config
+    $ sudo chmod u=rw,g=,o= /etc/hoff/ssh_config
 
 Here we also set `CheckHostIP no`, so SSH does not emit a warning when the IP
-address of a host changes. Hoff ships with an `/etc/ssh/ssh_known_hosts` file
-that contains GitHub's public key in the filesystem image, so there is no need
-to accept any [fingerprints][fingerprints]. Because the `ssh_known_hosts` file
-is readonly, we can *only* connect to GitHub, and only if the public key that we
-baked into the image has not changed. Furthermore, for testing (and also in
-general) it is useful to prevent SSH from trying all keys it can find; it should
+address of a host changes. Hoff mounts a file that contains GitHub's public key
+at `/etc/ssh/ssh_known_hosts`, so there is no need to accept any
+[fingerprints][fingerprints]. Because the `ssh_known_hosts` file is readonly, we
+can *only* connect to GitHub, and only if the public key that we baked into the
+package has not changed. Furthermore, for testing (and also in general) it is
+useful to prevent SSH from trying all keys it can find; it should
 only use the provided file, so we set `IdentitiesOnly=yes`.
 
 Finally, we need a GitHub account that will be used for fetching and pushing. I
@@ -79,77 +84,76 @@ recommend creating a separate account for this purpose. On GitHub, add the
 public key to the new account. Paste the output of `sudo cat
 /etc/hoff/id_ed25519.pub` into the key field under “SSH and GPG keys”.
 
+## Setting up directories
+
+Hoff writes two things to the file system per configured repository:
+
+ * A checkout of the repository.
+ * A state file, to persist the internal state (open issues, etc.).
+
+We store these in `/var/lib/hoff`, and we need to make that directory owned by
+the `hoff` user.
+
+    $ sudo mkdir -p /var/lib/hoff/{checkouts,state}
+    $ sudo chown hoff:hoff /var/lib/hoff/{checkouts,state}
+
 ## Adding a repostory
 
-    $ sudo mkdir -p /var/lib/hoff /var/cache/hoff
-    $ sudo chown hoff:hoff /var/lib/hoff /var/cache/hoff
-    $ sudo -e /etc/hoff/config.json
-    $ sudo cp hoff.service /etc/systemd/system
-    $ sudo -e /etc/systemd/system/hoff.service
-    $ sudo systemctl daemon-reload
-    $ sudo systemctl enable hoff
-    $ sudo systemctl start hoff
+To add a repository, we need to add an entry to the config file. I’ll be using
+the repository `ruuda/bogus` in this example. Add this to the `projects` key in
+the config file (e.g. with `sudo --edit /etc/hoff/config.json`):
 
-Then check if we are up and running:
-
-    $ sudo journalctl --pager-end --unit hoff
-
-## Adding a repository (old)
-
-Hoff keeps a checkout of the repositories it manages. Currently it does not
-handle the initial clone automatically. (TODO: automate.) Create a directory to
-keep these checkouts, and also for the state files:
-
-    $ sudo --user git mkdir /home/git/checkouts
-    $ sudo --user git mkdir /home/git/state
-
-I’ll be using the repository `ruuda/bogus` in this example. On GitHub, add the
-bot account to this repository as a collaborator, to give it push access (and
-pull access in the case of a private repository). Note that after adding the bot
-as a collaborator, you need to accept the invitation from the bot account.
-(TODO: automate this via the API.)
-
-Now we can clone the repository on the server as the `git` user. I created a
-subdirectory per GitHub owner to avoid collisions when the server manages
-repositories for multiple owners.
-
-    $ sudo --user git mkdir /home/git/state/ruuda
-    $ sudo --user git mkdir /home/git/checkouts/ruuda
-    $ cd $_
-    $ sudo --user git HOME=/home/git git clone git@github.com:ruuda/bogus
-
-Accept the unknown host prompt (do [validate the fingerprints][fingerprints]).
-
-Finally, the daemon must be told about the repository in the config file:
-
-    $ sudo --edit /etc/hoff.json
+    {
+      "owner": "ruuda",
+      "repository": "bogus",
+      "branch": "master",
+      "testBranch": "testing",
+      "checkout": "/var/lib/hoff/checkouts/ruuda/bogus",
+      "stateFile": "/var/lib/hoff/state/ruuda/bogus.json",
+      "reviewers": ["ruuda"]
+    }
 
 The meaning of the fields is as follows:
 
- * *Owner*: The GitHub user or organization that owns the repository. In my
-   case `ruuda`.
+ * *Owner*: The GitHub user or organization that owns the repository.
+   In my case `ruuda`.
  * *Repository*: The GitHub repository to manage. In my case `bogus`.
  * *Branch*: The branch to integrate changes into. `master` in most cases.
  * *TestBranch*: The branch that changes are pushed to to trigger a CI build.
    The application will force-push to this branch, so it should not be used for
    other purposes. I used `testing`.
- * *Checkout*: The full path to the checkout. `/home/git/checkouts/ruuda/bogus`
-   in my case.
+ * *Checkout*: The full path to the checkout.
  * *StateFile*: The path to the file where the daemon saves its state, so it
-   can remember the set of open pull requests across restarts. I use
-   `/home/git/state/ruuda/bogus.json`. TODO: urge to back up this file regularly.
+   can remember the set of open pull requests across restarts. TODO: urge to
+   back up this file regularly.
 
-There are a few global options too:
+On GitHub, add the bot account to this repository as a collaborator, to give it
+push access (and pull access in the case of a private repository). Note that
+after adding the bot as a collaborator, you need to accept the invitation from
+the bot account. (TODO: automate this via the API.)
+
+When Hoff starts, it will clone the repository if it does not yet exist. It also
+creates the state file if it does not exist.
+
+## Global configuration
+
+There are a few global options in the config file too:
 
  * *Secret*: The secret used to verify the authenticity of GitHub webhooks.
    You can run `head --bytes 32 /dev/urandom | base64` to generate a secure
    256-bit secret that doesn’t require any character to be escaped in the json
    file.
+ * *AccessToken*: A GitHub API access token for the bot user. This is used to
+   leave comments on behalf of the bots.
  * *Port*: The port at which the webhook server is exposed. The systemd unit
    ensures that the daemon has permissions to run on priviliged ports (such as
    80 and 443) without having to run as root.
  * *TLS*: Can be used to make the server serve https instead of insecure http.
-   See the [TLS guide](tls.md) for more details.
+   See the [TLS guide](tls.md) for more details. Set to `null` to disable TLS.
+
+Finally, there is some Git config for the bot user, under the *user* key. *Name*
+and *email* are used for the Git committer metadata. *SshConfigFile* should
+point to `/etc/hoff/ssh_config` as [created previously](#setting-up-the-user).
 
 Restart the daemon to pick up the new configuration, and verify that it started
 properly:
@@ -179,8 +183,6 @@ the webhook was received:
 That’s it! You can now open a pull request and leave an LGTM comment to see the
 application in action. Remember to also set up a CI service like Travis CI to
 provide the build status updates.
-
-TODO: Proper usage manual.
 
 [fingerprints]: https://help.github.com/articles/github-s-ssh-key-fingerprints/
 [nix]:          https://nixos.org/nix

@@ -21,15 +21,16 @@ mkdir -p "$PKGNAME/DEBIAN"
 mkdir -p "$PKGNAME/etc/hoff"
 mkdir -p "$PKGNAME/lib/systemd/system"
 mkdir -p "$PKGNAME/usr/bin"
-mkdir -p "$PKGNAME/var/lib/hoff"
 cp "$(stack path --local-install-root)/bin/hoff" "$PKGNAME/usr/bin/"
-cp hoff.service "$PKGNAME/lib/systemd/system"
+cp hoff.service        "$PKGNAME/lib/systemd/system"
 cp example-config.json "$PKGNAME/etc/hoff/config.json"
+cp github-known-hosts  "$PKGNAME/etc/hoff/github-known-hosts"
 
 # All files are owned by root. The config file is world-readable, because the
 # daemon user needs to be able to read it.
 chown root:root "$PKGNAME/usr/bin/hoff"
 chown root:root "$PKGNAME/lib/systemd/system/hoff.service"
+chown root:root "$PKGNAME/etc/hoff/github-known-hosts"
 chown root:root "$PKGNAME/etc/hoff/config.json"
 chmod o+r       "$PKGNAME/etc/hoff/config.json"
 
