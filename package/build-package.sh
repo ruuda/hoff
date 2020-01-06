@@ -10,7 +10,7 @@ set -e
 
 if [ -z "$VERSION" ]; then
   echo '$VERSION must be set to build a package.'
-  exit -1
+  exit 1
 fi
 
 # Set package filename.
@@ -18,17 +18,21 @@ PKGNAME="hoff_$VERSION-1"
 
 # Recreate the file system layout as it should be on the target machine.
 mkdir -p "$PKGNAME/DEBIAN"
-mkdir -p "$PKGNAME/etc"
+mkdir -p "$PKGNAME/etc/hoff"
 mkdir -p "$PKGNAME/lib/systemd/system"
 mkdir -p "$PKGNAME/usr/bin"
 cp "$(stack path --local-install-root)/bin/hoff" "$PKGNAME/usr/bin/"
 cp hoff.service "$PKGNAME/lib/systemd/system"
-cp example-config.json "$PKGNAME/etc/hoff.json"
+cp example-config.json "$PKGNAME/etc/hoff/config.json"
+
+# Hash the config file. The postinst script uses this to determine whether it
+# needs to inform the user to update the config, after a new install.
+export EXAMPLE_CONFIG_SHA256=$(sha256sum example-config.json | cut --characters=1-64)
 
 # Write the package metadata file, substituting environment variables in the
 # template file.
-cat deb-control | envsubst > "$PKGNAME/DEBIAN/control"
-cp deb-postinst "$PKGNAME/DEBIAN/postinst"
+cat deb-control  | envsubst > "$PKGNAME/DEBIAN/control"
+cat deb-postinst | envsubst > "$PKGNAME/DEBIAN/postinst"
 cp deb-conffiles "$PKGNAME/DEBIAN/conffiles"
 chmod +x "$PKGNAME/DEBIAN/postinst"
 
