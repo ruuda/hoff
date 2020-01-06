@@ -7,6 +7,7 @@ in
       pkgs.dpkg
       pkgs.fakeroot
       pkgs.git
+      pkgs.shellcheck
       pkgs.stack
     ];
   }

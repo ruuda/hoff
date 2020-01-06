@@ -35,7 +35,10 @@ script:
   - stack --no-terminal build --split-objs
   - stack --no-terminal test --split-objs
 
-    # Match the licenses of dependencies agains a whitelist,
-    # and fail if anything is not whitelisted. Grep -v returns
-    # 1 if nothing matches, so we invert it with a ! prefix.
+  # Match the licenses of dependencies agains a whitelist,
+  # and fail if anything is not whitelisted. Grep -v returns
+  # 1 if nothing matches, so we invert it with a ! prefix.
   - "! stack ls dependencies --license | egrep -v 'Apache-2|BSD2|BSD3|MIT|PublicDomain'"
+
+  # Check shell scripts for issues.
+  - shellcheck package/*.sh package/deb-postinst

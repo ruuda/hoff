@@ -9,7 +9,7 @@
 set -e
 
 if [ -z "$VERSION" ]; then
-  echo '$VERSION must be set to build a package.'
+  echo 'VERSION must be set to build a package.'
   exit 1
 fi
 
@@ -36,12 +36,13 @@ chmod o+r       "$PKGNAME/etc/hoff/config.json"
 
 # Hash the config file. The postinst script uses this to determine whether it
 # needs to inform the user to update the config, after a new install.
-export EXAMPLE_CONFIG_SHA256=$(sha256sum example-config.json | cut --characters=1-64)
+EXAMPLE_CONFIG_SHA256=$(sha256sum example-config.json | cut --characters=1-64)
+export EXAMPLE_CONFIG_SHA256
 
 # Write the package metadata file, substituting environment variables in the
 # template file.
-cat deb-control  | envsubst > "$PKGNAME/DEBIAN/control"
-cat deb-postinst | envsubst > "$PKGNAME/DEBIAN/postinst"
+envsubst < deb-control  > "$PKGNAME/DEBIAN/control"
+envsubst < deb-postinst > "$PKGNAME/DEBIAN/postinst"
 cp deb-conffiles "$PKGNAME/DEBIAN/conffiles"
 chmod +x "$PKGNAME/DEBIAN/postinst"
 
