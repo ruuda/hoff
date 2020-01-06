@@ -403,9 +403,10 @@ main = hspec $ do
       -- serves two purposes: to test that loading a config file works, but
       -- mainly, to enforce that the example file is kept up to date.
       Right cfg <- Config.loadConfiguration "package/example-config.json"
-      Config.secret    cfg `shouldBe` "run 'head --bytes 32 /dev/urandom | base64' and paste output here"
-      Config.port      cfg `shouldBe` 1979
-      Config.tls       cfg `shouldSatisfy` isNothing
+      Config.secret      cfg `shouldBe` "run 'head --bytes 32 /dev/urandom | base64' and paste output here"
+      Config.accessToken cfg `shouldBe` "paste a personal access token for a bot user here"
+      Config.port        cfg `shouldBe` 1979
+      Config.tls         cfg `shouldSatisfy` isNothing
 
       let
         projects = Config.projects cfg
