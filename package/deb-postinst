@@ -1,7 +1,7 @@
-#!/bin/sh
+#!/bin/bash
 
 # Fail early if any of the commands below fail.
-set -e
+set -eo pipefail
 
 case "$1" in
   configure)

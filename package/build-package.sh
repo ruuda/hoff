@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # This script builds a .deb package from the binaries in the .stack-work
 # directory. It is intended to be run on a Debian-like system.
@@ -6,7 +6,7 @@
 #   Usage: VERSION=0.0.0 fakeroot ./build-package.sh
 
 # Fail early of any of the commands below fail.
-set -e
+set -eo pipefail
 
 if [ -z "$VERSION" ]; then
   echo 'VERSION must be set to build a package.'
