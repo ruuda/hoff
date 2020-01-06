@@ -8,8 +8,9 @@ AssertPathExists=/etc/hoff/config.json
 User=hoff
 Group=hoff
 
-# Allow binding to priviliged ports (e.g. 80 and 443) as non-root user.
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+# If you want to run Hoff without reverse proxy, you can enable the line below
+# to allow binding to priviliged ports (e.g. 80 and 443) as non-root user.
+# AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 # Do not allow processes to modify things that they should not be modifying.
 PrivateTmp=true
