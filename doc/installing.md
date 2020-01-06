@@ -96,10 +96,11 @@ Hoff writes two things to the file system per configured repository:
  * A checkout of the repository.
  * A state file, to persist the internal state (open issues, etc.).
 
-We store these in `/var/lib/hoff`, and we need to make that directory owned by
-the `hoff` user.
+A good place to store these is in `/var/lib/hoff`. The Debian package creates a
+`checkouts` and a `state` subdirectory there, owned by the `hoff` user so it can
+create files and subdirectories. We could also create them manually:
 
-    $ sudo mkdir -p /var/lib/hoff/{checkouts,state}
+    $ sudo mkdir --parents /var/lib/hoff/{checkouts,state}
     $ sudo chown hoff:hoff /var/lib/hoff/{checkouts,state}
 
 ## Adding a repostory

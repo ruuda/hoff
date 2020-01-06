@@ -10,6 +10,13 @@ case "$1" in
     # below. The user gets a corresponding group named 'hoff' too.
     adduser --system --group --no-create-home hoff
 
+    # Create state directories owned by the 'hoff' user.
+    mkdir --parents /var/lib/hoff/checkouts
+    chown hoff:hoff /var/lib/hoff/checkouts
+
+    mkdir --parents /var/lib/hoff/state
+    chown hoff:hoff /var/lib/hoff/state
+
     # If the config file has not been modified (when the checksum matches that
     # of the example), tell the user to do so. The sha256 of the example config
     # file is spliced in by build-package.sh.
