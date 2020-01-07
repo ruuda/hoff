@@ -291,10 +291,10 @@ withTestEnv' body = do
   -- change when rebased, and they do not depend on the current timestamp.
   -- (Commits do: the same rebase operation can produce commits with different
   -- shas depending on the time of the rebase.)
-  masterLog <- callGit ["-C", originDir, "log", "--format=%s", "master"]
+  masterLog <- callGit ["-C", originDir, "log", "--format=%s", "--graph", "master"]
   branchesRaw <- callGit ["-C", originDir, "branch", "--format=%(refname:short)"]
   let
-    commits = reverse $ fmap (Text.takeWhile (/= ':')) $ Text.lines masterLog
+    commits = fmap (Text.strip . Text.takeWhile (/= ':')) $ Text.lines masterLog
     branches = fmap Branch $ Text.lines branchesRaw
 
   makeWritableRecursive testDir
@@ -322,7 +322,13 @@ eventLoopSpec = parallel $ do
             Logic.CommentAdded pr4 "rachael" $ Text.pack $ "LGTM " ++ (show c4),
             Logic.BuildStatusChanged c4 BuildSucceeded
           ]
-      history `shouldBe` ["c0", "c1", "c2", "c3", "c4"]
+      history `shouldBe`
+        [ "* c4"
+        , "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
       -- The remote branch ("ahead") should also be deleted after a succesful
       -- promotion, but the other branches should be left untouched.
       branches `shouldMatchList`
@@ -351,7 +357,17 @@ eventLoopSpec = parallel $ do
         -- 'integration' branch. Tell that building it succeeded.
         void $ runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
 
-      history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6", "Merge #6"]
+      history `shouldBe`
+        [ "*   Merge #6"
+        , "|\\"
+        , "| * c6"
+        , "| * c5"
+        , "|/"
+        , "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
       -- The remote branch ("intro") should also be deleted after a succesful
       -- promotion, but the other branches should be left untouched.
       branches `shouldMatchList`
@@ -389,7 +405,18 @@ eventLoopSpec = parallel $ do
             Project.Integrated rebasedSha' = Project.integrationStatus pullRequest4
         void $ runLoop state' [Logic.BuildStatusChanged rebasedSha' BuildSucceeded]
 
-      history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6", "Merge #6", "c4"]
+      history `shouldBe`
+        [ "* c4"
+        , "*   Merge #6"
+        , "|\\"
+        , "| * c6"
+        , "| * c5"
+        , "|/"
+        , "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
 
     it "skips conflicted pull requests" $ do
       (history, branches) <- withTestEnv' $ \ shas runLoop _git -> do
@@ -424,7 +451,12 @@ eventLoopSpec = parallel $ do
 
       -- We did not send a build status notification for c4, so it should not
       -- have been integrated.
-      history `shouldBe` ["c0", "c1", "c2", "c3"]
+      history `shouldBe`
+        [ "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
       -- The conflicted branch should not have been deleted.
       branches `shouldContain` [Branch "alternative"]
 
@@ -467,7 +499,18 @@ eventLoopSpec = parallel $ do
         -- integrated properly, so there should not be a new candidate.
         Project.getIntegrationCandidate state'' `shouldBe` Nothing
 
-      history `shouldBe` ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "Merge #6"]
+      history `shouldBe`
+        [ "*   Merge #6"
+        , "|\\"
+        , "| * c6"
+        , "| * c5"
+        , "|/"
+        , "* c4"
+        , "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
       branches `shouldNotContain` [Branch "intro"]
 
     it "applies fixup commits during rebase, even if fast forward is possible" $ do
@@ -494,7 +537,19 @@ eventLoopSpec = parallel $ do
       -- now c8 is the last commit, and there are no others. Note that if the
       -- fixup had failed, there would be an extra commit, with fixup in the
       -- title.
-      history `shouldBe` ["c0", "c1", "c2", "c3", "c5", "c6", "c7", "c8", "Merge #8"]
+      history `shouldBe`
+        [ "*   Merge #8"
+        , "|\\"
+        , "| * c8"
+        , "| * c7"
+        , "| * c6"
+        , "| * c5"
+        , "|/"
+        , "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
 
     it "applies fixup commits during rebase, also if a push happened" $ do
       history <- withTestEnv $ \ shas runLoop git -> do
@@ -528,7 +583,20 @@ eventLoopSpec = parallel $ do
       -- We expect the fixup commit (which was last) to be squashed into c7, so
       -- now c8 is the last commit, and there are no others. This time c4 and c5
       -- are included too, because we manually pushed them.
-      history `shouldBe` ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "Merge #8"]
+      history `shouldBe`
+        [ "*   Merge #8"
+        , "|\\"
+        , "| * c8"
+        , "| * c7"
+        , "| * c6"
+        , "| * c5"
+        , "|/"
+        , "* c4"
+        , "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
 
     it "does not apply fixup commits if the commit to fix is not on the branch" $ do
       history <- withTestEnv $ \ shas runLoop git -> do
@@ -563,4 +631,13 @@ eventLoopSpec = parallel $ do
         Project.getIntegrationCandidate state' `shouldBe` Nothing
 
       -- Here we expect the fixup commit to linger behind.
-      history `shouldBe` ["c0", "c1", "c2", "c5", "c6", "c7", "c8", "fixup! c7"]
+      history `shouldBe`
+        [ "* fixup! c7"
+        , "* c8"
+        , "* c7"
+        , "* c6"
+        , "* c5"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
