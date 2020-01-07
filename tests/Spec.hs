@@ -403,9 +403,10 @@ main = hspec $ do
       -- serves two purposes: to test that loading a config file works, but
       -- mainly, to enforce that the example file is kept up to date.
       Right cfg <- Config.loadConfiguration "package/example-config.json"
-      Config.secret    cfg `shouldBe` "run 'head --bytes 32 /dev/urandom | base64' and paste output here"
-      Config.port      cfg `shouldBe` 443
-      Config.tls       cfg `shouldSatisfy` isNothing
+      Config.secret      cfg `shouldBe` "run 'head --bytes 32 /dev/urandom | base64' and paste output here"
+      Config.accessToken cfg `shouldBe` "paste a personal access token for a bot user here"
+      Config.port        cfg `shouldBe` 1979
+      Config.tls         cfg `shouldSatisfy` isNothing
 
       let
         projects = Config.projects cfg
@@ -416,13 +417,13 @@ main = hspec $ do
       Config.repository project `shouldBe` "your-repo"
       Config.branch     project `shouldBe` "master"
       Config.testBranch project `shouldBe` "testing"
-      Config.checkout   project `shouldBe` "/home/git/checkouts/your-username/your-repo"
+      Config.checkout   project `shouldBe` "/var/lib/hoff/checkouts/your-username/your-repo"
       Config.reviewers  project `shouldBe` ["your-github-username"]
-      Config.stateFile  project `shouldBe` "/home/git/state/your-username/your-repo.json"
+      Config.stateFile  project `shouldBe` "/var/lib/hoff/state/your-username/your-repo.json"
 
       Config.name user          `shouldBe` "CI Bot"
       Config.email user         `shouldBe` "cibot@example.com"
-      Config.sshConfigFile user `shouldBe` "/home/git/.ssh/config"
+      Config.sshConfigFile user `shouldBe` "/etc/hoff/ssh_config"
 
   describe "EventLoop.convertGithubEvent" $ do
 

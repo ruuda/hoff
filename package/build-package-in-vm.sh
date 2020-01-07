@@ -9,8 +9,8 @@
 set -e
 
 if [ -z "$VERSION" ]; then
-  echo '$VERSION must be set to build a package.'
-  exit -1
+  echo 'VERSION must be set to build a package.'
+  exit 1
 fi
 
 PKGFNAME="hoff_$VERSION-1.deb"
@@ -27,7 +27,7 @@ vagrant ssh -c "cd /vagrant/package && VERSION=$VERSION ./build-package.sh"
 # Pull the produced package from the virtual machine by catting it through ssh.
 # Only using cat caused corrupted files, likely due to encoding issues, and
 # transferring the data as base64 fixes that.
-vagrant ssh -c "cat /vagrant/package/$PKGFNAME | base64" | base64 --decode --ignore-garbage > $PKGFNAME
+vagrant ssh -c "cat /vagrant/package/$PKGFNAME | base64" | base64 --decode --ignore-garbage > "$PKGFNAME"
 
 # Power off the virtual machine, but do not destroy it. When using it next time
 # it will have the build tools and dependencies installed already, which will

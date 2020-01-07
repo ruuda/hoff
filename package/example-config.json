@@ -4,17 +4,17 @@
     "repository": "your-repo",
     "branch": "master",
     "testBranch": "testing",
-    "checkout": "/home/git/checkouts/your-username/your-repo",
-    "reviewers": ["your-github-username"],
-    "stateFile": "/home/git/state/your-username/your-repo.json"
+    "checkout": "/var/lib/hoff/checkouts/your-username/your-repo",
+    "stateFile": "/var/lib/hoff/state/your-username/your-repo.json",
+    "reviewers": ["your-github-username"]
   }],
   "secret": "run 'head --bytes 32 /dev/urandom | base64' and paste output here",
   "accessToken": "paste a personal access token for a bot user here",
-  "port": 443,
+  "port": 1979,
   "tls": null,
   "user": {
     "name": "CI Bot",
     "email": "cibot@example.com",
-    "sshConfigFile": "/home/git/.ssh/config"
+    "sshConfigFile": "/etc/hoff/ssh_config"
   }
 }

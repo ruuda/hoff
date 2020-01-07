@@ -5,59 +5,33 @@ Requires=network.target
 AssertPathExists=/etc/hoff/config.json
 
 [Service]
-RootImage=/home/ruud/hoff.img
-MountAPIVFS=true
-
-# Take hostname resolution config from the host system.
-BindReadOnlyPaths=/etc/resolv.conf
-
-# Bind the path on which systemd exposes the uid used to implement DynamicUser=.
-# libnss_systemd.so then reads this. Found through stracing "whoami".
-# Alternatively, /run/dbus/system_bus_socket can be exposed, but that would give
-# the guest access to the entire host dbus. Mounting only dynamic-uid seems to
-# be the safer option.
-BindReadOnlyPaths=/run/systemd/dynamic-uid
-
-# Or, in the absence of dynamic users, ordinary passwd.
-BindReadOnlyPaths=/etc/passwd /etc/group
-
-# Ensure that /lib/libnss_systemd.so can be loaded by glibc. This library is
-# used to implement the DynamicUser= feature.
-Environment=LD_LIBRARY_PATH=/lib
-
-# Make systemd allocate a user on the fly, so we don't have to create
-# one as part of an installation procedure.
 User=hoff
 Group=hoff
-# TODO(ruuda): Make it work later. For now, a user needs to be created as part
-# of installation.
-# DynamicUser=true
 
-# Allow binding to priviliged ports (e.g. 80 and 443) as non-root user.
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+# If you want to run Hoff without reverse proxy, you can enable the line below
+# to allow binding to priviliged ports (e.g. 80 and 443) as non-root user.
+# AmbientCapabilities=CAP_NET_BIND_SERVICE
 
-# Bind-mount /etc/hoff from the host (for config), /var/lib/hoff (for persisting
-# state) and /var/cache/hoff (for managing checkouts). We don't use
-# ProtectSystem or ProtectHome because the squashfs root filesystem is already
-# read-only.
-StateDirectory=hoff
-CacheDirectory=hoff
-ConfigurationDirectory=hoff
-
+# Do not allow processes to modify things that they should not be modifying.
 PrivateTmp=true
-# PrivateUsers=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 MemoryDenyWriteExecute=true
 
-# NOTE: PrivateDevices is not enabled for now due to a bug in systemd 239.
-# See https://github.com/systemd/systemd/9737. A fix has been merged, but
-# it is not clear what release will contain the fix.
-# PrivateDevices=true
+# Mount /usr, /boot, and /etc as read-only for the process and subprocesses.
+# This is contrast to =true, which would not protect /etc, or =strict, which
+# mounts more read-only, including /var which we need to be writable.
+ProtectSystem=full
 
 ExecStart=/usr/bin/hoff /etc/hoff/config.json
 Restart=on-failure
 RestartSec=10
+
+# The package provides a known-hosts file with GitHub's fingerprint. When
+# written to /etc/ssh/ssh_known_hosts, SSH will use it. But we don't want to
+# install it system-wide. So we install it in /etc/hoff, and bind-mount it into
+# place for this unit only.
+BindReadOnlyPaths=/etc/hoff/github-known-hosts:/etc/ssh/ssh_known_hosts
 
 [Install]
 WantedBy=multi-user.target

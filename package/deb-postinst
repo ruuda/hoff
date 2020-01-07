@@ -1,20 +1,27 @@
-#!/bin/sh
+#!/bin/bash
 
 # Fail early if any of the commands below fail.
-set -e
+set -eo pipefail
 
 case "$1" in
   configure)
 
-    # Create a 'git' user if it does not exist with
-    # the same parameters as below.
-    adduser --system git
+    # Create a 'hoff' user if it does not exist with the same parameters as
+    # below. The user gets a corresponding group named 'hoff' too.
+    adduser --system --group --no-create-home hoff
+
+    # Create state directories owned by the 'hoff' user.
+    mkdir --parents /var/lib/hoff/checkouts
+    chown hoff:hoff /var/lib/hoff/checkouts
+
+    mkdir --parents /var/lib/hoff/state
+    chown hoff:hoff /var/lib/hoff/state
 
     # If the config file has not been modified (when the checksum matches that
-    # of the example), tell the user to do so.
-    # TODO: Update that hash, and automate computing it.
-    if sha256sum /etc/hoff.json | grep -q "^e77f3fcf849fabe4ad6dbb3737e8a"; then
-        echo "You should now edit /etc/hoff.json."
+    # of the example), tell the user to do so. The sha256 of the example config
+    # file is spliced in by build-package.sh.
+    if sha256sum /etc/hoff/config.json | grep -q "^${EXAMPLE_CONFIG_SHA256}"; then
+        echo "You should now edit /etc/hoff/config.json."
     fi
 
   ;;
