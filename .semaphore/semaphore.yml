@@ -10,8 +10,11 @@ agent:
 blocks:
   - name: "Build"
     task:
+      secrets:
+        - name: "opsbot-github-key"
+
       jobs:
-        - name: "Build, test, package"
+        - name: "Build, test, package, ship"
           commands:
             - "checkout"
 
@@ -58,3 +61,6 @@ blocks:
 
             # Store the dependencies that Stack compiled for us.
             - "cache store stack-cache-$(checksum stack.yaml.lock)-$(checksum hoff.cabal) $HOME/.stack"
+
+            # Build a package and and ship it (ship only on a git tag build)
+            - "./package/build-and-ship-package-semaphore.sh"
