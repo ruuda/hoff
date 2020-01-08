@@ -66,6 +66,13 @@ data Configuration = Configuration
     -- The access token for the Github API, for leaving comments.
     accessToken :: Text,
 
+    -- When a comment with this prefix is left on a PR, that triggers the
+    -- remainder of the comment to be interpreted as a directive at the bot.
+    -- Usually this would be the Github username of the bot (including @)
+    -- followed by a space, e.g. "@hoffbot ", and the comment "@hoffbot merge"
+    -- would trigger a merge. The prefix is case-insensitive.
+    commentTriggerPrefix :: Text,
+
     -- The port to run the webserver on.
     port :: Int,
 
