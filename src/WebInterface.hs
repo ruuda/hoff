@@ -19,8 +19,8 @@ import Data.Text.Lazy (toStrict)
 import Prelude hiding (id, div, head, span)
 import Text.Blaze ((!), toValue)
 import Text.Blaze.Html.Renderer.Utf8
-import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, head, meta, p, span, title, toHtml)
-import Text.Blaze.Html5.Attributes (class_, charset, content, href, id, name)
+import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, head, link, meta, p, span, title, toHtml)
+import Text.Blaze.Html5.Attributes (class_, charset, content, href, id, name, rel)
 
 import qualified Data.ByteString.Lazy as LazyByteString
 import qualified Data.Text as Text
@@ -49,6 +49,7 @@ renderPage pageTitle bodyHtml = renderHtml $ docTypeHtml $ do
     meta ! name "viewport" ! content "width=device-width, initial-scale=1"
     meta ! name "robots" ! content "noindex, nofollow"
     title $ toHtml pageTitle
+    link ! rel "stylesheet" ! href "/style.css"
   body $
     div ! id "content" $
       bodyHtml
