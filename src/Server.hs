@@ -45,6 +45,7 @@ router
   -> ScottyM ()
 router infos ghSecret serveEnqueueEvent getProjectState = do
   get  "/"             $ serveIndex infos
+  get  "/style.css"    $ serveStyles
   post "/hook/github"  $ withSignatureCheck ghSecret $ serveGithubWebhook serveEnqueueEvent
   get  "/hook/github"  $ serveWebhookDocs
   get  "/:owner/:repo" $ serveWebInterface getProjectState
@@ -136,6 +137,11 @@ serveIndex infos = do
   setHeader "Content-Type" "text/html; charset=utf-8"
   let title = "Hoff"
   raw $ WebInterface.renderPage title $ WebInterface.viewIndex infos
+
+serveStyles :: ActionM ()
+serveStyles = do
+  setHeader "Content-Type" "text/css; charset=utf-8"
+  text $ LT.fromStrict WebInterface.stylesheet
 
 serveWebInterface :: (ProjectInfo -> Maybe (IO ProjectState)) -> ActionM ()
 serveWebInterface getProjectState = do

@@ -8,7 +8,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module WebInterface (renderPage, viewIndex, viewProject) where
+module WebInterface (renderPage, viewIndex, viewProject, stylesheet) where
 
 import Control.Monad (forM_, unless, void)
 import Data.FileEmbed (embedStringFile)
@@ -19,7 +19,7 @@ import Data.Text.Lazy (toStrict)
 import Prelude hiding (id, div, head, span)
 import Text.Blaze ((!), toValue)
 import Text.Blaze.Html.Renderer.Utf8
-import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, head, meta, p, span, style, title, toHtml)
+import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, head, meta, p, span, title, toHtml)
 import Text.Blaze.Html5.Attributes (class_, charset, content, href, id, name)
 
 import qualified Data.ByteString.Lazy as LazyByteString
@@ -49,7 +49,6 @@ renderPage pageTitle bodyHtml = renderHtml $ docTypeHtml $ do
     meta ! name "viewport" ! content "width=device-width, initial-scale=1"
     meta ! name "robots" ! content "noindex, nofollow"
     title $ toHtml pageTitle
-    style $ toHtml stylesheet
   body $
     div ! id "content" $
       bodyHtml
