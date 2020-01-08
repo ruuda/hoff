@@ -46,7 +46,7 @@ import Data.Functor.Sum (Sum (InL, InR))
 import qualified Data.Text as Text
 import qualified Data.Text.Format as Text
 
-import Configuration (Configuration, ProjectConfiguration)
+import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Git (Branch (..), GitOperation, GitOperationFree, PushResult (..), Sha (..))
 import GithubApi (GithubOperation, GithubOperationFree)
 import Project (BuildStatus (..))
@@ -194,16 +194,16 @@ readStateVar :: StateVar -> IO ProjectState
 readStateVar var = atomically $ readTMVar var
 
 handleEvent
-  :: Configuration
+  :: TriggerConfiguration
   -> ProjectConfiguration
   -> Event
   -> ProjectState
   -> Action ProjectState
-handleEvent config projectConfig event = case event of
+handleEvent triggerConfig projectConfig event = case event of
   PullRequestOpened pr branch sha title author -> handlePullRequestOpened pr branch sha title author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosed pr
-  CommentAdded pr author body     -> handleCommentAdded config projectConfig pr author body
+  CommentAdded pr author body     -> handleCommentAdded triggerConfig projectConfig pr author body
   BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
 
 handlePullRequestOpened
@@ -247,11 +247,11 @@ handlePullRequestClosed pr state = return $ Pr.deletePullRequest pr state {
 -- Returns whether the message is a command that instructs us to merge the PR.
 -- If the trigger prefix is "@hoffbot", a command "@hoffbot merge" would
 -- indicate approval.
-isMergeCommand :: Configuration -> Text -> Bool
+isMergeCommand :: TriggerConfiguration -> Text -> Bool
 isMergeCommand config message =
   let
     messageCaseFold = Text.toCaseFold $ Text.strip message
-    prefixCaseFold = Text.toCaseFold $ Config.commentTriggerPrefix config
+    prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
   in
     case Text.stripPrefix prefixCaseFold messageCaseFold of
       Just "merge"   -> True
@@ -262,19 +262,19 @@ isReviewer :: ProjectConfiguration -> Text -> Bool
 isReviewer config username = username `elem` (Config.reviewers config)
 
 handleCommentAdded
-  :: Configuration
+  :: TriggerConfiguration
   -> ProjectConfiguration
   -> PullRequestId
   -> Text -- TODO: Wrapper type for usernames.
   -> Text
   -> ProjectState
   -> Action ProjectState
-handleCommentAdded config projectConfig pr author body =
+handleCommentAdded triggerConfig projectConfig pr author body =
   let
     -- If the message was a valid merge command, then it was approved by the
     -- author of the message. Otherwise do nothing.
     update pullRequest =
-      if (isMergeCommand config body) && (isReviewer projectConfig author)
+      if (isMergeCommand triggerConfig body) && (isReviewer projectConfig author)
         then pullRequest { Pr.approvedBy = Just author }
         else pullRequest
   in

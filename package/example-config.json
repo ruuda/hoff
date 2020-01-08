@@ -16,5 +16,8 @@
     "name": "CI Bot",
     "email": "cibot@example.com",
     "sshConfigFile": "/etc/hoff/ssh_config"
+  },
+  "trigger": {
+    "commentPrefix": "@hoffbot "
   }
 }

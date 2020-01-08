@@ -12,6 +12,7 @@ module Configuration
   Configuration (..),
   ProjectConfiguration (..),
   TlsConfiguration (..),
+  TriggerConfiguration (..),
   UserConfiguration (..),
   loadConfiguration
 )
@@ -32,6 +33,17 @@ data ProjectConfiguration = ProjectConfiguration
     checkout   :: FilePath, -- The path to a local checkout of the repository.
     reviewers  :: [Text],   -- List of GitHub usernames that are allowed to approve.
     stateFile  :: FilePath  -- The file where project state is stored.
+  }
+  deriving (Generic)
+
+data TriggerConfiguration = TriggerConfiguration
+  {
+    -- When a comment with this prefix is left on a PR, that triggers the
+    -- remainder of the comment to be interpreted as a directive at the bot.
+    -- Usually this would be the Github username of the bot (including @)
+    -- followed by a space, e.g. "@hoffbot ", and the comment "@hoffbot merge"
+    -- would trigger a merge. The prefix is case-insensitive.
+    commentPrefix :: Text
   }
   deriving (Generic)
 
@@ -66,12 +78,8 @@ data Configuration = Configuration
     -- The access token for the Github API, for leaving comments.
     accessToken :: Text,
 
-    -- When a comment with this prefix is left on a PR, that triggers the
-    -- remainder of the comment to be interpreted as a directive at the bot.
-    -- Usually this would be the Github username of the bot (including @)
-    -- followed by a space, e.g. "@hoffbot ", and the comment "@hoffbot merge"
-    -- would trigger a merge. The prefix is case-insensitive.
-    commentTriggerPrefix :: Text,
+    -- Triggers that the bot may respond to.
+    trigger :: TriggerConfiguration,
 
     -- The port to run the webserver on.
     port :: Int,
@@ -87,6 +95,7 @@ data Configuration = Configuration
 instance FromJSON Configuration
 instance FromJSON ProjectConfiguration
 instance FromJSON TlsConfiguration
+instance FromJSON TriggerConfiguration
 instance FromJSON UserConfiguration
 
 -- Reads and parses the configuration. Returns Nothing if parsing failed, but
