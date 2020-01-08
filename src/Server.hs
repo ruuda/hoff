@@ -47,7 +47,7 @@ router infos ghSecret serveEnqueueEvent getProjectState = do
   get  "/"             $ serveIndex infos
   post "/hook/github"  $ withSignatureCheck ghSecret $ serveGithubWebhook serveEnqueueEvent
   get  "/hook/github"  $ serveWebhookDocs
-  get  "/:owner/:repo" $ serveWebInterface infos getProjectState
+  get  "/:owner/:repo" $ serveWebInterface getProjectState
   notFound             $ serveNotFound
 
 -- Checks the signature (encoded as hexadecimal characters in 'hexDigest') of
@@ -137,20 +137,16 @@ serveIndex infos = do
   let title = "Hoff"
   raw $ WebInterface.renderPage title $ WebInterface.viewIndex infos
 
-serveWebInterface :: [ProjectInfo]
-                  -> (ProjectInfo -> Maybe (IO ProjectState))
-                  -> ActionM ()
-serveWebInterface infos getProjectState = do
+serveWebInterface :: (ProjectInfo -> Maybe (IO ProjectState)) -> ActionM ()
+serveWebInterface getProjectState = do
   owner <- param "owner"
   repo  <- param "repo"
-  let
-    info = ProjectInfo owner repo
-    Just getState = getProjectState info
-  if not (info `elem` infos)
-    then do
+  let info = ProjectInfo owner repo
+  case getProjectState info of
+    Nothing -> do
       status notFound404
       text "not found"
-    else do
+    Just getState -> do
       state <- liftIO $ getState
       setHeader "Content-Type" "text/html; charset=utf-8"
       let title = Text.concat [owner, "/", repo]
