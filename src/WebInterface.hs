@@ -12,6 +12,7 @@ module WebInterface (renderPage, viewIndex, viewProject) where
 
 import Control.Monad (forM_, unless, void)
 import Data.FileEmbed (embedStringFile)
+import Data.Maybe (fromJust)
 import Data.Text (Text)
 import Data.Text.Format.Params (Params)
 import Data.Text.Lazy (toStrict)
@@ -167,6 +168,6 @@ viewList :: (ProjectInfo -> PullRequestId -> PullRequest -> Html)
          -> Html
 viewList view info state prIds = forM_ prIds $ \ prId ->
   let
-    Just pr = Project.lookupPullRequest prId state
+    pr = fromJust $ Project.lookupPullRequest prId state
   in
     p $ view info prId pr

@@ -118,8 +118,11 @@ withServer body = do
   let
     info = Project.ProjectInfo "deckard" "voight-kampff"
     tryEnqueue = Github.tryEnqueueEvent ghQueue
-    -- Fake the project state, always return the empty state.
-    getProjectState = const (Just (pure Project.emptyProjectState))
+    -- Fake the project state, always return the empty state,
+    -- if the project exists.
+    getProjectState forProject = if forProject == info
+      then Just $ pure Project.emptyProjectState
+      else Nothing
 
   -- Start the server on the test port, wait until it is ready to handle
   -- requests, and then run the body with access to the queue.
