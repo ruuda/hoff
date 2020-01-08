@@ -46,7 +46,7 @@ import Data.Functor.Sum (Sum (InL, InR))
 import qualified Data.Text as Text
 import qualified Data.Text.Format as Text
 
-import Configuration (ProjectConfiguration)
+import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Git (Branch (..), GitOperation, GitOperationFree, PushResult (..), Sha (..))
 import GithubApi (GithubOperation, GithubOperationFree)
 import Project (BuildStatus (..))
@@ -193,12 +193,17 @@ updateStateVar var state = void $ atomically $ swapTMVar var state
 readStateVar :: StateVar -> IO ProjectState
 readStateVar var = atomically $ readTMVar var
 
-handleEvent :: ProjectConfiguration -> Event -> ProjectState -> Action ProjectState
-handleEvent config event = case event of
+handleEvent
+  :: TriggerConfiguration
+  -> ProjectConfiguration
+  -> Event
+  -> ProjectState
+  -> Action ProjectState
+handleEvent triggerConfig projectConfig event = case event of
   PullRequestOpened pr branch sha title author -> handlePullRequestOpened pr branch sha title author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosed pr
-  CommentAdded pr author body     -> handleCommentAdded config pr author body
+  CommentAdded pr author body     -> handleCommentAdded triggerConfig projectConfig pr author body
   BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
 
 handlePullRequestOpened
@@ -239,32 +244,44 @@ handlePullRequestClosed pr state = return $ Pr.deletePullRequest pr state {
   Pr.integrationCandidate = mfilter (/= pr) $ Pr.integrationCandidate state
 }
 
--- Returns whether the message is an approval stamp for the given commit. The
--- message must have a format like "LGTM 3b77e3f", where the SHA must be a
--- prefix of the SHA to be tested, and it must be at least 7 characters long.
-isApproval :: Text -> Sha -> Bool
-isApproval message (Sha target) =
-  let isGood sha = (Text.length sha >= 7) && (sha `Text.isPrefixOf` target)
-  in case Text.words message of
-    [stamp, sha] -> (stamp == "LGTM") && (isGood sha)
-    _            -> False
+-- Returns whether the message is a command that instructs us to merge the PR.
+-- If the trigger prefix is "@hoffbot", a command "@hoffbot merge" would
+-- indicate approval.
+isMergeCommand :: TriggerConfiguration -> Text -> Bool
+isMergeCommand config message =
+  let
+    messageCaseFold = Text.toCaseFold $ Text.strip message
+    prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
+  in
+    case Text.stripPrefix prefixCaseFold messageCaseFold of
+      -- Note the space in front of the command. We opt to include the space
+      -- here, instead of making it part of the prefix, because having the
+      -- trailing space in config is something that is easy to get wrong.
+      Just " merge"   -> True
+      Just _otherCmd -> False -- Not a merge command.
+      Nothing        -> False -- Not a command at all.
 
 isReviewer :: ProjectConfiguration -> Text -> Bool
 isReviewer config username = username `elem` (Config.reviewers config)
 
-handleCommentAdded :: ProjectConfiguration
-                   -> PullRequestId
-                   -> Text -- TODO: Wrapper type for usernames.
-                   -> Text
-                   -> ProjectState
-                   -> Action ProjectState
-handleCommentAdded config pr author body = return . Pr.updatePullRequest pr update
-  -- If the message was a valid approval stamp for the sha of this pull request,
-  -- then it was approved by the author of the stamp. Otherwise do nothing.
-  where update pullRequest =
-          if (isApproval body $ Pr.sha pullRequest) && (isReviewer config author)
-            then pullRequest { Pr.approvedBy = Just author }
-            else pullRequest
+handleCommentAdded
+  :: TriggerConfiguration
+  -> ProjectConfiguration
+  -> PullRequestId
+  -> Text -- TODO: Wrapper type for usernames.
+  -> Text
+  -> ProjectState
+  -> Action ProjectState
+handleCommentAdded triggerConfig projectConfig pr author body =
+  let
+    -- If the message was a valid merge command, then it was approved by the
+    -- author of the message. Otherwise do nothing.
+    update pullRequest =
+      if (isMergeCommand triggerConfig body) && (isReviewer projectConfig author)
+        then pullRequest { Pr.approvedBy = Just author }
+        else pullRequest
+  in
+    pure . Pr.updatePullRequest pr update
 
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
 handleBuildStatusChanged buildSha newStatus state =

@@ -156,6 +156,10 @@ There are a few global options in the config file too:
    80 and 443) without having to run as root.
  * *TLS*: Can be used to make the server serve https instead of insecure http.
    See the [TLS guide](tls.md) for more details. Set to `null` to disable TLS.
+ * *Trigger.commentPrefix*: Specifies the prefix that makes Hoff interpret a
+   comment as a command directed at it. Setting this to the username of the bot
+   account makes for natural conversations on GitHub, but a different prefix
+   could be used too. In my case, I set it to `@hoffbot`.
 
 Finally, there is some Git config for the bot user, under the *user* key. *Name*
 and *email* are used for the Git committer metadata. *SshConfigFile* should

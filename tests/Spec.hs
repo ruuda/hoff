@@ -22,7 +22,6 @@ import Test.Hspec
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.UUID.V4 as Uuid
 
-import Configuration (ProjectConfiguration)
 import EventLoop (convertGithubEvent)
 import Git (Branch (..), PushResult(..), Sha (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
@@ -33,8 +32,14 @@ import qualified Configuration as Config
 import qualified Github
 import qualified Project
 
+-- Trigger config used throughout these tests.
+testTriggerConfig :: Config.TriggerConfiguration
+testTriggerConfig = Config.TriggerConfiguration {
+  Config.commentPrefix = "@bot"
+}
+
 -- Project config used throughout these tests.
-testProjectConfig :: ProjectConfiguration
+testProjectConfig :: Config.ProjectConfiguration
 testProjectConfig = Config.ProjectConfiguration {
   Config.owner      = "deckard",
   Config.repository = "voight-kampff",
@@ -97,13 +102,13 @@ getState = fst . runAction
 -- and return the new state.
 handleEventFlat :: Event -> ProjectState -> ProjectState
 handleEventFlat event state =
-  getState $ handleEvent testProjectConfig event state
+  getState $ handleEvent testTriggerConfig testProjectConfig event state
 
 -- Handle events and simulate their side effects, then ignore the side effects
 -- and return the new state.
 handleEventsFlat :: [Event] -> ProjectState -> ProjectState
 handleEventsFlat events state =
-  getState $ foldlM (flip $ handleEvent testProjectConfig) state events
+  getState $ foldlM (flip $ handleEvent testTriggerConfig testProjectConfig) state events
 
 -- Proceed with a state until a fixed point, simulate and collect the side
 -- effects.
@@ -177,38 +182,41 @@ main = hspec $ do
     it "sets approval after a stamp from a reviewer" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "toby"
           -- Note: "deckard" is marked as reviewer in the test config.
-          event  = CommentAdded (PullRequestId 1) "deckard" "LGTM 6412ef5"
+          event  = CommentAdded (PullRequestId 1) "deckard" "@bot merge"
           state' = handleEventFlat event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.approvedBy pr `shouldBe` Just "deckard"
 
     it "does not set approval after a stamp from a non-reviewer" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "toby"
-          -- Note: the comment is a valid LGTM stamp, but "rachael" is not
+          -- Note: the comment is a valid approval command, but "rachael" is not
           -- marked as reviewer in the test config.
-          event  = CommentAdded (PullRequestId 1) "rachael" "LGTM 6412ef5"
+          event  = CommentAdded (PullRequestId 1) "rachael" "@bot merge"
           state' = handleEventFlat event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.approvedBy pr `shouldBe` Nothing
 
-    it "does not set approval after a random comment" $ do
+    it "does not set approval after a comment with the wrong prefix" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "patrick"
-          -- Test coments with 2 words and more or less. (The stamp expects
-          -- exactly two words.)
-          event1 = CommentAdded (PullRequestId 1) "thomas" "We're up all night"
-          event2 = CommentAdded (PullRequestId 1) "guyman" "to get"
-          event3 = CommentAdded (PullRequestId 1) "thomas" "lucky."
-          state' = handleEventsFlat [event1, event2, event3] state
+          -- Note: "deckard" is marked as reviewer in the test config, but the
+          -- prefix is "@bot ", so none of the comments below should trigger approval.
+          event1 = CommentAdded (PullRequestId 1) "deckard" "@hoffbot merge"
+          event2 = CommentAdded (PullRequestId 1) "deckard" "LGTM :shipit:"
+          event3 = CommentAdded (PullRequestId 1) "deckard" "!merge"
+          -- In these cases, the prefix is correct, but the command is wrong.
+          event4 = CommentAdded (PullRequestId 1) "deckard" "@botmerge"
+          event5 = CommentAdded (PullRequestId 1) "deckard" "@bot, merge"
+          state' = handleEventsFlat [event1, event2, event3, event4, event5] state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.approvedBy pr `shouldBe` Nothing
 
-    it "requires a long enough sha for approval" $ do
+    it "accepts command comments case-insensitively" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
-          -- A 6-character sha is not long enough for approval.
-          event  = CommentAdded (PullRequestId 1) "richard" "LGTM 6412ef"
+          -- Note: "deckard" is marked as reviewer in the test config.
+          event  = CommentAdded (PullRequestId 1) "deckard" "@BoT MeRgE"
           state' = handleEventFlat event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approvedBy pr `shouldBe` Nothing
+      Project.approvedBy pr `shouldBe` Just "deckard"
 
     it "handles a build status change of the integration candidate" $ do
       let event  = BuildStatusChanged (Sha "84c") Project.BuildSucceeded
@@ -412,6 +420,7 @@ main = hspec $ do
         projects = Config.projects cfg
         project  = head projects
         user     = Config.user cfg
+        trigger  = Config.trigger cfg
 
       Config.owner      project `shouldBe` "your-github-username-or-organization"
       Config.repository project `shouldBe` "your-repo"
@@ -424,6 +433,8 @@ main = hspec $ do
       Config.name user          `shouldBe` "CI Bot"
       Config.email user         `shouldBe` "cibot@example.com"
       Config.sshConfigFile user `shouldBe` "/etc/hoff/ssh_config"
+
+      Config.commentPrefix trigger `shouldBe` "@hoffbot"
 
   describe "EventLoop.convertGithubEvent" $ do
 

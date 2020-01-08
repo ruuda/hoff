@@ -152,7 +152,7 @@ runLogicEventLoop appConfig userConfig projectConfig getNextEvent publish initia
       -- perform).
       logInfoN  $ Text.append "logic loop received event: " (Text.pack $ show event)
       logDebugN $ Text.append "state before: " (Text.pack $ show state0)
-      state1 <- runAll $ runAction $ Logic.handleEvent projectConfig event state0
+      state1 <- runAll $ runAction $ Logic.handleEvent (Config.trigger appConfig) projectConfig event state0
       state2 <- runAll $ runAction $ Logic.proceedUntilFixedPoint state1
       publish state2
       logDebugN $ Text.append "state after: " (Text.pack $ show state2)

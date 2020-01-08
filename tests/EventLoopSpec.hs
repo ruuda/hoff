@@ -29,7 +29,7 @@ import Test.Hspec
 import qualified Data.UUID.V4 as Uuid
 import qualified System.Directory as FileSystem
 
-import Configuration (Configuration, ProjectConfiguration, UserConfiguration)
+import Configuration (Configuration, ProjectConfiguration, UserConfiguration, TriggerConfiguration)
 import Git (Branch (..), Sha (..))
 import Project (BuildStatus (..), IntegrationStatus (..), ProjectState, PullRequestId (..))
 
@@ -181,12 +181,19 @@ userConfig = Config.UserConfiguration {
   Config.sshConfigFile = "/outerspace/.ssh/config"
 }
 
+-- Dummy trigger configuration used in the test environment.
+triggerConfig :: TriggerConfiguration
+triggerConfig = Config.TriggerConfiguration {
+  Config.commentPrefix = "@bot"
+}
+
 -- Dummy app configuration used in the test environment.
 appConfig :: Configuration
 appConfig = Config.Configuration
   { Config.projects = []
   , Config.secret = ""
   , Config.accessToken = ""
+  , Config.trigger = triggerConfig
   , Config.port = 0
   , Config.tls = Nothing
   , Config.user = userConfig
@@ -319,7 +326,7 @@ eventLoopSpec = parallel $ do
         void $ runLoop Project.emptyProjectState
           [
             Logic.PullRequestOpened pr4 branch c4 "Add Leon test results" "deckard",
-            Logic.CommentAdded pr4 "rachael" $ Text.pack $ "LGTM " ++ (show c4),
+            Logic.CommentAdded pr4 "rachael" "@bot merge",
             Logic.BuildStatusChanged c4 BuildSucceeded
           ]
       history `shouldBe`
@@ -346,7 +353,7 @@ eventLoopSpec = parallel $ do
         state <- runLoop Project.emptyProjectState
           [
             Logic.PullRequestOpened pr6 branch c6 "Add Leon test results" "deckard",
-            Logic.CommentAdded pr6 "rachael" $ Text.pack $ "LGTM " ++ (show c6)
+            Logic.CommentAdded pr6 "rachael" "@bot merge"
           ]
 
         -- Extract the sha of the rebased commit from the project state.
@@ -387,8 +394,8 @@ eventLoopSpec = parallel $ do
             Logic.PullRequestOpened pr6 br6 c6 "Add Rachael test results" "deckard",
             -- Note that although c4 has a lower pull request number, c6 should
             -- still be integrated first because it was approved earlier.
-            Logic.CommentAdded pr6 "rachael" $ Text.pack $ "LGTM " ++ (show c6),
-            Logic.CommentAdded pr4 "rachael" $ Text.pack $ "LGTM " ++ (show c4)
+            Logic.CommentAdded pr6 "rachael" "@bot merge",
+            Logic.CommentAdded pr4 "rachael" "@bot merge"
           ]
 
         -- Extract the sha of the rebased commit from the project state.
@@ -432,8 +439,8 @@ eventLoopSpec = parallel $ do
           [
             Logic.PullRequestOpened pr3 br3 c3' "Add Leon test results" "deckard",
             Logic.PullRequestOpened pr4 br4 c4 "Add Rachael test results" "deckard",
-            Logic.CommentAdded pr3 "rachael" $ Text.pack $ "LGTM " ++ (show c3'),
-            Logic.CommentAdded pr4 "rachael" $ Text.pack $ "LGTM " ++ (show c4)
+            Logic.CommentAdded pr3 "rachael" "@bot merge",
+            Logic.CommentAdded pr4 "rachael" "@bot merge"
           ]
 
         -- The first pull request should be marked as conflicted. Note: this
@@ -470,7 +477,7 @@ eventLoopSpec = parallel $ do
         state <- runLoop Project.emptyProjectState
           [
             Logic.PullRequestOpened pr6 branch c6 "Add test results" "deckard",
-            Logic.CommentAdded pr6 "rachael" $ Text.pack $ "LGTM " ++ (show c6)
+            Logic.CommentAdded pr6 "rachael" "@bot merge"
           ]
 
         -- At this point, c6 has been rebased and pushed to the "integration"
@@ -523,7 +530,7 @@ eventLoopSpec = parallel $ do
         state <- runLoop Project.emptyProjectState
           [
             Logic.PullRequestOpened pr8 branch c7f "Add test results" "deckard",
-            Logic.CommentAdded pr8 "rachael" $ Text.pack $ "LGTM " ++ (show c7f)
+            Logic.CommentAdded pr8 "rachael" "@bot merge"
           ]
 
         -- Extract the sha of the rebased commit from the project state, and
@@ -561,7 +568,7 @@ eventLoopSpec = parallel $ do
         state <- runLoop Project.emptyProjectState
           [
             Logic.PullRequestOpened pr8 branch c7f "Add test results" "deckard",
-            Logic.CommentAdded pr8 "rachael" $ Text.pack $ "LGTM " ++ (show c7f)
+            Logic.CommentAdded pr8 "rachael" "@bot merge"
           ]
 
         git ["fetch", "origin", "ahead"] -- The ref for commit c4.
@@ -616,7 +623,7 @@ eventLoopSpec = parallel $ do
         state <- runLoop Project.emptyProjectState
           [
             Logic.PullRequestOpened pr8 branch c7f "Add test results" "deckard",
-            Logic.CommentAdded pr8 "rachael" $ Text.pack $ "LGTM " ++ (show c7f)
+            Logic.CommentAdded pr8 "rachael" "@bot merge"
           ]
 
         -- Extract the sha of the rebased commit from the project state, and
