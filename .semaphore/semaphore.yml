@@ -15,6 +15,10 @@ blocks:
           commands:
             - "checkout"
 
+            # Install Nix and source the shell configuration immediately.
+            - "./nix/install"
+            - ". $HOME/.nix-profile/etc/profile.d/nix.sh"
+
             # Bring all the tools from the pinned build environment into the PATH.
             - "export PATH=$(nix-build --no-out-link default.nix)/bin:$PATH"
 
