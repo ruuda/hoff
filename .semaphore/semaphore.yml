@@ -15,6 +15,16 @@ blocks:
           commands:
             - "checkout"
 
+            # Restore `/nix` cache. Create the directory first, otherwise we encounter
+            # permission errors. We do this because the Semaphore cache is faster than
+            # both Cachix and cache.nixos.org.
+            - "sudo mkdir /nix"
+            - "sudo chown -R semaphore:semaphore /nix"
+            - "cache restore nix-store-"
+
+            # Restore any stack cache that we can find.
+            - "cache store stack-cache-"
+
             # Install Nix and source the shell configuration immediately.
             - "./nix/install"
             - ". $HOME/.nix-profile/etc/profile.d/nix.sh"
@@ -31,7 +41,6 @@ blocks:
             - "stack --no-terminal build --split-objs"
             - "stack --no-terminal test --split-objs"
 
-
             # Match the licenses of dependencies agains a whitelist, and fail
             # if anything is not whitelisted. Grep -v returns # 1 if nothing
             # matches, so we invert it with a ! prefix.  The "unexceptionalio"
@@ -42,3 +51,10 @@ blocks:
 
             # Check shell scripts for issues.
             - "shellcheck package/*.sh package/deb-postinst"
+
+            # Store a copy of the nix store. This will be refreshed daily, which
+            # is more than sufficient for this repo.
+            - "cache store nix-store-$(date -u -Idate) /nix"
+
+            # Store the dependencies that Stack compiled for us.
+            - "cache store stack-cache-$(checksum stack.yaml)-$(checksum hoff.cabal) $HOME/.stack"
