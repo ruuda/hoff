@@ -35,7 +35,7 @@ import qualified Project
 -- Trigger config used throughout these tests.
 testTriggerConfig :: Config.TriggerConfiguration
 testTriggerConfig = Config.TriggerConfiguration {
-  Config.commentPrefix = "@bot "
+  Config.commentPrefix = "@bot"
 }
 
 -- Project config used throughout these tests.
@@ -434,7 +434,7 @@ main = hspec $ do
       Config.email user         `shouldBe` "cibot@example.com"
       Config.sshConfigFile user `shouldBe` "/etc/hoff/ssh_config"
 
-      Config.commentPrefix trigger `shouldBe` "@hoffbot "
+      Config.commentPrefix trigger `shouldBe` "@hoffbot"
 
   describe "EventLoop.convertGithubEvent" $ do
 

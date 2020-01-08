@@ -40,9 +40,9 @@ data TriggerConfiguration = TriggerConfiguration
   {
     -- When a comment with this prefix is left on a PR, that triggers the
     -- remainder of the comment to be interpreted as a directive at the bot.
-    -- Usually this would be the Github username of the bot (including @)
-    -- followed by a space, e.g. "@hoffbot ", and the comment "@hoffbot merge"
-    -- would trigger a merge. The prefix is case-insensitive.
+    -- Usually this would be the Github username of the bot (including @ but not
+    -- a space), e.g. "@hoffbot", and the comment "@hoffbot merge" would trigger
+    -- a merge. The prefix is case-insensitive.
     commentPrefix :: Text
   }
   deriving (Generic)

@@ -184,7 +184,7 @@ userConfig = Config.UserConfiguration {
 -- Dummy trigger configuration used in the test environment.
 triggerConfig :: TriggerConfiguration
 triggerConfig = Config.TriggerConfiguration {
-  Config.commentPrefix = "@bot "
+  Config.commentPrefix = "@bot"
 }
 
 -- Dummy app configuration used in the test environment.

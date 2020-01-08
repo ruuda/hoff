@@ -254,7 +254,10 @@ isMergeCommand config message =
     prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
   in
     case Text.stripPrefix prefixCaseFold messageCaseFold of
-      Just "merge"   -> True
+      -- Note the space in front of the command. We opt to include the space
+      -- here, instead of making it part of the prefix, because having the
+      -- trailing space in config is something that is easy to get wrong.
+      Just " merge"   -> True
       Just _otherCmd -> False -- Not a merge command.
       Nothing        -> False -- Not a command at all.
 
