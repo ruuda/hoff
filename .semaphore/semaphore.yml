@@ -23,7 +23,7 @@ blocks:
             - "cache restore nix-store-"
 
             # Restore any stack cache that we can find.
-            - "cache store stack-cache-"
+            - "cache restore stack-cache-"
 
             # Install Nix and source the shell configuration immediately.
             - "./nix/install"
