@@ -164,9 +164,9 @@ main = hspec $ do
           state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "000") "cindy"
           state1 = Project.setApproval (PullRequestId 1) (Just "daniel") state0
           state2 = Project.setBuildStatus (PullRequestId 1) Project.BuildPending state1
-          state3 = fst $ handleEventFlat event state2
+          (state3, actions) = handleEventFlat event state2
       state3 `shouldBe` state2
-      -- TODO: Also assert that no actions are performed.
+      actions `shouldBe` []
 
     it "sets approval after a stamp from a reviewer" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "toby"
@@ -225,6 +225,16 @@ main = hspec $ do
       -- only the build status of the integration candidate can be changed.
       Project.buildStatus pr1 `shouldBe` Project.BuildNotStarted
       Project.buildStatus pr2 `shouldBe` Project.BuildNotStarted
+
+    it "only checks if a comment author is a reviewer for comment commands" $ do
+      let
+        state = candidateState (PullRequestId 1) (Branch "p") (Sha "a38") "tyrell" (Sha "84c")
+        event0 = CommentAdded (PullRequestId 1) "deckard" "I don't get it, Tyrell"
+        event1 = CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+        actions0 = snd $ handleEventFlat event0 state
+        actions1 = snd $ handleEventFlat event1 state
+      actions0 `shouldBe` []
+      actions1 `shouldBe` [AIsReviewer "deckard"]
 
   describe "Logic.proceedUntilFixedPoint" $ do
 
