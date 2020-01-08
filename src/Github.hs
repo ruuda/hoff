@@ -31,6 +31,7 @@ import Data.Aeson.Types (Parser, typeMismatch)
 import Data.Text (Text)
 import Git (Sha (..), Branch (..))
 import Project (ProjectInfo (..))
+import Types (Username)
 
 data PullRequestAction
   = Opened
@@ -54,22 +55,22 @@ data CommitStatus
 
 data PullRequestPayload = PullRequestPayload {
   action     :: PullRequestAction, -- Corresponds to "action".
-  owner      :: Text,   -- Corresponds to "pull_request.base.repo.owner.login".
-  repository :: Text,   -- Corresponds to "pull_request.base.repo.name".
-  number     :: Int,    -- Corresponds to "pull_request.number".
-  branch     :: Branch, -- Corresponds to "pull_request.head.ref".
-  sha        :: Sha,    -- Corresponds to "pull_request.head.sha".
-  title      :: Text,   -- Corresponds to "pull_request.title".
-  author     :: Text    -- Corresponds to "pull_request.user.login".
+  owner      :: Text,     -- Corresponds to "pull_request.base.repo.owner.login".
+  repository :: Text,     -- Corresponds to "pull_request.base.repo.name".
+  number     :: Int,      -- Corresponds to "pull_request.number".
+  branch     :: Branch,   -- Corresponds to "pull_request.head.ref".
+  sha        :: Sha,      -- Corresponds to "pull_request.head.sha".
+  title      :: Text,     -- Corresponds to "pull_request.title".
+  author     :: Username  -- Corresponds to "pull_request.user.login".
 } deriving (Eq, Show)
 
 data CommentPayload = CommentPayload {
   action     :: CommentAction, -- Corresponds to "action".
-  owner      :: Text, -- Corresponds to "repository.owner.login".
-  repository :: Text, -- Corresponds to "repository.name".
-  number     :: Int,  -- Corresponds to "issue.number".
-  author     :: Text, -- Corresponds to "sender.login".
-  body       :: Text  -- Corresponds to "comment.body".
+  owner      :: Text,     -- Corresponds to "repository.owner.login".
+  repository :: Text,     -- Corresponds to "repository.name".
+  number     :: Int,      -- Corresponds to "issue.number".
+  author     :: Username, -- Corresponds to "sender.login".
+  body       :: Text      -- Corresponds to "comment.body".
 } deriving (Eq, Show)
 
 data CommitStatusPayload = CommitStatusPayload {

@@ -47,7 +47,7 @@ eventFromPullRequestPayload payload =
   let
     number = Github.number (payload :: PullRequestPayload) -- TODO: Use PullRequestId wrapper from beginning.
     title  = Github.title  (payload :: PullRequestPayload)
-    author = Github.author (payload :: PullRequestPayload) -- TODO: Wrapper type
+    author = Github.author (payload :: PullRequestPayload)
     branch = Github.branch (payload :: PullRequestPayload)
     sha    = Github.sha    (payload :: PullRequestPayload)
   in

@@ -26,7 +26,8 @@ import EventLoop (convertGithubEvent)
 import Git (Branch (..), PushResult(..), Sha (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
 import Logic hiding (runAction)
-import Project (ProjectState (ProjectState), PullRequest (PullRequest), PullRequestId (PullRequestId))
+import Project (ProjectState (ProjectState), PullRequest (PullRequest))
+import Types (PullRequestId (..), Username (..))
 
 import qualified Configuration as Config
 import qualified Github
@@ -52,12 +53,12 @@ testProjectConfig = Config.ProjectConfiguration {
 
 -- Functions to prepare certain test states.
 
-singlePullRequestState :: PullRequestId -> Branch -> Sha -> Text -> ProjectState
+singlePullRequestState :: PullRequestId -> Branch -> Sha -> Username -> ProjectState
 singlePullRequestState pr prBranch prSha prAuthor =
   let event = PullRequestOpened pr prBranch prSha "Untitled" prAuthor
   in  handleEventFlat event Project.emptyProjectState
 
-candidateState :: PullRequestId -> Branch -> Sha -> Text -> Sha -> ProjectState
+candidateState :: PullRequestId -> Branch -> Sha -> Username -> Sha -> ProjectState
 candidateState pr prBranch prSha prAuthor candidateSha =
   let state0 = singlePullRequestState pr prBranch prSha prAuthor
       state1 = Project.setIntegrationStatus pr (Project.Integrated candidateSha) state0

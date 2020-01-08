@@ -37,8 +37,7 @@ module Project
 )
 where
 
-import Data.Aeson
-import Data.Aeson.Encode.Pretty (encodePretty)
+import Data.Aeson (FromJSON, ToJSON)
 import Data.ByteString (readFile)
 import Data.ByteString.Lazy (writeFile)
 import Data.IntMap.Strict (IntMap)
@@ -50,11 +49,11 @@ import Git (Branch (..), Sha (..))
 import Prelude hiding (readFile, writeFile)
 import System.Directory (renameFile)
 
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.IntMap.Strict as IntMap
 
--- TODO: Move to Github module?
--- A pull request is identified by its number.
-data PullRequestId = PullRequestId Int deriving (Eq, Show, Generic)
+import Types (PullRequestId (..), Username)
 
 data BuildStatus
   = BuildNotStarted
@@ -83,14 +82,13 @@ data PullRequestStatus
   deriving (Eq)
 
 data PullRequest = PullRequest
-  {
-    sha               :: Sha,
-    branch            :: Branch,
-    title             :: Text,
-    author            :: Text,
-    approvedBy        :: Maybe Text,
-    buildStatus       :: BuildStatus,
-    integrationStatus :: IntegrationStatus
+  { sha               :: Sha
+  , branch            :: Branch
+  , title             :: Text
+  , author            :: Username
+  , approvedBy        :: Maybe Username
+  , buildStatus       :: BuildStatus
+  , integrationStatus :: IntegrationStatus
   }
   deriving (Eq, Show, Generic)
 
@@ -116,25 +114,23 @@ instance FromJSON BuildStatus
 instance FromJSON IntegrationStatus
 instance FromJSON ProjectState
 instance FromJSON PullRequest
-instance FromJSON PullRequestId
 
-instance ToJSON BuildStatus where toEncoding = genericToEncoding defaultOptions
-instance ToJSON IntegrationStatus where toEncoding = genericToEncoding defaultOptions
-instance ToJSON ProjectState where toEncoding = genericToEncoding defaultOptions
-instance ToJSON PullRequest where toEncoding = genericToEncoding defaultOptions
-instance ToJSON PullRequestId where toEncoding = genericToEncoding defaultOptions
+instance ToJSON BuildStatus where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
+instance ToJSON IntegrationStatus where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
+instance ToJSON ProjectState where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
+instance ToJSON PullRequest where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 
 -- Reads and parses the state. Returns Nothing if parsing failed, but crashes if
 -- the file could not be read.
 loadProjectState :: FilePath -> IO (Maybe ProjectState)
-loadProjectState = fmap decodeStrict' . readFile
+loadProjectState = fmap Aeson.decodeStrict' . readFile
 
 saveProjectState :: FilePath -> ProjectState -> IO ()
 saveProjectState fname state = do
   -- First write the file entirely, afterwards atomically move the new file over
   -- the old one. This way, the state file is never incomplete if the
   -- application is killed or crashes during a write.
-  writeFile (fname ++ ".new") $ encodePretty state
+  writeFile (fname ++ ".new") $ Aeson.encodePretty state
   renameFile (fname ++ ".new") fname
 
 emptyProjectState :: ProjectState
@@ -150,7 +146,7 @@ insertPullRequest
   -> Branch
   -> Sha
   -> Text
-  -> Text
+  -> Username
   -> ProjectState
   -> ProjectState
 insertPullRequest (PullRequestId n) prBranch prSha prTitle prAuthor state =
@@ -185,7 +181,7 @@ updatePullRequest (PullRequestId n) f state = state {
 }
 
 -- Marks the pull request as approved by somebody or nobody.
-setApproval :: PullRequestId -> Maybe Text -> ProjectState -> ProjectState
+setApproval :: PullRequestId -> Maybe Username -> ProjectState -> ProjectState
 setApproval pr newApprovedBy = updatePullRequest pr changeApproval
   where changeApproval pullRequest = pullRequest { approvedBy = newApprovedBy }
 

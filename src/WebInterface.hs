@@ -26,7 +26,8 @@ import qualified Data.ByteString.Lazy as LazyByteString
 import qualified Data.Text as Text
 import qualified Data.Text.Format as Text
 
-import Project (ProjectInfo, ProjectState, PullRequest, PullRequestId (..))
+import Project (ProjectInfo, ProjectState, PullRequest)
+import Types (PullRequestId (..), Username (..))
 
 import qualified Project
 
@@ -147,7 +148,7 @@ viewPullRequestWithApproval :: ProjectInfo -> PullRequestId -> PullRequest -> Ht
 viewPullRequestWithApproval info prId pullRequest = do
   viewPullRequest info prId pullRequest
   case Project.approvedBy pullRequest of
-    Just username ->
+    Just (Username username) ->
       span ! class_ "review" $ do
         void "Approved by "
         -- TODO: Link to approval comment, not just username.

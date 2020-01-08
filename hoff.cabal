@@ -26,6 +26,7 @@ library
                  , Logic
                  , Project
                  , Server
+                 , Types
                  , WebInterface
 
   build-depends: aeson             >= 1.1  && < 1.2

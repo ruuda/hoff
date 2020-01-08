@@ -53,7 +53,7 @@ import Project (BuildStatus (..))
 import Project (IntegrationStatus (..))
 import Project (ProjectState)
 import Project (PullRequest)
-import Project (PullRequestId (..))
+import Types (PullRequestId (..), Username (..))
 
 import qualified Git
 import qualified GithubApi
@@ -150,13 +150,13 @@ ensureCloned config =
 
 data Event
   -- GitHub events
-  = PullRequestOpened PullRequestId Branch Sha Text Text -- PR, branch, sha, title, author.
+  = PullRequestOpened PullRequestId Branch Sha Text Username -- PR, branch, sha, title, author.
   -- The commit changed event may contain false positives: it may be received
   -- even if the commit did not really change. This is because GitHub just
   -- sends a "something changed" event along with the new state.
   | PullRequestCommitChanged PullRequestId Sha -- PR, new sha.
   | PullRequestClosed PullRequestId            -- PR.
-  | CommentAdded PullRequestId Text Text       -- PR, author and body.
+  | CommentAdded PullRequestId Username Text   -- PR, author and body.
   -- CI events
   | BuildStatusChanged Sha BuildStatus
   deriving (Eq, Show)
@@ -211,7 +211,7 @@ handlePullRequestOpened
   -> Branch
   -> Sha
   -> Text
-  -> Text
+  -> Username
   -> ProjectState
   -> Action ProjectState
 handlePullRequestOpened pr branch sha title author =
@@ -261,14 +261,14 @@ isMergeCommand config message =
       Just _otherCmd -> False -- Not a merge command.
       Nothing        -> False -- Not a command at all.
 
-isReviewer :: ProjectConfiguration -> Text -> Bool
+isReviewer :: ProjectConfiguration -> Username -> Bool
 isReviewer config username = username `elem` (Config.reviewers config)
 
 handleCommentAdded
   :: TriggerConfiguration
   -> ProjectConfiguration
   -> PullRequestId
-  -> Text -- TODO: Wrapper type for usernames.
+  -> Username
   -> Text
   -> ProjectState
   -> Action ProjectState
@@ -344,7 +344,7 @@ tryIntegratePullRequest pr state =
   let
     PullRequestId prNumber = pr
     pullRequest  = fromJust $ Pr.lookupPullRequest pr state
-    approvedBy   = fromJust $ Pr.approvedBy pullRequest
+    Username approvedBy = fromJust $ Pr.approvedBy pullRequest
     candidateSha = Pr.sha pullRequest
     candidateRef = getPullRequestRef pr
     candidate = (candidateRef, candidateSha)
