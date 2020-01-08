@@ -57,4 +57,4 @@ blocks:
             - "cache store nix-store-$(date -u -Idate) /nix"
 
             # Store the dependencies that Stack compiled for us.
-            - "cache store stack-cache-$(checksum stack.yaml)-$(checksum hoff.cabal) $HOME/.stack"
+            - "cache store stack-cache-$(checksum stack.yaml.lock)-$(checksum hoff.cabal) $HOME/.stack"
