@@ -48,11 +48,15 @@ stylesheet = $(embedStringFile "static/style.css")
 stylesheetDigest :: Digest SHA256
 stylesheetDigest = hash $ encodeUtf8 stylesheet
 
+-- Render a digest to a text in a given base.
+showAs :: Base -> Digest a -> Text
+showAs base = decodeUtf8 . convertToBase base
+
 stylesheetUrlDigest :: Text
-stylesheetUrlDigest = decodeUtf8 $ convertToBase Base64URLUnpadded stylesheetDigest
+stylesheetUrlDigest = showAs Base64URLUnpadded stylesheetDigest
 
 stylesheetBase64Digest :: Text
-stylesheetBase64Digest = decodeUtf8 $ convertToBase Base64 stylesheetDigest
+stylesheetBase64Digest = showAs Base64 stylesheetDigest
 
 -- URL to host the stylesheet at. Including a digest in this URL means we
 -- can set the @Cache-Control: immutable@ header to facilitate caching.
