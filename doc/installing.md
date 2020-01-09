@@ -115,8 +115,7 @@ the config file (e.g. with `sudo --edit /etc/hoff/config.json`):
       "branch": "master",
       "testBranch": "testing",
       "checkout": "/var/lib/hoff/checkouts/ruuda/bogus",
-      "stateFile": "/var/lib/hoff/state/ruuda/bogus.json",
-      "reviewers": ["ruuda"]
+      "stateFile": "/var/lib/hoff/state/ruuda/bogus.json"
     }
 
 The meaning of the fields is as follows:

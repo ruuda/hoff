@@ -426,7 +426,6 @@ main = hspec $ do
       Config.branch     project `shouldBe` "master"
       Config.testBranch project `shouldBe` "testing"
       Config.checkout   project `shouldBe` "/var/lib/hoff/checkouts/your-username/your-repo"
-      Config.reviewers  project `shouldBe` ["your-github-username"]
       Config.stateFile  project `shouldBe` "/var/lib/hoff/state/your-username/your-repo.json"
 
       Config.name user          `shouldBe` "CI Bot"

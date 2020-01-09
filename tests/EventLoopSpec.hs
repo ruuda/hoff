@@ -171,7 +171,6 @@ buildProjectConfig repoDir stateFile = Config.ProjectConfiguration {
   Config.branch     = "master",
   Config.testBranch = "integration",
   Config.checkout   = repoDir,
-  Config.reviewers  = ["rachael", "deckard"],
   Config.stateFile  = stateFile
 }
 
