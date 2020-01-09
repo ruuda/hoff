@@ -135,9 +135,9 @@ runAction config action =
       doGithub $ GithubApi.leaveComment pr body
       continueWith cont
 
-    Free (IsReviewer _username cont) -> do
-      -- TODO: Query Github API.
-      continueWith $ cont False
+    Free (IsReviewer username cont) -> do
+      hasPushAccess <- doGithub $ GithubApi.hasPushAccess username
+      continueWith $ cont hasPushAccess
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
