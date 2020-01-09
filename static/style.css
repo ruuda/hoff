@@ -61,8 +61,8 @@ a
 {
   margin-left: auto;
   margin-right: auto;
-  /* 24 em was nicer, but 30 is needed for long repo names. */
-  max-width: 30em;
+  /* 24 em was nicer, but 32 is needed for long repo names. */
+  max-width: 32em;
 }
 
 h1
