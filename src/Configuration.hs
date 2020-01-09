@@ -24,8 +24,6 @@ import Data.Text (Text)
 import GHC.Generics
 import Prelude hiding (readFile)
 
-import Types (Username)
-
 data ProjectConfiguration = ProjectConfiguration
   {
     owner      :: Text,       -- The GitHub user or organization who owns the repo.
@@ -33,7 +31,6 @@ data ProjectConfiguration = ProjectConfiguration
     branch     :: Text,       -- The branch to guard and integrate commits into.
     testBranch :: Text,       -- The branch to force-push candidates to for testing.
     checkout   :: FilePath,   -- The path to a local checkout of the repository.
-    reviewers  :: [Username], -- List of GitHub usernames that are allowed to approve.
     stateFile  :: FilePath    -- The file where project state is stored.
   }
   deriving (Generic)

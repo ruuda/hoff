@@ -70,6 +70,7 @@ data ActionFree a
   = TryIntegrate Text (Branch, Sha) (Maybe Sha -> a)
   | TryPromote Branch Sha (PushResult -> a)
   | LeaveComment PullRequestId Text a
+  | IsReviewer Username (Bool -> a)
   deriving (Functor)
 
 type Action = Free ActionFree
@@ -95,6 +96,10 @@ tryPromote prBranch newHead = liftF $ TryPromote prBranch newHead id
 -- Leave a comment on the given pull request.
 leaveComment :: PullRequestId -> Text -> Action ()
 leaveComment pr body = liftF $ LeaveComment pr body ()
+
+-- Check if this user is allowed to issue merge commands.
+isReviewer :: Username -> Action Bool
+isReviewer username = liftF $ IsReviewer username id
 
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction
@@ -129,6 +134,10 @@ runAction config action =
     Free (LeaveComment pr body cont) -> do
       doGithub $ GithubApi.leaveComment pr body
       continueWith cont
+
+    Free (IsReviewer username cont) -> do
+      hasPushAccess <- doGithub $ GithubApi.hasPushAccess username
+      continueWith $ cont hasPushAccess
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
@@ -195,15 +204,14 @@ readStateVar var = atomically $ readTMVar var
 
 handleEvent
   :: TriggerConfiguration
-  -> ProjectConfiguration
   -> Event
   -> ProjectState
   -> Action ProjectState
-handleEvent triggerConfig projectConfig event = case event of
+handleEvent triggerConfig event = case event of
   PullRequestOpened pr branch sha title author -> handlePullRequestOpened pr branch sha title author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosed pr
-  CommentAdded pr author body     -> handleCommentAdded triggerConfig projectConfig pr author body
+  CommentAdded pr author body     -> handleCommentAdded triggerConfig pr author body
   BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
 
 handlePullRequestOpened
@@ -261,27 +269,25 @@ isMergeCommand config message =
       Just _otherCmd -> False -- Not a merge command.
       Nothing        -> False -- Not a command at all.
 
-isReviewer :: ProjectConfiguration -> Username -> Bool
-isReviewer config username = username `elem` (Config.reviewers config)
-
 handleCommentAdded
   :: TriggerConfiguration
-  -> ProjectConfiguration
   -> PullRequestId
   -> Username
   -> Text
   -> ProjectState
   -> Action ProjectState
-handleCommentAdded triggerConfig projectConfig pr author body =
-  let
-    -- If the message was a valid merge command, then it was approved by the
-    -- author of the message. Otherwise do nothing.
-    update pullRequest =
-      if (isMergeCommand triggerConfig body) && (isReviewer projectConfig author)
-        then pullRequest { Pr.approvedBy = Just author }
-        else pullRequest
-  in
-    pure . Pr.updatePullRequest pr update
+handleCommentAdded triggerConfig pr author body state = do
+  -- Check if the commment is a merge command, and if it is, check if the author
+  -- is allowed to approve. Comments by users with push access happen
+  -- frequently, but most comments are not merge commands, and checking that a
+  -- user has push access requires an API call.
+  isApproved <- if isMergeCommand triggerConfig body
+    then isReviewer author
+    else pure False
+  pure $ if isApproved
+    -- The PR has now been approved by the author of the comment.
+    then Pr.updatePullRequest pr (\pullRequest -> pullRequest { Pr.approvedBy = Just author }) state
+    else state
 
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
 handleBuildStatusChanged buildSha newStatus state =

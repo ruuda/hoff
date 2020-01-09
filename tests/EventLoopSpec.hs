@@ -29,14 +29,16 @@ import Test.Hspec
 import qualified Data.UUID.V4 as Uuid
 import qualified System.Directory as FileSystem
 
-import Configuration (Configuration, ProjectConfiguration, UserConfiguration, TriggerConfiguration)
+import Configuration (ProjectConfiguration, UserConfiguration, TriggerConfiguration)
 import Git (Branch (..), Sha (..))
+import GithubApi (GithubOperationFree)
 import Project (BuildStatus (..), IntegrationStatus (..), ProjectState, PullRequestId (..))
 
 import qualified Configuration as Config
 import qualified Data.Text as Text
 import qualified EventLoop
 import qualified Git
+import qualified GithubApi
 import qualified Logic
 import qualified Prelude
 import qualified Project
@@ -169,7 +171,6 @@ buildProjectConfig repoDir stateFile = Config.ProjectConfiguration {
   Config.branch     = "master",
   Config.testBranch = "integration",
   Config.checkout   = repoDir,
-  Config.reviewers  = ["rachael", "deckard"],
   Config.stateFile  = stateFile
 }
 
@@ -187,17 +188,14 @@ triggerConfig = Config.TriggerConfiguration {
   Config.commentPrefix = "@bot"
 }
 
--- Dummy app configuration used in the test environment.
-appConfig :: Configuration
-appConfig = Config.Configuration
-  { Config.projects = []
-  , Config.secret = ""
-  , Config.accessToken = ""
-  , Config.trigger = triggerConfig
-  , Config.port = 0
-  , Config.tls = Nothing
-  , Config.user = userConfig
-  }
+-- An interpreter for the GitHub API free monad that ignores most API calls, and
+-- provides fake inputs. We don't want to require a Github repository and API
+-- token to be able to run the tests, and that we send the right operations is
+-- checked by the unit tests.
+fakeRunGithub :: Monad m => GithubOperationFree a -> m a
+fakeRunGithub action = case action of
+  GithubApi.LeaveComment _pr _body cont -> pure cont
+  GithubApi.HasPushAccess username cont -> pure $ cont (username `elem` ["rachael", "deckard"])
 
 -- Runs the main loop in a separate thread, and feeds it the given events.
 runMainEventLoop
@@ -217,12 +215,15 @@ runMainEventLoop projectConfig initialState events = do
   let
     publish _     = return () -- Do nothing when a new state is published.
     getNextEvent  = liftIO $ Logic.dequeueEvent queue
+    runGit      = Git.runGit userConfig (Config.checkout projectConfig)
+    runGithub   = fakeRunGithub
   finalStateAsync  <- async
     $ runNoLoggingT
     $ EventLoop.runLogicEventLoop
-        appConfig
-        userConfig
+        triggerConfig
         projectConfig
+        runGit
+        runGithub
         getNextEvent
         publish
         initialState

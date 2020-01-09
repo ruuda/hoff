@@ -27,15 +27,12 @@ import Control.Monad.Free (foldFree)
 import Data.Functor.Sum (Sum (InL, InR))
 
 import qualified Data.Text as Text
-import qualified Data.Text.Encoding as Text
-import qualified GitHub.Auth as Github3
 
-import Configuration (Configuration, ProjectConfiguration, UserConfiguration)
+import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Github (PullRequestPayload, CommentPayload, CommitStatusPayload, WebhookEvent (..))
 import Github (eventProjectInfo)
 import Project (ProjectInfo (..), ProjectState, PullRequestId (..))
 
-import qualified Configuration as Config
 import qualified Git
 import qualified Github
 import qualified GithubApi
@@ -125,9 +122,11 @@ runSum runF runG = go
 runLogicEventLoop
   :: MonadIO m
   => MonadLogger m
-  => Configuration
-  -> UserConfiguration
+  => TriggerConfiguration
   -> ProjectConfiguration
+  -- Interpreters for Git and GitHub actions.
+  -> (forall a. Git.GitOperationFree a -> m a)
+  -> (forall a. GithubApi.GithubOperationFree a -> m a)
   -- Action that gets the next event from the queue.
   -> m (Maybe Logic.Event)
   -- Action to perform after the state has changed, such as
@@ -136,13 +135,8 @@ runLogicEventLoop
   -> (ProjectState -> m ())
   -> ProjectState
   -> m ProjectState
-runLogicEventLoop appConfig userConfig projectConfig getNextEvent publish initialState =
+runLogicEventLoop triggerConfig projectConfig runGit runGithub getNextEvent publish initialState =
   let
-    repoDir     = Config.checkout projectConfig
-    auth        = Github3.OAuth $ Text.encodeUtf8 $ Config.accessToken appConfig
-    projectInfo = ProjectInfo (Config.owner projectConfig) (Config.repository projectConfig)
-    runGit      = Git.runGit userConfig repoDir
-    runGithub   = GithubApi.runGithub auth projectInfo
     runAll      = foldFree (runSum runGit runGithub)
     runAction   = Logic.runAction projectConfig
 
@@ -152,7 +146,7 @@ runLogicEventLoop appConfig userConfig projectConfig getNextEvent publish initia
       -- perform).
       logInfoN  $ Text.append "logic loop received event: " (Text.pack $ show event)
       logDebugN $ Text.append "state before: " (Text.pack $ show state0)
-      state1 <- runAll $ runAction $ Logic.handleEvent (Config.trigger appConfig) projectConfig event state0
+      state1 <- runAll $ runAction $ Logic.handleEvent triggerConfig event state0
       state2 <- runAll $ runAction $ Logic.proceedUntilFixedPoint state1
       publish state2
       logDebugN $ Text.append "state after: " (Text.pack $ show state2)

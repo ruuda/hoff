@@ -3,7 +3,21 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    cabal-file:
+      size: 6368
+      sha256: 4c6d5e1721fa2cf96251c31124f9b0c10002c81b107a9856e7b075583a48beb3
+    name: github
+    version: 0.16.0
+    git: https://github.com/ruuda/github.git
+    pantry-tree:
+      size: 13405
+      sha256: 04fb5c39aa05ea66699a0915e93b30009c7400f6720f6421f6eb7b0b08fc4b6f
+    commit: 32098416c898656abc029c91dd22c91a602e6027
+  original:
+    git: https://github.com/ruuda/github.git
+    commit: 32098416c898656abc029c91dd22c91a602e6027
 snapshots:
 - completed:
     size: 533451

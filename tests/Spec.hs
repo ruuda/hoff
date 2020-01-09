@@ -39,24 +39,14 @@ testTriggerConfig = Config.TriggerConfiguration {
   Config.commentPrefix = "@bot"
 }
 
--- Project config used throughout these tests.
-testProjectConfig :: Config.ProjectConfiguration
-testProjectConfig = Config.ProjectConfiguration {
-  Config.owner      = "deckard",
-  Config.repository = "voight-kampff",
-  Config.branch     = "master",
-  Config.testBranch = "testing",
-  Config.checkout   = "/tmp/deckard/voight-kampff",
-  Config.reviewers  = ["deckard"],
-  Config.stateFile  = "/tmp/state/deckard/voight-kampff.json"
-}
-
 -- Functions to prepare certain test states.
 
 singlePullRequestState :: PullRequestId -> Branch -> Sha -> Username -> ProjectState
 singlePullRequestState pr prBranch prSha prAuthor =
-  let event = PullRequestOpened pr prBranch prSha "Untitled" prAuthor
-  in  handleEventFlat event Project.emptyProjectState
+  let
+    event = PullRequestOpened pr prBranch prSha "Untitled" prAuthor
+  in
+    fst $ handleEventFlat event Project.emptyProjectState
 
 candidateState :: PullRequestId -> Branch -> Sha -> Username -> Sha -> ProjectState
 candidateState pr prBranch prSha prAuthor candidateSha =
@@ -70,6 +60,7 @@ data ActionFlat
   = ATryIntegrate Text (Branch, Sha)
   | ATryPromote Branch Sha
   | ALeaveComment PullRequestId Text
+  | AIsReviewer Username
   deriving (Eq, Show)
 
 -- This function simulates running the actions, and returns the final state,
@@ -79,6 +70,8 @@ data ActionFlat
 runActionWithInit :: Maybe Sha -> PushResult -> [ActionFlat] -> Action a -> (a, [ActionFlat])
 runActionWithInit integrateResult pushResult actions action =
   let
+    -- In the tests, only "deckard" is a reviewer.
+    isReviewer username = username == "deckard"
     prepend cont act =
       let (result, acts') = runActionWithInit integrateResult pushResult actions cont
       in  (result, act : acts')
@@ -88,28 +81,23 @@ runActionWithInit integrateResult pushResult actions action =
       Free (TryIntegrate msg candi h)      -> prepend (h integrateResult) $ ATryIntegrate msg candi
       Free (TryPromote prBranch headSha h) -> prepend (h pushResult) $ ATryPromote prBranch headSha
       Free (LeaveComment pr body x)        -> prepend x $ ALeaveComment pr body
+      Free (IsReviewer username h)         -> prepend (h $ isReviewer username) $ AIsReviewer username
 
 -- Simulates running the action. Pretends that integration always conflicts.
 -- Pretends that pushing is always successful.
 runAction :: Action a -> (a, [ActionFlat])
 runAction = runActionWithInit Nothing PushOk []
 
--- TODO: Do not ignore actions information, assert that certain events do not
--- have undesirable side effects.
-getState :: Action ProjectState -> ProjectState
-getState = fst . runAction
-
 -- Handle an event and simulate its side effects, then ignore the side effects
 -- and return the new state.
-handleEventFlat :: Event -> ProjectState -> ProjectState
-handleEventFlat event state =
-  getState $ handleEvent testTriggerConfig testProjectConfig event state
+handleEventFlat :: Event -> ProjectState -> (ProjectState, [ActionFlat])
+handleEventFlat event state = runAction $ handleEvent testTriggerConfig event state
 
 -- Handle events and simulate their side effects, then ignore the side effects
 -- and return the new state.
-handleEventsFlat :: [Event] -> ProjectState -> ProjectState
-handleEventsFlat events state =
-  getState $ foldlM (flip $ handleEvent testTriggerConfig testProjectConfig) state events
+handleEventsFlat :: [Event] -> ProjectState -> (ProjectState, [ActionFlat])
+handleEventsFlat events state = runAction
+  $ foldlM (flip $ handleEvent testTriggerConfig) state events
 
 -- Proceed with a state until a fixed point, simulate and collect the side
 -- effects.
@@ -123,7 +111,7 @@ main = hspec $ do
 
     it "handles PullRequestOpened" $ do
       let event = PullRequestOpened (PullRequestId 3) (Branch "p") (Sha "e0f") "title" "lisa"
-          state = handleEventFlat event Project.emptyProjectState
+          state = fst $ handleEventFlat event Project.emptyProjectState
       state `shouldSatisfy` Project.existsPullRequest (PullRequestId 3)
       let pr = fromJust $ Project.lookupPullRequest (PullRequestId 3) state
       Project.sha pr         `shouldBe` Sha "e0f"
@@ -135,27 +123,27 @@ main = hspec $ do
       let event1 = PullRequestOpened (PullRequestId 1) (Branch "p") (Sha "abc") "title" "peter"
           event2 = PullRequestOpened (PullRequestId 2) (Branch "q") (Sha "def") "title" "jack"
           event3 = PullRequestClosed (PullRequestId 1)
-          state  = handleEventsFlat [event1, event2, event3] Project.emptyProjectState
+          state  = fst $ handleEventsFlat [event1, event2, event3] Project.emptyProjectState
       state `shouldSatisfy` not . Project.existsPullRequest (PullRequestId 1)
       state `shouldSatisfy` Project.existsPullRequest (PullRequestId 2)
 
     it "handles closing the integration candidate PR" $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 1) (Branch "p") (Sha "ea0") "frank" (Sha "cf4")
-          state' = handleEventFlat event state
+          state' = fst $ handleEventFlat event state
       Project.integrationCandidate state' `shouldBe` Nothing
 
     it "does not modify the integration candidate if a different PR was closed" $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 2) (Branch "p") (Sha "a38") "franz" (Sha "ed0")
-          state' = handleEventFlat event state
+          state' = fst $ handleEventFlat event state
       Project.integrationCandidate state' `shouldBe` (Just $ PullRequestId 2)
 
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
           state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "abc") "alice"
           state1 = Project.setApproval (PullRequestId 1) (Just "hatter") state0
-          state2 = handleEventFlat event state1
+          state2 = fst $ handleEventFlat event state1
           pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
           pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
       Project.approvedBy pr1 `shouldBe` Just "hatter"
@@ -165,7 +153,7 @@ main = hspec $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
           state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "abc") "thomas"
           state1 = Project.setBuildStatus (PullRequestId 1) Project.BuildPending state0
-          state2 = handleEventFlat event state1
+          state2 = fst $ handleEventFlat event state1
           pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
           pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
       Project.buildStatus pr1 `shouldBe` Project.BuildPending
@@ -176,15 +164,15 @@ main = hspec $ do
           state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "000") "cindy"
           state1 = Project.setApproval (PullRequestId 1) (Just "daniel") state0
           state2 = Project.setBuildStatus (PullRequestId 1) Project.BuildPending state1
-          state3 = handleEventFlat event state2
+          (state3, actions) = handleEventFlat event state2
       state3 `shouldBe` state2
-      -- TODO: Also assert that no actions are performed.
+      actions `shouldBe` []
 
     it "sets approval after a stamp from a reviewer" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "toby"
           -- Note: "deckard" is marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot merge"
-          state' = handleEventFlat event state
+          state' = fst $ handleEventFlat event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.approvedBy pr `shouldBe` Just "deckard"
 
@@ -193,7 +181,7 @@ main = hspec $ do
           -- Note: the comment is a valid approval command, but "rachael" is not
           -- marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "rachael" "@bot merge"
-          state' = handleEventFlat event state
+          state' = fst $ handleEventFlat event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.approvedBy pr `shouldBe` Nothing
 
@@ -207,7 +195,7 @@ main = hspec $ do
           -- In these cases, the prefix is correct, but the command is wrong.
           event4 = CommentAdded (PullRequestId 1) "deckard" "@botmerge"
           event5 = CommentAdded (PullRequestId 1) "deckard" "@bot, merge"
-          state' = handleEventsFlat [event1, event2, event3, event4, event5] state
+          state' = fst $ handleEventsFlat [event1, event2, event3, event4, event5] state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.approvedBy pr `shouldBe` Nothing
 
@@ -215,14 +203,14 @@ main = hspec $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
           -- Note: "deckard" is marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "deckard" "@BoT MeRgE"
-          state' = handleEventFlat event state
+          state' = fst $ handleEventFlat event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.approvedBy pr `shouldBe` Just "deckard"
 
     it "handles a build status change of the integration candidate" $ do
       let event  = BuildStatusChanged (Sha "84c") Project.BuildSucceeded
           state  = candidateState (PullRequestId 1) (Branch "p") (Sha "a38") "johanna" (Sha "84c")
-          state' = handleEventFlat event state
+          state' = fst $ handleEventFlat event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.buildStatus pr `shouldBe` Project.BuildSucceeded
 
@@ -230,13 +218,23 @@ main = hspec $ do
       let event0 = PullRequestOpened (PullRequestId 2) (Branch "p") (Sha "0ad") "title" "harry"
           event1 = BuildStatusChanged (Sha "0ad") Project.BuildSucceeded
           state  = candidateState (PullRequestId 1) (Branch "p") (Sha "a38") "harry" (Sha "84c")
-          state' = handleEventsFlat [event0, event1] state
+          state' = fst $ handleEventsFlat [event0, event1] state
           pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
           pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 2) state'
       -- Even though the build status changed for "0ad" which is a known commit,
       -- only the build status of the integration candidate can be changed.
       Project.buildStatus pr1 `shouldBe` Project.BuildNotStarted
       Project.buildStatus pr2 `shouldBe` Project.BuildNotStarted
+
+    it "only checks if a comment author is a reviewer for comment commands" $ do
+      let
+        state = candidateState (PullRequestId 1) (Branch "p") (Sha "a38") "tyrell" (Sha "84c")
+        event0 = CommentAdded (PullRequestId 1) "deckard" "I don't get it, Tyrell"
+        event1 = CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+        actions0 = snd $ handleEventFlat event0 state
+        actions1 = snd $ handleEventFlat event1 state
+      actions0 `shouldBe` []
+      actions1 `shouldBe` [AIsReviewer "deckard"]
 
   describe "Logic.proceedUntilFixedPoint" $ do
 
@@ -428,7 +426,6 @@ main = hspec $ do
       Config.branch     project `shouldBe` "master"
       Config.testBranch project `shouldBe` "testing"
       Config.checkout   project `shouldBe` "/var/lib/hoff/checkouts/your-username/your-repo"
-      Config.reviewers  project `shouldBe` ["your-github-username"]
       Config.stateFile  project `shouldBe` "/var/lib/hoff/state/your-username/your-repo.json"
 
       Config.name user          `shouldBe` "CI Bot"

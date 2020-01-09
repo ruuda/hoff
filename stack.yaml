@@ -1,7 +1,4 @@
 resolver: lts-9.0
-nix:
-  shell-file: shell.nix
-
-  # Make Stack look for "nixpks" in this repository,
-  # so it uses the pinned version.
-  path: ["."] 
+extra-deps:
+  - git: https://github.com/ruuda/github.git
+    commit: 32098416c898656abc029c91dd22c91a602e6027
