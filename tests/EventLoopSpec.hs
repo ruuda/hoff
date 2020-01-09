@@ -29,7 +29,7 @@ import Test.Hspec
 import qualified Data.UUID.V4 as Uuid
 import qualified System.Directory as FileSystem
 
-import Configuration (Configuration, ProjectConfiguration, UserConfiguration, TriggerConfiguration)
+import Configuration (ProjectConfiguration, UserConfiguration, TriggerConfiguration)
 import Git (Branch (..), Sha (..))
 import Project (BuildStatus (..), IntegrationStatus (..), ProjectState, PullRequestId (..))
 
@@ -187,18 +187,6 @@ triggerConfig = Config.TriggerConfiguration {
   Config.commentPrefix = "@bot"
 }
 
--- Dummy app configuration used in the test environment.
-appConfig :: Configuration
-appConfig = Config.Configuration
-  { Config.projects = []
-  , Config.secret = ""
-  , Config.accessToken = ""
-  , Config.trigger = triggerConfig
-  , Config.port = 0
-  , Config.tls = Nothing
-  , Config.user = userConfig
-  }
-
 -- Runs the main loop in a separate thread, and feeds it the given events.
 runMainEventLoop
   :: ProjectConfiguration
@@ -217,12 +205,15 @@ runMainEventLoop projectConfig initialState events = do
   let
     publish _     = return () -- Do nothing when a new state is published.
     getNextEvent  = liftIO $ Logic.dequeueEvent queue
+    runGit      = Git.runGit userConfig (Config.checkout projectConfig)
+    runGithub   = error "TODO: Fake interpreter."
   finalStateAsync  <- async
     $ runNoLoggingT
     $ EventLoop.runLogicEventLoop
-        appConfig
-        userConfig
+        triggerConfig
         projectConfig
+        runGit
+        runGithub
         getNextEvent
         publish
         initialState
