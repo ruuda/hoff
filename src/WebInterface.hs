@@ -12,7 +12,7 @@ module WebInterface (renderPage, viewIndex, viewProject, stylesheet, stylesheetU
 
 import Control.Monad (forM_, unless, void)
 import Crypto.Hash (Digest, SHA256, hash)
-import Data.ByteArray.Encoding (Base(Base64URLUnpadded), convertToBase)
+import Data.ByteArray.Encoding (Base(Base64, Base64URLUnpadded), convertToBase)
 import Data.FileEmbed (embedStringFile)
 import Data.Maybe (fromJust)
 import Data.Monoid ((<>))
@@ -51,6 +51,9 @@ stylesheetDigest = hash $ encodeUtf8 stylesheet
 stylesheetUrlDigest :: Text
 stylesheetUrlDigest = decodeUtf8 $ convertToBase Base64URLUnpadded stylesheetDigest
 
+stylesheetBase64Digest :: Text
+stylesheetBase64Digest = decodeUtf8 $ convertToBase Base64 stylesheetDigest
+
 -- URL to host the stylesheet at. Including a digest in this URL means we
 -- can set the @Cache-Control: immutable@ header to facilitate caching.
 -- That's both less wasteful and easier to implement than 304 responses
@@ -67,7 +70,7 @@ renderPage pageTitle bodyHtml = renderHtml $ docTypeHtml $ do
     meta ! name "viewport" ! content "width=device-width, initial-scale=1"
     meta ! name "robots" ! content "noindex, nofollow"
     title $ toHtml pageTitle
-    link ! rel "stylesheet" ! href (toValue stylesheetUrl)
+    link ! rel "stylesheet" ! href (toValue stylesheetUrl) ! integrity (toValue $ "sha256-" <> stylesheetBase64Digest)
   body $
     div ! id "content" $
       bodyHtml
