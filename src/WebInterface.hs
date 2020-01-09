@@ -22,6 +22,7 @@ import Data.Text.Format.Params (Params)
 import Data.Text.Lazy (toStrict)
 import Prelude hiding (id, div, head, span)
 import Text.Blaze ((!), toValue)
+import Text.Blaze.Internal (Attribute, AttributeValue, attribute)
 import Text.Blaze.Html.Renderer.Utf8
 import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, head, link, meta, p, span, title, toHtml)
 import Text.Blaze.Html5.Attributes (class_, charset, content, href, id, name, rel)
@@ -70,6 +71,11 @@ renderPage pageTitle bodyHtml = renderHtml $ docTypeHtml $ do
   body $
     div ! id "content" $
       bodyHtml
+
+-- Integrity attribute for subresource integrity. Blaze doesn't have
+-- this yet, but this is what their implementation would look like.
+integrity :: AttributeValue -> Attribute
+integrity = attribute "integrity" " integrity=\""
 
 -- Render an "owner/repo" link.
 viewProjectInfo :: ProjectInfo -> Html
