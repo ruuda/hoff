@@ -17,6 +17,8 @@ import Data.List (zip4)
 import System.Exit (die)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 
+import qualified Data.Text.Encoding as Text
+import qualified GitHub.Auth as Github3
 import qualified System.Directory as FileSystem
 import qualified System.Environment
 
@@ -27,7 +29,9 @@ import Project (ProjectInfo (ProjectInfo))
 import Server (buildServer)
 
 import qualified Configuration as Config
+import qualified Git
 import qualified Github
+import qualified GithubApi
 import qualified Logic
 
 getConfigFilePathOrExit :: IO FilePath
@@ -151,14 +155,24 @@ main = do
       -- When the event loop wants to get the next event, take one off the queue.
       getNextEvent = liftIO $ Logic.dequeueEvent projectQueue
 
+      -- In the production app, we interpret both Git actions and GitHub actions
+      -- to the real thing in IO. In the tests, when calling `runLogicEventLoop`
+      -- we could swap one or both of them out for a test implementation.
+      repoDir     = Config.checkout projectConfig
+      auth        = Github3.OAuth $ Text.encodeUtf8 $ Config.accessToken config
+      projectInfo = ProjectInfo (Config.owner projectConfig) (Config.repository projectConfig)
+      runGit      = Git.runGit (Config.user config) repoDir
+      runGithub   = GithubApi.runGithub auth projectInfo
+
     -- Start a worker thread to run the main event loop for the project.
     forkIO
       $ void
       $ runStdoutLoggingT
       $ runLogicEventLoop
-          config
-          (Config.user config)
+          (Config.trigger config)
           projectConfig
+          runGit
+          runGithub
           getNextEvent
           publish
           projectState
