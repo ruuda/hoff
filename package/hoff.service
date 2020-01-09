@@ -4,6 +4,12 @@ After=network.target
 Requires=network.target
 AssertPathExists=/etc/hoff/config.json
 
+# Generic crash reporting. This makes systemd start the on-failure@hoff.service
+# unit when the process exits or fails to start. Comment this out if you do not
+# have a systemd unit with this name. See `package/on-failure@.service.example`
+# for an idea of what you can do with this.
+OnFailure=on-failure@%n
+
 [Service]
 User=hoff
 Group=hoff

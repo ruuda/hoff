@@ -1,0 +1,20 @@
+# This is an example onfailure handler. See hoff.service for how
+# you can use this to wire up failure notifications when services
+# crash.
+
+[Unit]
+Description=Failure report for %i
+
+[Service]
+Type=oneshot
+
+# This can be a program which fetches the last loglines from the
+# journal and report this crash to a location you care about (e.g.
+# send chat messages, emails, or page people). It might have some
+# logic for inhibition, or be very stupid.
+#
+# Install in a file like `/etc/systemd/system/on-failure@.service`.
+# If you then run the command `systemctl start on-failure@foo`,
+# systemd will invoke `/usr/bin/yourfailurehandler foo`.  `%i`
+# will be expanded to whatever you put after the @.
+ExecStart=/usr/bin/yourfailurehandler %i
