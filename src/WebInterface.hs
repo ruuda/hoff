@@ -8,12 +8,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module WebInterface (renderPage, viewIndex, viewProject, stylesheet) where
+module WebInterface (renderPage, viewIndex, viewProject, stylesheet, stylesheetUrl) where
 
 import Control.Monad (forM_, unless, void)
+import Crypto.Hash (Digest, SHA256, hash)
+import Data.ByteArray.Encoding (Base(Base64URLUnpadded), convertToBase)
 import Data.FileEmbed (embedStringFile)
 import Data.Maybe (fromJust)
+import Data.Monoid ((<>))
 import Data.Text (Text)
+import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Text.Format.Params (Params)
 import Data.Text.Lazy (toStrict)
 import Prelude hiding (id, div, head, span)
@@ -40,6 +44,19 @@ format formatString params = toStrict $ Text.format formatString params
 stylesheet :: Text
 stylesheet = $(embedStringFile "static/style.css")
 
+stylesheetDigest :: Digest SHA256
+stylesheetDigest = hash $ encodeUtf8 stylesheet
+
+stylesheetUrlDigest :: Text
+stylesheetUrlDigest = decodeUtf8 $ convertToBase Base64URLUnpadded stylesheetDigest
+
+-- URL to host the stylesheet at. Including a digest in this URL means we
+-- can set the @Cache-Control: immutable@ header to facilitate caching.
+-- That's both less wasteful and easier to implement than 304 responses
+-- and ETag headers.
+stylesheetUrl :: Text
+stylesheetUrl = "/style/" <> stylesheetUrlDigest <> ".css"
+
 -- Wraps the given body html in html for an actual page, and encodes the
 -- resulting page in utf-8.
 renderPage :: Text -> Html -> LazyByteString.ByteString
@@ -49,7 +66,7 @@ renderPage pageTitle bodyHtml = renderHtml $ docTypeHtml $ do
     meta ! name "viewport" ! content "width=device-width, initial-scale=1"
     meta ! name "robots" ! content "noindex, nofollow"
     title $ toHtml pageTitle
-    link ! rel "stylesheet" ! href "/style.css"
+    link ! rel "stylesheet" ! href (toValue stylesheetUrl)
   body $
     div ! id "content" $
       bodyHtml
