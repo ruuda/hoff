@@ -8,19 +8,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module WebInterface (renderPage, viewIndex, viewProject) where
+module WebInterface (renderPage, viewIndex, viewProject, stylesheet, stylesheetUrl) where
 
 import Control.Monad (forM_, unless, void)
+import Crypto.Hash (Digest, SHA256, hash)
+import Data.ByteArray.Encoding (Base(Base64, Base64URLUnpadded), convertToBase)
 import Data.FileEmbed (embedStringFile)
 import Data.Maybe (fromJust)
+import Data.Monoid ((<>))
 import Data.Text (Text)
+import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Text.Format.Params (Params)
 import Data.Text.Lazy (toStrict)
 import Prelude hiding (id, div, head, span)
 import Text.Blaze ((!), toValue)
+import Text.Blaze.Internal (Attribute, AttributeValue, attribute)
 import Text.Blaze.Html.Renderer.Utf8
-import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, head, meta, p, span, style, title, toHtml)
-import Text.Blaze.Html5.Attributes (class_, charset, content, href, id, name)
+import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, head, link, meta, p, span, title, toHtml)
+import Text.Blaze.Html5.Attributes (class_, charset, content, href, id, name, rel)
 
 import qualified Data.ByteString.Lazy as LazyByteString
 import qualified Data.Text as Text
@@ -40,6 +45,26 @@ format formatString params = toStrict $ Text.format formatString params
 stylesheet :: Text
 stylesheet = $(embedStringFile "static/style.css")
 
+stylesheetDigest :: Digest SHA256
+stylesheetDigest = hash $ encodeUtf8 stylesheet
+
+-- Render a digest to a text in a given base.
+showAs :: Base -> Digest a -> Text
+showAs base = decodeUtf8 . convertToBase base
+
+stylesheetUrlDigest :: Text
+stylesheetUrlDigest = showAs Base64URLUnpadded stylesheetDigest
+
+stylesheetBase64Digest :: Text
+stylesheetBase64Digest = showAs Base64 stylesheetDigest
+
+-- URL to host the stylesheet at. Including a digest in this URL means we
+-- can set the @Cache-Control: immutable@ header to facilitate caching.
+-- That's both less wasteful and easier to implement than 304 responses
+-- and ETag headers.
+stylesheetUrl :: Text
+stylesheetUrl = "/style/" <> stylesheetUrlDigest <> ".css"
+
 -- Wraps the given body html in html for an actual page, and encodes the
 -- resulting page in utf-8.
 renderPage :: Text -> Html -> LazyByteString.ByteString
@@ -49,10 +74,15 @@ renderPage pageTitle bodyHtml = renderHtml $ docTypeHtml $ do
     meta ! name "viewport" ! content "width=device-width, initial-scale=1"
     meta ! name "robots" ! content "noindex, nofollow"
     title $ toHtml pageTitle
-    style $ toHtml stylesheet
+    link ! rel "stylesheet" ! href (toValue stylesheetUrl) ! integrity (toValue $ "sha256-" <> stylesheetBase64Digest)
   body $
     div ! id "content" $
       bodyHtml
+
+-- Integrity attribute for subresource integrity. Blaze doesn't have
+-- this yet, but this is what their implementation would look like.
+integrity :: AttributeValue -> Attribute
+integrity = attribute "integrity" " integrity=\""
 
 -- Render an "owner/repo" link.
 viewProjectInfo :: ProjectInfo -> Html

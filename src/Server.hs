@@ -20,6 +20,7 @@ import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Network.HTTP.Types (badRequest400, notFound404, notImplemented501, serviceUnavailable503)
 import Web.Scotty (ActionM, ScottyM, body, get, header, jsonData, notFound, param, post, raw, scottyApp, setHeader, status, text)
+import Web.Scotty.Internal.Types (RoutePattern(Literal))
 
 import qualified Data.ByteString.Base16 as Base16
 import qualified Data.ByteString.Lazy as LBS
@@ -45,10 +46,14 @@ router
   -> ScottyM ()
 router infos ghSecret serveEnqueueEvent getProjectState = do
   get  "/"             $ serveIndex infos
+  get  styleRoute      $ serveStyles
   post "/hook/github"  $ withSignatureCheck ghSecret $ serveGithubWebhook serveEnqueueEvent
   get  "/hook/github"  $ serveWebhookDocs
   get  "/:owner/:repo" $ serveWebInterface getProjectState
   notFound             $ serveNotFound
+
+styleRoute :: RoutePattern
+styleRoute = Literal $ LT.fromStrict WebInterface.stylesheetUrl
 
 -- Checks the signature (encoded as hexadecimal characters in 'hexDigest') of
 -- the message, given the secret, and the actual message bytes.
@@ -136,6 +141,13 @@ serveIndex infos = do
   setHeader "Content-Type" "text/html; charset=utf-8"
   let title = "Hoff"
   raw $ WebInterface.renderPage title $ WebInterface.viewIndex infos
+
+serveStyles :: ActionM ()
+serveStyles = do
+  setHeader "Content-Type" "text/css; charset=utf-8"
+  -- Chrome does not support `immutable`, so also set a long max age.
+  setHeader "Cache-Control" "public, max-age=31536000, immutable"
+  text $ LT.fromStrict WebInterface.stylesheet
 
 serveWebInterface :: (ProjectInfo -> Maybe (IO ProjectState)) -> ActionM ()
 serveWebInterface getProjectState = do

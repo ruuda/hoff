@@ -44,6 +44,7 @@ library
                , free              >= 4.12 && < 4.13
                , http-types        >= 0.9  && < 0.10
                , github            >= 0.16 && < 0.17
+               , memory            >= 0.14 && < 0.15
                , monad-logger      >= 0.3  && < 0.4
                , process           >= 1.2  && < 1.5
                , process-extras    >= 0.7  && < 0.8
