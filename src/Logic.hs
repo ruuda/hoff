@@ -276,10 +276,18 @@ handleCommentAdded triggerConfig pr author body state = do
   isApproved <- if isMergeCommand triggerConfig body
     then isReviewer author
     else pure False
-  pure $ if isApproved
+  if isApproved
     -- The PR has now been approved by the author of the comment.
-    then Pr.updatePullRequest pr (\pullRequest -> pullRequest { Pr.approvedBy = Just author }) state
-    else state
+    then do
+      let
+        newState = Pr.updatePullRequest pr (\pullRequest -> pullRequest { Pr.approvedBy = Just author }) state
+        comment = case Pr.getQueueLength pr newState of
+          0 -> format "Pull request approved by @{}, rebasing now." [author]
+          1 -> format "Pull request approved by @{}, waiting for rebase at the front of the queue." [author]
+          n -> format "Pull request approved by @{}, waiting for rebase behind {} pull requests." (author, n)
+      leaveComment pr comment
+      pure newState
+    else pure state
 
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
 handleBuildStatusChanged buildSha newStatus state =
