@@ -13,6 +13,7 @@ import Control.Monad.Free (foldFree)
 import Control.Monad.Trans.Writer (Writer, tell, runWriter)
 import Data.Aeson (decode, encode)
 import Data.ByteString.Lazy (readFile)
+import Data.Function ((&))
 import Data.Foldable (foldlM)
 import Data.Maybe (fromJust, isJust, isNothing)
 import Data.Text (Text)
@@ -244,7 +245,29 @@ main = hspec $ do
         actions0 = snd $ handleEventFlat event0 state
         actions1 = snd $ handleEventFlat event1 state
       actions0 `shouldBe` []
-      actions1 `shouldBe` [AIsReviewer "deckard"]
+      actions1 `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, rebasing now."
+        ]
+
+    it "notifies approvers about queue position" $ do
+      let
+        state = candidateState (PullRequestId 1) (Branch "p") (Sha "a38") "tyrell" (Sha "84c")
+              & Project.insertPullRequest (PullRequestId 2) (Branch "s") (Sha "dec") "Some PR" (Username "rachael")
+              & Project.insertPullRequest (PullRequestId 3) (Branch "s") (Sha "f16") "Another PR" (Username "rachael")
+        events = [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+                 , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+                 , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
+                 ]
+        actions = snd $ handleEventsFlat events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, rebasing now."
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2) "Pull request approved by @deckard, waiting for rebase at the front of the queue."
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 3) "Pull request approved by @deckard, waiting for rebase behind 2 pull requests."
+        ]
 
   describe "Logic.proceedUntilFixedPoint" $ do
 
