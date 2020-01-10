@@ -27,7 +27,7 @@ import qualified Data.Aeson as Aeson
 newtype Username = Username Text deriving (Eq, Show, Generic, IsString)
 
 -- A pull request is identified by its number.
-newtype PullRequestId = PullRequestId Int deriving (Eq, Show, Generic)
+newtype PullRequestId = PullRequestId Int deriving (Eq, Ord, Show, Generic)
 
 instance FromJSON PullRequestId
 instance FromJSON Username
