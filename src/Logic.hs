@@ -6,6 +6,7 @@
 -- A copy of the License has been included in the root of the repository.
 
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -35,7 +36,7 @@ import Control.Concurrent.STM.TMVar (TMVar, newTMVar, readTMVar, swapTMVar)
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Exception (assert)
 import Control.Monad (mfilter, when, void)
-import Control.Monad.Free (Free (..), liftF, hoistFree)
+import Control.Monad.Free (Free (..), foldFree, liftF, hoistFree)
 import Control.Monad.STM (atomically)
 import Data.Maybe (fromJust, fromMaybe, isJust, maybe)
 import Data.Text (Text)
@@ -102,42 +103,33 @@ isReviewer :: Username -> Action Bool
 isReviewer username = liftF $ IsReviewer username id
 
 -- Interpreter that translates high-level actions into more low-level ones.
-runAction
-  :: ProjectConfiguration
-  -> Action a
-  -> Operation a
-runAction config action =
-  let
-    continueWith = runAction config
+runAction :: ProjectConfiguration -> Action a -> Operation a
+runAction config = foldFree $ \case
+  TryIntegrate message (ref, sha) cont -> do
+    doGit $ ensureCloned config
+    -- TODO: Change types in config to be 'Branch', not 'Text'.
+    maybeSha <- doGit $ Git.tryIntegrate
+      message
+      ref
+      sha
+      (Git.Branch $ Config.branch config)
+      (Git.Branch $ Config.testBranch config)
+    pure $ cont maybeSha
 
-  in case action of
-    Pure result -> pure result
+  TryPromote prBranch sha cont -> do
+    doGit $ ensureCloned config
+    doGit $ Git.forcePush sha prBranch
+    pushResult <- doGit $ Git.push sha (Git.Branch $ Config.branch config)
+    when (pushResult == PushOk) (doGit $ Git.pushDelete prBranch)
+    pure $ cont pushResult
 
-    Free (TryIntegrate message (ref, sha) cont) -> do
-      doGit $ ensureCloned config
-      -- TODO: Change types in config to be 'Branch', not 'Text'.
-      maybeSha <- doGit $ Git.tryIntegrate
-        message
-        ref
-        sha
-        (Git.Branch $ Config.branch config)
-        (Git.Branch $ Config.testBranch config)
-      continueWith $ cont maybeSha
+  LeaveComment pr body cont -> do
+    doGithub $ GithubApi.leaveComment pr body
+    pure cont
 
-    Free (TryPromote prBranch sha cont) -> do
-      doGit $ ensureCloned config
-      doGit $ Git.forcePush sha prBranch
-      pushResult <- doGit $ Git.push sha (Git.Branch $ Config.branch config)
-      when (pushResult == PushOk) (doGit $ Git.pushDelete prBranch)
-      continueWith $ cont pushResult
-
-    Free (LeaveComment pr body cont) -> do
-      doGithub $ GithubApi.leaveComment pr body
-      continueWith cont
-
-    Free (IsReviewer username cont) -> do
-      hasPushAccess <- doGithub $ GithubApi.hasPushAccess username
-      continueWith $ cont hasPushAccess
+  IsReviewer username cont -> do
+    hasPushAccess <- doGithub $ GithubApi.hasPushAccess username
+    pure $ cont hasPushAccess
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
