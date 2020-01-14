@@ -5,15 +5,17 @@
 -- you may not use this file except in compliance with the License.
 -- A copy of the License has been included in the root of the repository.
 
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
-import Control.Monad.Free (Free (..))
+import Control.Monad.Free (foldFree)
 import Data.Aeson (decode, encode)
 import Data.ByteString.Lazy (readFile)
 import Data.Foldable (foldlM)
 import Data.Maybe (fromJust, isJust, isNothing)
 import Data.Text (Text)
+import Data.Tuple (swap)
 import Prelude hiding (readFile)
 import System.Directory (getTemporaryDirectory, removeFile)
 import System.FilePath ((</>))
@@ -67,26 +69,25 @@ data ActionFlat
 -- together with a list of all actions that would have been performed. Some
 -- actions require input from the outside world. Simulating these actions will
 -- return the pushResult and rebaseResult passed in here.
-runActionWithInit :: Maybe Sha -> PushResult -> [ActionFlat] -> Action a -> (a, [ActionFlat])
-runActionWithInit integrateResult pushResult actions action =
+runActionWithInit :: Maybe Sha -> PushResult -> Action a -> ([ActionFlat], a)
+runActionWithInit integrateResult pushResult =
   let
     -- In the tests, only "deckard" is a reviewer.
     isReviewer username = username == "deckard"
-    prepend cont act =
-      let (result, acts') = runActionWithInit integrateResult pushResult actions cont
-      in  (result, act : acts')
   in
-    case action of
-      Pure result                          -> (result, [])
-      Free (TryIntegrate msg candi h)      -> prepend (h integrateResult) $ ATryIntegrate msg candi
-      Free (TryPromote prBranch headSha h) -> prepend (h pushResult) $ ATryPromote prBranch headSha
-      Free (LeaveComment pr body x)        -> prepend x $ ALeaveComment pr body
-      Free (IsReviewer username h)         -> prepend (h $ isReviewer username) $ AIsReviewer username
+    -- This relies on the monad instance `Monoid a => Monad ((,) a)`, which
+    -- relies on the monoid instance of list. At every step, we get to provide
+    -- a list, and the results get concatenated.
+    foldFree $ \case
+      TryIntegrate msg candi h      -> ([ATryIntegrate msg candi], h integrateResult)
+      TryPromote prBranch headSha h -> ([ATryPromote prBranch headSha], h pushResult)
+      LeaveComment pr body x        -> ([ALeaveComment pr body], x)
+      IsReviewer username h         -> ([AIsReviewer username], h $ isReviewer username)
 
 -- Simulates running the action. Pretends that integration always conflicts.
 -- Pretends that pushing is always successful.
 runAction :: Action a -> (a, [ActionFlat])
-runAction = runActionWithInit Nothing PushOk []
+runAction = swap . runActionWithInit Nothing PushOk
 
 -- Handle an event and simulate its side effects, then ignore the side effects
 -- and return the new state.
@@ -101,9 +102,13 @@ handleEventsFlat events state = runAction
 
 -- Proceed with a state until a fixed point, simulate and collect the side
 -- effects.
-proceedUntilFixedPointFlat :: Maybe Sha -> PushResult -> ProjectState -> (ProjectState, [ActionFlat])
+proceedUntilFixedPointFlat
+  :: Maybe Sha
+  -> PushResult
+  -> ProjectState
+  -> (ProjectState, [ActionFlat])
 proceedUntilFixedPointFlat integrateResult pushResult state =
-  runActionWithInit integrateResult pushResult [] $ proceedUntilFixedPoint state
+  swap $ runActionWithInit integrateResult pushResult $ proceedUntilFixedPoint state
 
 main :: IO ()
 main = hspec $ do
