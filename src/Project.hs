@@ -25,6 +25,7 @@ module Project
   emptyProjectState,
   existsPullRequest,
   getIntegrationCandidate,
+  getQueueLength,
   insertPullRequest,
   loadProjectState,
   lookupPullRequest,
@@ -234,6 +235,25 @@ filterPullRequestsBy p =
 -- Returns the pull requests that have been approved, in order of ascending id.
 approvedPullRequests :: ProjectState -> [PullRequestId]
 approvedPullRequests = filterPullRequestsBy $ isJust . approvedBy
+
+-- Returns the length of the queue of pull requests that will be rebased and
+-- checked on CI before the PR with the given id will be rebased.
+getQueueLength :: PullRequestId -> ProjectState -> Int
+getQueueLength pr state =
+  let
+    queue = filter (< pr) $ filterPullRequestsBy isQueued state
+  in
+    length queue
+
+-- Returns whether a pull request is queued for merging.
+isQueued :: PullRequest -> Bool
+isQueued pr = case classifyPullRequest pr of
+  PrStatusApproved -> True
+  PrStatusBuildPending -> True
+  PrStatusAwaitingApproval -> False
+  PrStatusIntegrated -> False
+  PrStatusFailedConflict -> False
+  PrStatusFailedBuild -> False
 
 -- Returns the pull requests that have not been integrated yet, in order of
 -- ascending id.

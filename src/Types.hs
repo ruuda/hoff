@@ -19,15 +19,16 @@ where
 import Data.Aeson (FromJSON, ToJSON)
 import Data.String (IsString)
 import Data.Text (Text)
+import Data.Text.Buildable (Buildable)
 import GHC.Generics (Generic)
 
 import qualified Data.Aeson as Aeson
 
 -- The name of a user on GitHub.
-newtype Username = Username Text deriving (Eq, Show, Generic, IsString)
+newtype Username = Username Text deriving (Eq, Show, Generic, IsString, Buildable)
 
 -- A pull request is identified by its number.
-newtype PullRequestId = PullRequestId Int deriving (Eq, Show, Generic)
+newtype PullRequestId = PullRequestId Int deriving (Eq, Ord, Show, Generic)
 
 instance FromJSON PullRequestId
 instance FromJSON Username
