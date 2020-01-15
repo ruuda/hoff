@@ -129,6 +129,7 @@ viewProject info state =
     repoUrl  = format "https://github.com/{}/{}" (owner, repo)
   in do
     h1 $ do
+      a ! class_ "back" ! href "/" $ void "«"
       a ! href (toValue ownerUrl) $ toHtml owner
       void "\x2009/\x2009" -- U+2009 is a thin space.
       a ! href (toValue repoUrl) $ toHtml repo

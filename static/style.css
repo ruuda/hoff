@@ -71,6 +71,13 @@ h1
   line-height: 1.6rem; /* Aligns the text baseline to the grid. */
   margin-top: -0.1rem;
   padding-bottom: 0.5rem; /* Leave the same amount of space as a p would. */
+  position: relative;
+}
+
+h1 > a.back
+{
+  position: absolute;
+  left: -1.6rem;
 }
 
 h2
