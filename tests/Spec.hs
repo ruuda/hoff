@@ -269,6 +269,16 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 3) "Pull request approved by @deckard, waiting for rebase behind 2 pull requests."
         ]
 
+    it "ignores comments on unknown pull requests" $ do
+      let
+        -- We comment on PR #1, but the project is empty, so this comment should
+        -- be dropped on the floor.
+        event = CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+        (state, actions) = handleEventFlat event Project.emptyProjectState
+      -- We expect no changes to the state, and in particular, no side effects.
+      state `shouldBe` Project.emptyProjectState
+      actions `shouldBe` []
+
   describe "Logic.proceedUntilFixedPoint" $ do
 
     it "finds a new candidate" $ do
