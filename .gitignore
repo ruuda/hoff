@@ -15,3 +15,6 @@
 # Vagrant files
 /package/.vagrant
 /package/*-console.log
+
+# Configuration file
+/config.json
