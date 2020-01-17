@@ -261,6 +261,17 @@ isMergeCommand config message =
       Just _otherCmd -> False -- Not a merge command.
       Nothing        -> False -- Not a command at all.
 
+-- Mark the pull request as approved by the approver, and leave a comment to
+-- acknowledge that.
+approvePullRequest :: PullRequestId -> Username -> ProjectState -> Action ProjectState
+approvePullRequest pr approver state = do
+  let newState = Pr.updatePullRequest pr (\pullRequest -> pullRequest { Pr.approvedBy = Just approver }) state
+  leaveComment pr $ case Pr.getQueueLength pr state of
+    0 -> format "Pull request approved by @{}, rebasing now." [approver]
+    1 -> format "Pull request approved by @{}, waiting for rebase at the front of the queue." [approver]
+    n -> format "Pull request approved by @{}, waiting for rebase behind {} pull requests." (approver, n)
+  pure newState
+
 handleCommentAdded
   :: TriggerConfiguration
   -> PullRequestId
@@ -268,25 +279,22 @@ handleCommentAdded
   -> Text
   -> ProjectState
   -> Action ProjectState
-handleCommentAdded triggerConfig pr author body state = do
-  -- Check if the commment is a merge command, and if it is, check if the author
-  -- is allowed to approve. Comments by users with push access happen
-  -- frequently, but most comments are not merge commands, and checking that a
-  -- user has push access requires an API call.
-  isApproved <- if isMergeCommand triggerConfig body
-    then isReviewer author
-    else pure False
-  if isApproved
-    -- The PR has now been approved by the author of the comment.
+handleCommentAdded triggerConfig pr author body state =
+  if Pr.existsPullRequest pr state
+    -- Check if the commment is a merge command, and if it is, check if the
+    -- author is allowed to approve. Comments by users with push access happen
+    -- frequently, but most comments are not merge commands, and checking that
+    -- a user has push access requires an API call.
     then do
-      let
-        newState = Pr.updatePullRequest pr (\pullRequest -> pullRequest { Pr.approvedBy = Just author }) state
-        comment = case Pr.getQueueLength pr newState of
-          0 -> format "Pull request approved by @{}, rebasing now." [author]
-          1 -> format "Pull request approved by @{}, waiting for rebase at the front of the queue." [author]
-          n -> format "Pull request approved by @{}, waiting for rebase behind {} pull requests." (author, n)
-      leaveComment pr comment
-      pure newState
+      isApproved <- if isMergeCommand triggerConfig body
+        then isReviewer author
+        else pure False
+      if isApproved
+        -- The PR has now been approved by the author of the comment.
+        then approvePullRequest pr author state
+        else pure state
+
+    -- If the pull request is not in the state, ignore the comment.
     else pure state
 
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
