@@ -268,7 +268,7 @@ isMergeCommand config message =
 approvePullRequest :: PullRequestId -> Username -> ProjectState -> Action ProjectState
 approvePullRequest pr approver state = do
   let newState = Pr.updatePullRequest pr (\pullRequest -> pullRequest { Pr.approvedBy = Just approver }) state
-  leaveComment pr $ case Pr.getQueueLength pr state of
+  leaveComment pr $ case Pr.getQueuePosition pr state of
     0 -> format "Pull request approved by @{}, rebasing now." [approver]
     1 -> format "Pull request approved by @{}, waiting for rebase at the front of the queue." [approver]
     n -> format "Pull request approved by @{}, waiting for rebase behind {} pull requests." (approver, n)
