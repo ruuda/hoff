@@ -8,7 +8,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module WebInterface (renderPage, viewIndex, viewProject, stylesheet, stylesheetUrl) where
+module WebInterface (renderPage, viewIndex, viewProject, viewOwner, stylesheet, stylesheetUrl) where
 
 import Control.Monad (forM_, unless, void)
 import Crypto.Hash (Digest, SHA256, hash)
@@ -24,14 +24,14 @@ import Prelude hiding (id, div, head, span)
 import Text.Blaze ((!), toValue)
 import Text.Blaze.Internal (Attribute, AttributeValue, attribute)
 import Text.Blaze.Html.Renderer.Utf8
-import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, head, link, meta, p, span, title, toHtml)
+import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, head, link, meta, p, span, title, toHtml, br)
 import Text.Blaze.Html5.Attributes (class_, charset, content, href, id, name, rel)
 
 import qualified Data.ByteString.Lazy as LazyByteString
 import qualified Data.Text as Text
 import qualified Data.Text.Format as Text
 
-import Project (ProjectInfo, ProjectState, PullRequest)
+import Project (ProjectInfo, ProjectState, PullRequest, Owner, getOwners)
 import Types (PullRequestId (..), Username (..))
 
 import qualified Project
@@ -105,6 +105,12 @@ viewProjectInfo info =
         void "\x2009/\x2009" -- U+2009 is a thin space.
         toHtml repo
 
+viewOwnerInfo :: Owner -> Html
+viewOwnerInfo owner =
+  let
+    repoUrl = format "/{}" [owner]
+    in p $ a ! href (toValue repoUrl) $ (toHtml owner)
+
 -- Renders the body html for the index page.
 viewIndex :: [ProjectInfo] -> Html
 viewIndex infos =
@@ -116,6 +122,8 @@ viewIndex infos =
       void "Hoff is a gatekeeper for your commits. See "
       a ! href "https://github.com/ruuda/hoff" $ "github.com/ruuda/hoff"
       void " for more information."
+    h2 "Tracked organizations"
+    mapM_ viewOwnerInfo (getOwners infos)
     h2 "Tracked repositories"
     mapM_ viewProjectInfo infos
 
@@ -135,6 +143,13 @@ viewProject info state =
       a ! href (toValue repoUrl) $ toHtml repo
 
     viewProjectQueues info state
+
+viewOwner :: [(ProjectInfo, ProjectState)] -> Html
+viewOwner = mapM_ (uncurry viewProjectListItem)
+  where
+    viewProjectListItem info state = do
+      viewProject info state
+      br
 
 -- Render the html for the queues in a project, excluding the header and footer.
 viewProjectQueues :: ProjectInfo -> ProjectState -> Html

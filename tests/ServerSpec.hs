@@ -124,10 +124,14 @@ withServer body = do
       then Just $ pure Project.emptyProjectState
       else Nothing
 
+    getOwnerState forOwner
+      | forOwner == Project.owner info = pure [(info, Project.emptyProjectState)]
+      | otherwise = pure []
+
   -- Start the server on the test port, wait until it is ready to handle
   -- requests, and then run the body with access to the queue.
   (runServer, blockUntilReady) <-
-    buildServer testPort Nothing [info] testSecret tryEnqueue getProjectState
+    buildServer testPort Nothing [info] testSecret tryEnqueue getProjectState getOwnerState
   serverAsync <- async runServer
   blockUntilReady
   body ghQueue

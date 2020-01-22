@@ -25,7 +25,7 @@ import qualified System.Environment
 import Configuration (Configuration)
 import EventLoop (runGithubEventLoop, runLogicEventLoop)
 import Project (ProjectState, emptyProjectState, loadProjectState, saveProjectState)
-import Project (ProjectInfo (ProjectInfo))
+import Project (ProjectInfo (ProjectInfo), Owner)
 import Server (buildServer)
 
 import qualified Configuration as Config
@@ -33,6 +33,7 @@ import qualified Git
 import qualified Github
 import qualified GithubApi
 import qualified Logic
+import qualified Project
 
 getConfigFilePathOrExit :: IO FilePath
 getConfigFilePathOrExit = do
@@ -184,6 +185,10 @@ main = do
     -- Allow the webinterface to retrieve the latest project state per project.
     getProjectState projectInfo =
       fmap Logic.readStateVar $ lookup projectInfo stateVars
+    getOwnerState :: Owner -> IO [(ProjectInfo, ProjectState)]
+    getOwnerState owner = do
+      let states = filter (\(projectInfo, _) -> Project.owner projectInfo == owner) stateVars
+      mapM (\(info, state) ->  Logic.readStateVar state >>= \sVar -> pure (info, sVar)) states
 
   let
     port      = Config.port config
@@ -192,7 +197,7 @@ main = do
     -- TODO: Do this in a cleaner way.
     infos     = fmap (\ pc -> ProjectInfo (Config.owner pc) (Config.repository pc)) $ Config.projects config
   putStrLn $ "Listening for webhooks on port " ++ (show port) ++ "."
-  runServer <- fmap fst $ buildServer port tlsConfig infos secret ghTryEnqueue getProjectState
+  runServer <- fmap fst $ buildServer port tlsConfig infos secret ghTryEnqueue getProjectState getOwnerState
   runServer
 
   -- Note that a stop signal is never enqueued. The application just runs until

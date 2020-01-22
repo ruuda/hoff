@@ -31,7 +31,7 @@ import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.Wai.Handler.WarpTLS as Warp
 
 import Configuration (TlsConfiguration)
-import Project (ProjectInfo (ProjectInfo), ProjectState)
+import Project (ProjectInfo (ProjectInfo), ProjectState, Owner)
 
 import qualified Configuration as Config
 import qualified Github
@@ -43,13 +43,15 @@ router
   -> Text
   -> (Github.WebhookEvent -> ActionM ())
   -> (ProjectInfo -> Maybe (IO ProjectState))
+  -> (Owner -> IO [(ProjectInfo, ProjectState)])
   -> ScottyM ()
-router infos ghSecret serveEnqueueEvent getProjectState = do
+router infos ghSecret serveEnqueueEvent getProjectState getOwnerState = do
   get  "/"             $ serveIndex infos
   get  styleRoute      $ serveStyles
   post "/hook/github"  $ withSignatureCheck ghSecret $ serveGithubWebhook serveEnqueueEvent
   get  "/hook/github"  $ serveWebhookDocs
-  get  "/:owner/:repo" $ serveWebInterface getProjectState
+  get  "/:owner"       $ serveWebInterfaceOwner getOwnerState
+  get  "/:owner/:repo" $ serveWebInterfaceProject getProjectState
   notFound             $ serveNotFound
 
 styleRoute :: RoutePattern
@@ -149,8 +151,16 @@ serveStyles = do
   setHeader "Cache-Control" "public, max-age=31536000, immutable"
   text $ LT.fromStrict WebInterface.stylesheet
 
-serveWebInterface :: (ProjectInfo -> Maybe (IO ProjectState)) -> ActionM ()
-serveWebInterface getProjectState = do
+serveWebInterfaceOwner :: (Owner -> IO [(ProjectInfo, ProjectState)]) -> ActionM ()
+serveWebInterfaceOwner getOwnerState = do
+  owner <- param "owner"
+  states <- liftIO $ getOwnerState owner
+  setHeader "Content-Type" "text/html; charset=utf-8"
+  let title = Text.concat [owner, "/"]
+  raw $ WebInterface.renderPage title $ WebInterface.viewOwner states
+
+serveWebInterfaceProject :: (ProjectInfo -> Maybe (IO ProjectState)) -> ActionM ()
+serveWebInterfaceProject getProjectState = do
   owner <- param "owner"
   repo  <- param "repo"
   let info = ProjectInfo owner repo
@@ -202,8 +212,9 @@ buildServer :: Int
             -> Text
             -> (Github.WebhookEvent -> IO Bool)
             -> (ProjectInfo -> Maybe (IO ProjectState))
+            -> (Owner -> IO [(ProjectInfo, ProjectState)])
             -> IO (IO (), IO ())
-buildServer port tlsConfig infos ghSecret tryEnqueueEvent getProjectState = do
+buildServer port tlsConfig infos ghSecret tryEnqueueEvent getProjectState getOwnerState = do
   -- Create a semaphore that will be signalled when the server is ready.
   readySem <- atomically $ newTSem 0
   let signalReady     = atomically $ signalTSem readySem
@@ -219,7 +230,7 @@ buildServer port tlsConfig infos ghSecret tryEnqueueEvent getProjectState = do
   -- Build the Scotty app, but do not start serving yet, as that would never
   -- return, so we wouldn't have the opportunity to return the 'blockUntilReady'
   -- function to the caller.
-  app <- scottyApp $ router infos ghSecret serveEnqueueEvent getProjectState
+  app <- scottyApp $ router infos ghSecret serveEnqueueEvent getProjectState getOwnerState
   let runServer = runServerMaybeTls tlsConfig settings app
 
   -- Return two IO actions: one that will run the server (and never return),
