@@ -88,6 +88,18 @@ h2
   padding-bottom: 0.4rem;
 }
 
+h3
+{
+  font-size: 1em;
+  margin-top: 1.6em;
+  text-transform: capitalize;
+}
+
+h2 + h3
+{
+  margin-top: 0;
+}
+
 p
 {
   clear: both;
