@@ -24,7 +24,6 @@ module Git
   fetchBranch,
   forcePush,
   push,
-  pushDelete,
   rebase,
   runGit,
   tryIntegrate,
@@ -110,7 +109,6 @@ data CloneResult
 data GitOperationFree a
   = FetchBranch Branch a
   | ForcePush Sha Branch a
-  | PushDelete Branch a
   | Push Sha Branch (PushResult -> a)
   | Rebase Sha Branch (Maybe Sha -> a)
   | Merge Sha Text (Maybe Sha -> a)
@@ -130,9 +128,6 @@ forcePush sha remoteBranch = liftF $ ForcePush sha remoteBranch ()
 
 push :: Sha -> Branch -> GitOperation PushResult
 push sha remoteBranch = liftF $ Push sha remoteBranch id
-
-pushDelete :: Branch -> GitOperation ()
-pushDelete remoteBranch = liftF $ PushDelete remoteBranch ()
 
 rebase :: Sha -> Branch -> GitOperation (Maybe Sha)
 rebase sha ontoBranch = liftF $ Rebase sha ontoBranch id
@@ -247,13 +242,6 @@ runGit userConfig repoDir operation =
             Right _ -> PushOk
       when (pushResult == PushRejected) $ logInfoN "push was rejected"
       pure $ cont pushResult
-
-    PushDelete branch cont -> do
-      result <- callGitInRepo ["push", "origin", ":refs/heads/" ++ (show branch)]
-      case result of
-        Left  _ -> logWarnN "warning: failed to delete remote branch"
-        Right _ -> pure ()
-      pure cont
 
     Rebase sha branch cont -> do
       -- Do an interactive rebase with editor set to /usr/bin/true, so we just

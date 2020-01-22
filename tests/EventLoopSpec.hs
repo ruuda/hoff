@@ -337,10 +337,12 @@ eventLoopSpec = parallel $ do
         , "* c1"
         , "* c0"
         ]
-      -- The remote branch ("ahead") should also be deleted after a succesful
-      -- promotion, but the other branches should be left untouched.
+      -- The remote branch ("ahead") will still be present here,
+      -- but will be deleted by GitHub (if configured to do so)
+      -- if there are no other PRs depending on it.
+      -- The other branches should be left untouched.
       branches `shouldMatchList`
-        fmap Branch ["intro", "master", "alternative", "fixup", "unused", "integration"]
+        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused", "integration"]
 
     it "handles a non-conflicting non-fast-forwardable pull request" $ do
       (history, branches) <- withTestEnv' $ \ shas runLoop _git -> do
@@ -376,10 +378,12 @@ eventLoopSpec = parallel $ do
         , "* c1"
         , "* c0"
         ]
-      -- The remote branch ("intro") should also be deleted after a succesful
-      -- promotion, but the other branches should be left untouched.
+      -- The remote branch ("intro") will still be present here,
+      -- but will be deleted by GitHub (if configured to do so)
+      -- if there are no other PRs depending on it.
+      -- The other branches should be left untouched.
       branches `shouldMatchList`
-        fmap Branch ["ahead", "master", "alternative", "fixup", "unused", "integration"]
+        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused", "integration"]
 
     it "handles multiple pull requests" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
@@ -469,7 +473,7 @@ eventLoopSpec = parallel $ do
       branches `shouldContain` [Branch "alternative"]
 
     it "restarts the sequence after a rejected push" $ do
-      (history, branches) <- withTestEnv' $ \ shas runLoop git -> do
+      history <- withTestEnv $ \ shas runLoop git -> do
         let
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
           pr6 = PullRequestId 6
@@ -519,7 +523,8 @@ eventLoopSpec = parallel $ do
         , "* c1"
         , "* c0"
         ]
-      branches `shouldNotContain` [Branch "intro"]
+      -- The remote branch will still be present here,
+      -- but GitHub will remove it automatically if configured to do so.
 
     it "applies fixup commits during rebase, even if fast forward is possible" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do

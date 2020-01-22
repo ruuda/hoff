@@ -120,7 +120,6 @@ runAction config = foldFree $ \case
     doGit $ ensureCloned config
     doGit $ Git.forcePush sha prBranch
     pushResult <- doGit $ Git.push sha (Git.Branch $ Config.branch config)
-    when (pushResult == PushOk) (doGit $ Git.pushDelete prBranch)
     pure $ cont pushResult
 
   LeaveComment pr body cont -> do
