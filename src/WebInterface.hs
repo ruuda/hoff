@@ -16,6 +16,7 @@ import Data.ByteArray.Encoding (Base(Base64, Base64URLUnpadded), convertToBase)
 import Data.FileEmbed (embedStringFile)
 import Data.Maybe (fromJust)
 import Data.Monoid ((<>))
+import Data.Bifunctor (second)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Text.Format.Params (Params)
@@ -24,14 +25,14 @@ import Prelude hiding (id, div, head, span)
 import Text.Blaze ((!), toValue)
 import Text.Blaze.Internal (Attribute, AttributeValue, attribute)
 import Text.Blaze.Html.Renderer.Utf8
-import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, head, link, meta, p, span, title, toHtml, br)
+import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, h3, head, link, meta, p, span, title, toHtml)
 import Text.Blaze.Html5.Attributes (class_, charset, content, href, id, name, rel)
 
 import qualified Data.ByteString.Lazy as LazyByteString
 import qualified Data.Text as Text
 import qualified Data.Text.Format as Text
 
-import Project (ProjectInfo, ProjectState, PullRequest, Owner, getOwners)
+import Project (ProjectInfo, ProjectState, PullRequest, Owner)
 import Types (PullRequestId (..), Username (..))
 
 import qualified Project
@@ -97,19 +98,13 @@ viewProjectInfo info =
   let
     owner = Project.owner info
     repo  = Project.repository info
+    ownerUrl = format "/{}" [owner]
     repoUrl  = format "/{}/{}" [owner, repo]
   in
     p $ do
-      a ! href (toValue repoUrl) $ do
-        toHtml owner
-        void "\x2009/\x2009" -- U+2009 is a thin space.
-        toHtml repo
-
-viewOwnerInfo :: Owner -> Html
-viewOwnerInfo owner =
-  let
-    repoUrl = format "/{}" [owner]
-    in p $ a ! href (toValue repoUrl) $ (toHtml owner)
+      a ! href (toValue ownerUrl) $ (toHtml owner)
+      void "\x2009/\x2009" -- U+2009 is a thin space.
+      a ! href (toValue repoUrl) $ (toHtml repo)
 
 -- Renders the body html for the index page.
 viewIndex :: [ProjectInfo] -> Html
@@ -122,8 +117,6 @@ viewIndex infos =
       void "Hoff is a gatekeeper for your commits. See "
       a ! href "https://github.com/ruuda/hoff" $ "github.com/ruuda/hoff"
       void " for more information."
-    h2 "Tracked organizations"
-    mapM_ viewOwnerInfo (getOwners infos)
     h2 "Tracked repositories"
     mapM_ viewProjectInfo infos
 
@@ -144,12 +137,14 @@ viewProject info state =
 
     viewProjectQueues info state
 
-viewOwner :: [(ProjectInfo, ProjectState)] -> Html
-viewOwner = mapM_ (uncurry viewProjectListItem)
-  where
-    viewProjectListItem info state = do
-      viewProject info state
-      br
+viewOwner :: Owner -> [(ProjectInfo, ProjectState)] -> Html
+viewOwner owner projects = do
+  let
+    ownerUrl = format "https://github.com/{}" [owner]
+  h1 $ do
+    a ! class_ "back" ! href "/" $ void "«"
+    a ! href (toValue ownerUrl) $ toHtml owner
+  viewGroupedProjectQueues projects
 
 -- Render the html for the queues in a project, excluding the header and footer.
 viewProjectQueues :: ProjectInfo -> ProjectState -> Html
@@ -187,6 +182,59 @@ viewProjectQueues info state = do
   unless (null integrated) $ do
     h2 "Recently integrated"
     viewList viewPullRequestWithApproval info state integrated
+
+-- Render the html for the queues in a project, excluding the header and footer.
+viewGroupedProjectQueues :: [(ProjectInfo, ProjectState)] -> Html
+viewGroupedProjectQueues projects = do
+  let
+    pullRequests :: [((ProjectInfo, ProjectState), [(PullRequestId, Project.PullRequestStatus)])]
+    pullRequests = map (\project@(_, state) -> (project, Project.classifyPullRequests state)) projects
+    filterPrs predicate = filter (not . null . snd) $ map (second (filter (predicate . snd))) pullRequests
+
+  let
+    building :: [((ProjectInfo, ProjectState), [(PullRequestId, Project.PullRequestStatus)])]
+    building = filterPrs (== Project.PrStatusBuildPending)
+  h2 "Building"
+  if null building
+    then p "There are no builds in progress at the moment."
+    else mapM_ (uncurry $ viewList' viewPullRequestWithApproval) building
+  let approved = filterPrs (== Project.PrStatusApproved)
+  unless (null approved) $ do
+    h2 "Approved"
+    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) approved
+
+  let awaitingApproval = filterPrs (== Project.PrStatusAwaitingApproval)
+  unless (null awaitingApproval) $ do
+    h2 "Awaiting approval"
+    mapM_ (uncurry $ viewList' viewPullRequest) awaitingApproval
+
+  let failed = filterPrs $ \ st ->
+        (st == Project.PrStatusFailedConflict) || (st == Project.PrStatusFailedBuild)
+  unless (null failed) $ do
+    h2 "Failed"
+    -- TODO: Also render failure reason: conflicted or build failed.
+    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) failed
+
+  -- TODO: Keep a list of the last n integrated pull requests, so they stay
+  -- around for a bit after they have been closed.
+  let integrated = filterPrs (== Project.PrStatusIntegrated)
+  unless (null integrated) $ do
+    h2 "Recently integrated"
+    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) integrated
+
+  where
+    viewList'
+          :: (ProjectInfo -> PullRequestId -> PullRequest -> Html)
+          -> (ProjectInfo, ProjectState)
+          -> [(PullRequestId, Project.PullRequestStatus)]
+          -> Html
+    viewList' view (info, state) prIds = do
+      h3 (toHtml $ Project.repository info)
+      p $ forM_ prIds $ \ (prId, _) ->
+        let
+          pr = fromJust $ Project.lookupPullRequest prId state
+        in
+          p $ view info prId pr
 
 -- Renders the contents of a list item with a link for a pull request.
 viewPullRequest :: ProjectInfo -> PullRequestId -> PullRequest -> Html

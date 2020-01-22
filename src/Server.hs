@@ -156,8 +156,8 @@ serveWebInterfaceOwner getOwnerState = do
   owner <- param "owner"
   states <- liftIO $ getOwnerState owner
   setHeader "Content-Type" "text/html; charset=utf-8"
-  let title = Text.concat [owner, "/"]
-  raw $ WebInterface.renderPage title $ WebInterface.viewOwner states
+  let title = owner
+  raw $ WebInterface.renderPage title $ WebInterface.viewOwner owner states
 
 serveWebInterfaceProject :: (ProjectInfo -> Maybe (IO ProjectState)) -> ActionM ()
 serveWebInterfaceProject getProjectState = do
