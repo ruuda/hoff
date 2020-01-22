@@ -13,7 +13,6 @@ import Control.Monad.Free (foldFree)
 import Control.Monad.Trans.Writer (Writer, tell, runWriter)
 import Data.Aeson (decode, encode)
 import Data.ByteString.Lazy (readFile)
-import Data.Function ((&))
 import Data.Foldable (foldlM)
 import Data.Maybe (fromJust, isJust, isNothing)
 import Data.Text (Text)
@@ -53,9 +52,12 @@ singlePullRequestState pr prBranch prSha prAuthor =
 
 candidateState :: PullRequestId -> Branch -> Sha -> Username -> Sha -> ProjectState
 candidateState pr prBranch prSha prAuthor candidateSha =
-  let state0 = singlePullRequestState pr prBranch prSha prAuthor
-      state1 = Project.setIntegrationStatus pr (Project.Integrated candidateSha) state0
-  in  state1 { Project.integrationCandidate = Just pr }
+  let
+    state0 = singlePullRequestState pr prBranch prSha prAuthor
+    state1 = Project.setIntegrationStatus pr (Project.Integrated candidateSha) state0
+    state2 = Project.setBuildStatus pr (Project.BuildPending) state1
+  in
+    state2 { Project.integrationCandidate = Just pr }
 
 -- Types and functions to mock running an action without actually doing anything.
 
@@ -90,31 +92,25 @@ runActionWithInit integrateResult pushResult =
         tell [AIsReviewer username]
         pure $ h $ isReviewer username
 
+-- Simulates running the action. Use the provided sha as result when integration
+-- is attempted, and use the provided push result when a push is attempted.
+runActionCustom :: Maybe Sha -> PushResult -> Action a -> (a, [ActionFlat])
+runActionCustom integrateResult pushResult = runWriter . runActionWithInit integrateResult pushResult
+
 -- Simulates running the action. Pretends that integration always conflicts.
 -- Pretends that pushing is always successful.
 runAction :: Action a -> (a, [ActionFlat])
-runAction = runWriter . runActionWithInit Nothing PushOk
+runAction = runActionCustom Nothing PushOk
 
--- Handle an event and simulate its side effects, then ignore the side effects
--- and return the new state.
+-- Handle an event, then advance the state until a fixed point,
+-- and simulate its side effects.
 handleEventFlat :: Event -> ProjectState -> (ProjectState, [ActionFlat])
 handleEventFlat event state = runAction $ handleEvent testTriggerConfig event state
 
--- Handle events and simulate their side effects, then ignore the side effects
--- and return the new state.
-handleEventsFlat :: [Event] -> ProjectState -> (ProjectState, [ActionFlat])
-handleEventsFlat events state = runAction
-  $ foldlM (flip $ handleEvent testTriggerConfig) state events
-
--- Proceed with a state until a fixed point, simulate and collect the side
--- effects.
-proceedUntilFixedPointFlat
-  :: Maybe Sha
-  -> PushResult
-  -> ProjectState
-  -> (ProjectState, [ActionFlat])
-proceedUntilFixedPointFlat integrateResult pushResult state =
-  runWriter $ runActionWithInit integrateResult pushResult $ proceedUntilFixedPoint state
+-- Handle events (advancing the state until a fixed point in between) and
+-- simulate their side effects.
+handleEvents :: [Event] -> ProjectState -> Action ProjectState
+handleEvents events state = foldlM (flip $ handleEvent testTriggerConfig) state events
 
 main :: IO ()
 main = hspec $ do
@@ -134,7 +130,7 @@ main = hspec $ do
       let event1 = PullRequestOpened (PullRequestId 1) (Branch "p") (Sha "abc") "title" "peter"
           event2 = PullRequestOpened (PullRequestId 2) (Branch "q") (Sha "def") "title" "jack"
           event3 = PullRequestClosed (PullRequestId 1)
-          state  = fst $ handleEventsFlat [event1, event2, event3] Project.emptyProjectState
+          state  = fst $ runAction $ handleEvents [event1, event2, event3] Project.emptyProjectState
       state `shouldSatisfy` not . Project.existsPullRequest (PullRequestId 1)
       state `shouldSatisfy` Project.existsPullRequest (PullRequestId 2)
 
@@ -206,7 +202,7 @@ main = hspec $ do
           -- In these cases, the prefix is correct, but the command is wrong.
           event4 = CommentAdded (PullRequestId 1) "deckard" "@botmerge"
           event5 = CommentAdded (PullRequestId 1) "deckard" "@bot, merge"
-          state' = fst $ handleEventsFlat [event1, event2, event3, event4, event5] state
+          state' = fst $ runAction $ handleEvents [event1, event2, event3, event4, event5] state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.approvedBy pr `shouldBe` Nothing
 
@@ -229,12 +225,12 @@ main = hspec $ do
       let event0 = PullRequestOpened (PullRequestId 2) (Branch "p") (Sha "0ad") "title" "harry"
           event1 = BuildStatusChanged (Sha "0ad") Project.BuildSucceeded
           state  = candidateState (PullRequestId 1) (Branch "p") (Sha "a38") "harry" (Sha "84c")
-          state' = fst $ handleEventsFlat [event0, event1] state
+          state' = fst $ runAction $ handleEvents [event0, event1] state
           pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
           pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 2) state'
       -- Even though the build status changed for "0ad" which is a known commit,
       -- only the build status of the integration candidate can be changed.
-      Project.buildStatus pr1 `shouldBe` Project.BuildNotStarted
+      Project.buildStatus pr1 `shouldBe` Project.BuildPending
       Project.buildStatus pr2 `shouldBe` Project.BuildNotStarted
 
     it "only checks if a comment author is a reviewer for comment commands" $ do
@@ -252,19 +248,27 @@ main = hspec $ do
 
     it "notifies approvers about queue position" $ do
       let
-        state = candidateState (PullRequestId 1) (Branch "p") (Sha "a38") "tyrell" (Sha "84c")
-              & Project.insertPullRequest (PullRequestId 2) (Branch "s") (Sha "dec") "Some PR" (Username "rachael")
-              & Project.insertPullRequest (PullRequestId 3) (Branch "s") (Sha "f16") "Another PR" (Username "rachael")
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "p") (Sha "a38") "Add Nexus 7 experiment" (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "s") (Sha "dec") "Some PR" (Username "rachael")
+          $ Project.insertPullRequest (PullRequestId 3) (Branch "s") (Sha "f16") "Another PR" (Username "rachael")
+          $ Project.emptyProjectState
         -- Approve pull request in order of ascending id.
         events =
           [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
           ]
-        actions = snd $ handleEventsFlat events state
+        -- For this test, we assume all integrations and pushes succeed.
+        integrateResult = Just (Sha "b71")
+        pushResult = PushOk
+        run = runActionCustom integrateResult pushResult
+        actions = snd $ run $ handleEvents events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1\n\nApproved-by: deckard" (Branch "refs/pull/1/head", Sha "a38")
+        , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI …"
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2) "Pull request approved by @deckard, waiting for rebase at the front of the queue."
         , AIsReviewer "deckard"
@@ -278,10 +282,12 @@ main = hspec $ do
           , CommentAdded (PullRequestId 1) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
           ]
-        actionsPermuted = snd $ handleEventsFlat eventsPermuted state
+        actionsPermuted = snd $ run $ handleEvents eventsPermuted state
       actionsPermuted `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2) "Pull request approved by @deckard, rebasing now."
+        , ATryIntegrate "Merge #2\n\nApproved-by: deckard" (Branch "refs/pull/2/head", Sha "dec")
+        , ALeaveComment (PullRequestId 2) "Rebased as b71, waiting for CI …"
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, waiting for rebase at the front of the queue."
         , AIsReviewer "deckard"
@@ -301,10 +307,14 @@ main = hspec $ do
   describe "Logic.proceedUntilFixedPoint" $ do
 
     it "finds a new candidate" $ do
-      let state = Project.setApproval (PullRequestId 1) (Just "fred") $
-                  singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "f34") "sally"
-          (state', actions)  = proceedUntilFixedPointFlat (Just (Sha "38c")) PushRejected state
-          (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
+      let
+        state
+          = Project.setApproval (PullRequestId 1) (Just "fred")
+          $ singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "f34") "sally"
+        (state', actions)
+          = runActionCustom (Just (Sha "38c")) PushRejected
+          $ Logic.proceedUntilFixedPoint state
+        (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
       Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c")
       Project.buildStatus pullRequest       `shouldBe` Project.BuildPending
       prId    `shouldBe` PullRequestId 1
@@ -314,23 +324,24 @@ main = hspec $ do
         ]
 
     it "pushes after a successful build" $ do
-      let pullRequest = PullRequest
-            {
-              Project.branch            = Branch "results/rachael",
-              Project.sha               = Sha "f35",
-              Project.title             = "Add my test results",
-              Project.author            = "rachael",
-              Project.approvedBy        = Just "deckard",
-              Project.buildStatus       = Project.BuildSucceeded,
-              Project.integrationStatus = Project.Integrated (Sha "38d")
-            }
-          state = ProjectState
-            {
-              Project.pullRequests         = IntMap.singleton 1 pullRequest,
-              Project.integrationCandidate = Just $ PullRequestId 1
-            }
-          (state', actions) = proceedUntilFixedPointFlat (Just (Sha "38e")) PushOk state
-          candidate         = Project.getIntegrationCandidate state'
+      let
+        pullRequest = PullRequest
+          { Project.branch            = Branch "results/rachael"
+          , Project.sha               = Sha "f35"
+          , Project.title             = "Add my test results"
+          , Project.author            = "rachael"
+          , Project.approvedBy        = Just "deckard"
+          , Project.buildStatus       = Project.BuildSucceeded
+          , Project.integrationStatus = Project.Integrated (Sha "38d")
+          }
+        state = ProjectState
+          { Project.pullRequests         = IntMap.singleton 1 pullRequest
+          , Project.integrationCandidate = Just $ PullRequestId 1
+          }
+        (state', actions)
+          = runActionCustom (Just (Sha "38e")) PushOk
+          $ Logic.proceedUntilFixedPoint state
+        candidate = Project.getIntegrationCandidate state'
       -- After a successful push, the candidate should be gone.
       candidate `shouldBe` Nothing
       actions   `shouldBe` [ATryPromote (Branch "results/rachael") (Sha "38d")]
@@ -338,25 +349,26 @@ main = hspec $ do
     it "restarts the sequence after a rejected push" $ do
       -- Set up a pull request that has gone through the review and build cycle,
       -- and is ready to be pushed to master.
-      let pullRequest = PullRequest
-            {
-              Project.branch            = Branch "results/rachael",
-              Project.sha               = Sha "f35",
-              Project.title             = "Add my test results",
-              Project.author            = "rachael",
-              Project.approvedBy        = Just "deckard",
-              Project.buildStatus       = Project.BuildSucceeded,
-              Project.integrationStatus = Project.Integrated (Sha "38d")
-            }
-          state = ProjectState
-            {
-              Project.pullRequests         = IntMap.singleton 1 pullRequest,
-              Project.integrationCandidate = Just $ PullRequestId 1
-            }
-          -- Run 'proceedUntilFixedPoint', and pretend that pushes fail (because
-          -- something was pushed in the mean time, for instance).
-          (state', actions) = proceedUntilFixedPointFlat (Just (Sha "38e")) PushRejected state
-          (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
+      let
+        pullRequest = PullRequest
+          { Project.branch            = Branch "results/rachael"
+          , Project.sha               = Sha "f35"
+          , Project.title             = "Add my test results"
+          , Project.author            = "rachael"
+          , Project.approvedBy        = Just "deckard"
+          , Project.buildStatus       = Project.BuildSucceeded
+          , Project.integrationStatus = Project.Integrated (Sha "38d")
+          }
+        state = ProjectState
+          { Project.pullRequests         = IntMap.singleton 1 pullRequest
+          , Project.integrationCandidate = Just $ PullRequestId 1
+          }
+        -- Run 'proceedUntilFixedPoint', and pretend that pushes fail (because
+        -- something was pushed in the mean time, for instance).
+        (state', actions)
+          = runActionCustom (Just (Sha "38e")) PushRejected
+          $ Logic.proceedUntilFixedPoint state
+        (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
 
       Project.integrationStatus pullRequest' `shouldBe` Project.Integrated (Sha "38e")
       Project.buildStatus       pullRequest' `shouldBe` Project.BuildPending
@@ -396,7 +408,9 @@ main = hspec $ do
               Project.integrationCandidate = Nothing
             }
           -- Proceeding should pick the next pull request as candidate.
-          (state', actions) = proceedUntilFixedPointFlat (Just (Sha "38e")) PushOk state
+          (state', actions)
+            = runActionCustom (Just (Sha "38e")) PushOk
+            $ Logic.proceedUntilFixedPoint state
           Just (cId, _candidate) = Project.getIntegrationCandidate state'
       cId     `shouldBe` PullRequestId 2
       actions `shouldBe`

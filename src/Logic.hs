@@ -21,14 +21,14 @@ module Logic
   enqueueStopSignal,
   ensureCloned,
   handleEvent,
+  handleEventInternal,
   newEventQueue,
   newStateVar,
+  proceedUntilFixedPoint,
   readStateVar,
   runAction,
-  proceed,
-  proceedUntilFixedPoint,
   tryIntegratePullRequest,
-  updateStateVar
+  updateStateVar,
 )
 where
 
@@ -193,12 +193,15 @@ updateStateVar var state = void $ atomically $ swapTMVar var state
 readStateVar :: StateVar -> IO ProjectState
 readStateVar var = atomically $ readTMVar var
 
-handleEvent
+-- Handle a single event, but don't take any other actions. To complete handling
+-- of the event, we must also call `proceed` on the state until we reach a fixed
+-- point. This is handled by `handleEvent`.
+handleEventInternal
   :: TriggerConfiguration
   -> Event
   -> ProjectState
   -> Action ProjectState
-handleEvent triggerConfig event = case event of
+handleEventInternal triggerConfig event = case event of
   PullRequestOpened pr branch sha title author -> handlePullRequestOpened pr branch sha title author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosed pr
@@ -417,3 +420,11 @@ proceedUntilFixedPoint state = do
   if newState == state
     then return state
     else proceedUntilFixedPoint newState
+
+handleEvent
+  :: TriggerConfiguration
+  -> Event
+  -> ProjectState
+  -> Action ProjectState
+handleEvent triggerConfig event state =
+  handleEventInternal triggerConfig event state >>= proceedUntilFixedPoint
