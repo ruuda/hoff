@@ -255,16 +255,35 @@ main = hspec $ do
         state = candidateState (PullRequestId 1) (Branch "p") (Sha "a38") "tyrell" (Sha "84c")
               & Project.insertPullRequest (PullRequestId 2) (Branch "s") (Sha "dec") "Some PR" (Username "rachael")
               & Project.insertPullRequest (PullRequestId 3) (Branch "s") (Sha "f16") "Another PR" (Username "rachael")
-        events = [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
-                 , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
-                 , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
-                 ]
+        -- Approve pull request in order of ascending id.
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
+          ]
         actions = snd $ handleEventsFlat events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, rebasing now."
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2) "Pull request approved by @deckard, waiting for rebase at the front of the queue."
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 3) "Pull request approved by @deckard, waiting for rebase behind 2 pull requests."
+        ]
+
+      -- Approve pull requests, but not in order of ascending id.
+      let
+        eventsPermuted =
+          [ CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
+          ]
+        actionsPermuted = snd $ handleEventsFlat eventsPermuted state
+      actionsPermuted `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2) "Pull request approved by @deckard, rebasing now."
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, waiting for rebase at the front of the queue."
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 3) "Pull request approved by @deckard, waiting for rebase behind 2 pull requests."
         ]
