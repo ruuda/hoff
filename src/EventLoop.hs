@@ -147,10 +147,9 @@ runLogicEventLoop triggerConfig projectConfig runGit runGithub getNextEvent publ
       logInfoN  $ Text.append "logic loop received event: " (Text.pack $ show event)
       logDebugN $ Text.append "state before: " (Text.pack $ show state0)
       state1 <- runAll $ runAction $ Logic.handleEvent triggerConfig event state0
-      state2 <- runAll $ runAction $ Logic.proceedUntilFixedPoint state1
-      publish state2
-      logDebugN $ Text.append "state after: " (Text.pack $ show state2)
-      runLoop state2
+      publish state1
+      logDebugN $ Text.append "state after: " (Text.pack $ show state1)
+      runLoop state1
 
     runLoop state = do
       -- Before anything, clone the repository if there is no clone.

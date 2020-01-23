@@ -23,12 +23,11 @@ module Logic
   handleEvent,
   newEventQueue,
   newStateVar,
+  proceedUntilFixedPoint,
   readStateVar,
   runAction,
-  proceed,
-  proceedUntilFixedPoint,
   tryIntegratePullRequest,
-  updateStateVar
+  updateStateVar,
 )
 where
 
@@ -193,12 +192,15 @@ updateStateVar var state = void $ atomically $ swapTMVar var state
 readStateVar :: StateVar -> IO ProjectState
 readStateVar var = atomically $ readTMVar var
 
-handleEvent
+-- Handle a single event, but don't take any other actions. To complete handling
+-- of the event, we must also call `proceed` on the state until we reach a fixed
+-- point. This is handled by `handleEvent`.
+handleEventInternal
   :: TriggerConfiguration
   -> Event
   -> ProjectState
   -> Action ProjectState
-handleEvent triggerConfig event = case event of
+handleEventInternal triggerConfig event = case event of
   PullRequestOpened pr branch sha title author -> handlePullRequestOpened pr branch sha title author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosed pr
@@ -265,7 +267,7 @@ isMergeCommand config message =
 approvePullRequest :: PullRequestId -> Username -> ProjectState -> Action ProjectState
 approvePullRequest pr approver state = do
   let newState = Pr.updatePullRequest pr (\pullRequest -> pullRequest { Pr.approvedBy = Just approver }) state
-  leaveComment pr $ case Pr.getQueueLength pr state of
+  leaveComment pr $ case Pr.getQueuePosition pr state of
     0 -> format "Pull request approved by @{}, rebasing now." [approver]
     1 -> format "Pull request approved by @{}, waiting for rebase at the front of the queue." [approver]
     n -> format "Pull request approved by @{}, waiting for rebase behind {} pull requests." (approver, n)
@@ -417,3 +419,11 @@ proceedUntilFixedPoint state = do
   if newState == state
     then return state
     else proceedUntilFixedPoint newState
+
+handleEvent
+  :: TriggerConfiguration
+  -> Event
+  -> ProjectState
+  -> Action ProjectState
+handleEvent triggerConfig event state =
+  handleEventInternal triggerConfig event state >>= proceedUntilFixedPoint

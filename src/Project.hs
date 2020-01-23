@@ -26,7 +26,7 @@ module Project
   emptyProjectState,
   existsPullRequest,
   getIntegrationCandidate,
-  getQueueLength,
+  getQueuePosition,
   insertPullRequest,
   loadProjectState,
   lookupPullRequest,
@@ -240,24 +240,44 @@ filterPullRequestsBy p =
 approvedPullRequests :: ProjectState -> [PullRequestId]
 approvedPullRequests = filterPullRequestsBy $ isJust . approvedBy
 
--- Returns the length of the queue of pull requests that will be rebased and
--- checked on CI before the PR with the given id will be rebased.
-getQueueLength :: PullRequestId -> ProjectState -> Int
-getQueueLength pr state =
+-- Returns the number of pull requests that will be rebased and checked on CI
+-- before the PR with the given id will be rebased, in case no other pull
+-- requests get approved in the mean time (PRs with a lower id may skip ahead).
+getQueuePosition :: PullRequestId -> ProjectState -> Int
+getQueuePosition pr state =
   let
     queue = filter (< pr) $ filterPullRequestsBy isQueued state
+    inProgress = filterPullRequestsBy isInProgress state
   in
-    length queue
+    length (inProgress ++ queue)
 
--- Returns whether a pull request is queued for merging.
+-- Returns whether a pull request is queued for merging, but not already in
+-- progress (pending build results).
 isQueued :: PullRequest -> Bool
-isQueued pr = case classifyPullRequest pr of
-  PrStatusApproved -> True
-  PrStatusBuildPending -> True
-  PrStatusAwaitingApproval -> False
-  PrStatusIntegrated -> False
-  PrStatusFailedConflict -> False
-  PrStatusFailedBuild -> False
+isQueued pr = case approvedBy pr of
+  Nothing -> False
+  Just _  -> case integrationStatus pr of
+    NotIntegrated -> True
+    Conflicted    -> False
+    Integrated _  -> case buildStatus pr of
+      BuildNotStarted -> False
+      BuildPending    -> False
+      BuildSucceeded  -> False
+      BuildFailed     -> True
+
+-- Returns whether a pull request is in the process of being integrated (pending
+-- build results).
+isInProgress :: PullRequest -> Bool
+isInProgress pr = case approvedBy pr of
+  Nothing -> False
+  Just _  -> case integrationStatus pr of
+    NotIntegrated -> False
+    Conflicted    -> False
+    Integrated _  -> case buildStatus pr of
+      BuildNotStarted -> True
+      BuildPending    -> True
+      BuildSucceeded  -> False
+      BuildFailed     -> False
 
 -- Returns the pull requests that have not been integrated yet, in order of
 -- ascending id.
