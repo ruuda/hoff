@@ -27,12 +27,13 @@ import qualified Data.UUID.V4 as Uuid
 import EventLoop (convertGithubEvent)
 import Git (Branch (..), PushResult(..), Sha (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
-import Logic hiding (runAction)
+import Logic (Action, ActionFree (..), Event (..))
 import Project (ProjectState (ProjectState), PullRequest (PullRequest))
 import Types (PullRequestId (..), Username (..))
 
 import qualified Configuration as Config
 import qualified Github
+import qualified Logic
 import qualified Project
 
 -- Trigger config used throughout these tests.
@@ -48,7 +49,7 @@ singlePullRequestState pr prBranch prSha prAuthor =
   let
     event = PullRequestOpened pr prBranch prSha "Untitled" prAuthor
   in
-    fst $ handleEventFlat event Project.emptyProjectState
+    fst $ runAction $ handleEventTest event Project.emptyProjectState
 
 candidateState :: PullRequestId -> Branch -> Sha -> Username -> Sha -> ProjectState
 candidateState pr prBranch prSha prAuthor candidateSha =
@@ -104,13 +105,13 @@ runAction = runActionCustom Nothing PushOk
 
 -- Handle an event, then advance the state until a fixed point,
 -- and simulate its side effects.
-handleEventFlat :: Event -> ProjectState -> (ProjectState, [ActionFlat])
-handleEventFlat event state = runAction $ handleEvent testTriggerConfig event state
+handleEventTest :: Event -> ProjectState -> Action ProjectState
+handleEventTest event state = Logic.handleEvent testTriggerConfig event state
 
 -- Handle events (advancing the state until a fixed point in between) and
 -- simulate their side effects.
-handleEvents :: [Event] -> ProjectState -> Action ProjectState
-handleEvents events state = foldlM (flip $ handleEvent testTriggerConfig) state events
+handleEventsTest :: [Event] -> ProjectState -> Action ProjectState
+handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig) state events
 
 main :: IO ()
 main = hspec $ do
@@ -118,7 +119,7 @@ main = hspec $ do
 
     it "handles PullRequestOpened" $ do
       let event = PullRequestOpened (PullRequestId 3) (Branch "p") (Sha "e0f") "title" "lisa"
-          state = fst $ handleEventFlat event Project.emptyProjectState
+          state = fst $ runAction $ handleEventTest event Project.emptyProjectState
       state `shouldSatisfy` Project.existsPullRequest (PullRequestId 3)
       let pr = fromJust $ Project.lookupPullRequest (PullRequestId 3) state
       Project.sha pr         `shouldBe` Sha "e0f"
@@ -130,27 +131,27 @@ main = hspec $ do
       let event1 = PullRequestOpened (PullRequestId 1) (Branch "p") (Sha "abc") "title" "peter"
           event2 = PullRequestOpened (PullRequestId 2) (Branch "q") (Sha "def") "title" "jack"
           event3 = PullRequestClosed (PullRequestId 1)
-          state  = fst $ runAction $ handleEvents [event1, event2, event3] Project.emptyProjectState
+          state  = fst $ runAction $ handleEventsTest [event1, event2, event3] Project.emptyProjectState
       state `shouldSatisfy` not . Project.existsPullRequest (PullRequestId 1)
       state `shouldSatisfy` Project.existsPullRequest (PullRequestId 2)
 
     it "handles closing the integration candidate PR" $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 1) (Branch "p") (Sha "ea0") "frank" (Sha "cf4")
-          state' = fst $ handleEventFlat event state
+          state' = fst $ runAction $ handleEventTest event state
       Project.integrationCandidate state' `shouldBe` Nothing
 
     it "does not modify the integration candidate if a different PR was closed" $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 2) (Branch "p") (Sha "a38") "franz" (Sha "ed0")
-          state' = fst $ handleEventFlat event state
+          state' = fst $ runAction $ handleEventTest event state
       Project.integrationCandidate state' `shouldBe` (Just $ PullRequestId 2)
 
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
           state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "abc") "alice"
           state1 = Project.setApproval (PullRequestId 1) (Just "hatter") state0
-          state2 = fst $ handleEventFlat event state1
+          state2 = fst $ runAction $ handleEventTest event state1
           pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
           pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
       Project.approvedBy pr1 `shouldBe` Just "hatter"
@@ -160,7 +161,7 @@ main = hspec $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
           state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "abc") "thomas"
           state1 = Project.setBuildStatus (PullRequestId 1) Project.BuildPending state0
-          state2 = fst $ handleEventFlat event state1
+          state2 = fst $ runAction $ handleEventTest event state1
           pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
           pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
       Project.buildStatus pr1 `shouldBe` Project.BuildPending
@@ -171,7 +172,7 @@ main = hspec $ do
           state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "000") "cindy"
           state1 = Project.setApproval (PullRequestId 1) (Just "daniel") state0
           state2 = Project.setBuildStatus (PullRequestId 1) Project.BuildPending state1
-          (state3, actions) = handleEventFlat event state2
+          (state3, actions) = runAction $ handleEventTest event state2
       state3 `shouldBe` state2
       actions `shouldBe` []
 
@@ -179,7 +180,7 @@ main = hspec $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "toby"
           -- Note: "deckard" is marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot merge"
-          state' = fst $ handleEventFlat event state
+          state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.approvedBy pr `shouldBe` Just "deckard"
 
@@ -188,7 +189,7 @@ main = hspec $ do
           -- Note: the comment is a valid approval command, but "rachael" is not
           -- marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "rachael" "@bot merge"
-          state' = fst $ handleEventFlat event state
+          state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.approvedBy pr `shouldBe` Nothing
 
@@ -202,7 +203,7 @@ main = hspec $ do
           -- In these cases, the prefix is correct, but the command is wrong.
           event4 = CommentAdded (PullRequestId 1) "deckard" "@botmerge"
           event5 = CommentAdded (PullRequestId 1) "deckard" "@bot, merge"
-          state' = fst $ runAction $ handleEvents [event1, event2, event3, event4, event5] state
+          state' = fst $ runAction $ handleEventsTest [event1, event2, event3, event4, event5] state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.approvedBy pr `shouldBe` Nothing
 
@@ -210,14 +211,14 @@ main = hspec $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
           -- Note: "deckard" is marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "deckard" "@BoT MeRgE"
-          state' = fst $ handleEventFlat event state
+          state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.approvedBy pr `shouldBe` Just "deckard"
 
     it "handles a build status change of the integration candidate" $ do
       let event  = BuildStatusChanged (Sha "84c") Project.BuildSucceeded
           state  = candidateState (PullRequestId 1) (Branch "p") (Sha "a38") "johanna" (Sha "84c")
-          state' = fst $ handleEventFlat event state
+          state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.buildStatus pr `shouldBe` Project.BuildSucceeded
 
@@ -225,7 +226,7 @@ main = hspec $ do
       let event0 = PullRequestOpened (PullRequestId 2) (Branch "p") (Sha "0ad") "title" "harry"
           event1 = BuildStatusChanged (Sha "0ad") Project.BuildSucceeded
           state  = candidateState (PullRequestId 1) (Branch "p") (Sha "a38") "harry" (Sha "84c")
-          state' = fst $ runAction $ handleEvents [event0, event1] state
+          state' = fst $ runAction $ handleEventsTest [event0, event1] state
           pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
           pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 2) state'
       -- Even though the build status changed for "0ad" which is a known commit,
@@ -238,8 +239,8 @@ main = hspec $ do
         state = candidateState (PullRequestId 1) (Branch "p") (Sha "a38") "tyrell" (Sha "84c")
         event0 = CommentAdded (PullRequestId 1) "deckard" "I don't get it, Tyrell"
         event1 = CommentAdded (PullRequestId 1) "deckard" "@bot merge"
-        actions0 = snd $ handleEventFlat event0 state
-        actions1 = snd $ handleEventFlat event1 state
+        actions0 = snd $ runAction $ handleEventTest event0 state
+        actions1 = snd $ runAction $ handleEventTest event1 state
       actions0 `shouldBe` []
       actions1 `shouldBe`
         [ AIsReviewer "deckard"
@@ -263,7 +264,7 @@ main = hspec $ do
         integrateResult = Just (Sha "b71")
         pushResult = PushOk
         run = runActionCustom integrateResult pushResult
-        actions = snd $ run $ handleEvents events state
+        actions = snd $ run $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, rebasing now."
@@ -282,7 +283,7 @@ main = hspec $ do
           , CommentAdded (PullRequestId 1) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
           ]
-        actionsPermuted = snd $ run $ handleEvents eventsPermuted state
+        actionsPermuted = snd $ run $ handleEventsTest eventsPermuted state
       actionsPermuted `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2) "Pull request approved by @deckard, rebasing now."
@@ -299,7 +300,7 @@ main = hspec $ do
         -- We comment on PR #1, but the project is empty, so this comment should
         -- be dropped on the floor.
         event = CommentAdded (PullRequestId 1) "deckard" "@bot merge"
-        (state, actions) = handleEventFlat event Project.emptyProjectState
+        (state, actions) = runAction $ handleEventTest event Project.emptyProjectState
       -- We expect no changes to the state, and in particular, no side effects.
       state `shouldBe` Project.emptyProjectState
       actions `shouldBe` []
