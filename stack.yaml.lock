@@ -6,21 +6,28 @@
 packages:
 - completed:
     cabal-file:
-      size: 6368
-      sha256: 4c6d5e1721fa2cf96251c31124f9b0c10002c81b107a9856e7b075583a48beb3
+      size: 6955
+      sha256: dffa9964449fee9aefdbef8d7c2c7b3aa560cf578f9fd2923ae48fc75dcf7090
     name: github
-    version: 0.16.0
+    version: '0.24'
     git: https://github.com/ruuda/github.git
     pantry-tree:
-      size: 13405
-      sha256: 04fb5c39aa05ea66699a0915e93b30009c7400f6720f6421f6eb7b0b08fc4b6f
-    commit: 32098416c898656abc029c91dd22c91a602e6027
+      size: 15769
+      sha256: cc4a674fd3691b09a46bd923ba3118f8c5edf01b87c5f7657723ebffc313b7c5
+    commit: 8bcd2a957bfc074fc537798524d8e6e3c27efdd6
   original:
     git: https://github.com/ruuda/github.git
-    commit: 32098416c898656abc029c91dd22c91a602e6027
+    commit: 8bcd2a957bfc074fc537798524d8e6e3c27efdd6
+- completed:
+    hackage: binary-instances-1@sha256:b17565598b8df3241f9b46fa8e3a3368ecc8e3f2eb175d7c28f319042a6f5c79,2613
+    pantry-tree:
+      size: 1035
+      sha256: 938ffc6990cac12681c657f7afa93737eecf335e6f0212d8c0b7c1ea3e0f40f4
+  original:
+    hackage: binary-instances-1@sha256:b17565598b8df3241f9b46fa8e3a3368ecc8e3f2eb175d7c28f319042a6f5c79,2613
 snapshots:
 - completed:
-    size: 533451
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/9/0.yaml
-    sha256: 27f29b231b39ea68e967a7a4346b2693a49d77c50f41fc0c276e11189a538da7
-  original: lts-9.0
+    size: 524162
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/14/21.yaml
+    sha256: 9a55dd75853718f2bbbe951872b36a3b7802fcd71796e0f25b8664f24e34c666
+  original: lts-14.21
