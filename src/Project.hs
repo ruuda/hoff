@@ -225,10 +225,10 @@ classifyPullRequest pr = case approvedBy pr of
 
 -- Classify every pull request into one status. Orders pull requests by id in
 -- ascending order.
-classifyPullRequests :: ProjectState -> [(PullRequestId, PullRequestStatus)]
+classifyPullRequests :: ProjectState -> [(PullRequestId, PullRequest, PullRequestStatus)]
 classifyPullRequests state = IntMap.foldMapWithKey aux (pullRequests state)
   where
-    aux i pr = [(PullRequestId i, classifyPullRequest pr)]
+    aux i pr = [(PullRequestId i, pr, classifyPullRequest pr)]
 
 -- Returns the ids of the pull requests that satisfy the predicate, in ascending
 -- order.

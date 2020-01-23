@@ -14,7 +14,6 @@ import Control.Monad (forM_, unless, void)
 import Crypto.Hash (Digest, SHA256, hash)
 import Data.ByteArray.Encoding (Base(Base64, Base64URLUnpadded), convertToBase)
 import Data.FileEmbed (embedStringFile)
-import Data.Maybe (fromJust)
 import Data.Monoid ((<>))
 import Data.Bifunctor (second)
 import Data.Text (Text)
@@ -126,7 +125,7 @@ viewProject info state =
   let
     owner = Project.owner info
     repo  = Project.repository info
-    ownerUrl = format "https://github.com/{}" [owner]
+    ownerUrl = format "/{}" [owner]
     repoUrl  = format "https://github.com/{}/{}" (owner, repo)
   in do
     h1 $ do
@@ -150,49 +149,50 @@ viewOwner owner projects = do
 viewProjectQueues :: ProjectInfo -> ProjectState -> Html
 viewProjectQueues info state = do
   let
+    pullRequests :: [(PullRequestId, PullRequest, Project.PullRequestStatus)]
     pullRequests = Project.classifyPullRequests state
-    filterPrs predicate = fmap fst $ filter (predicate . snd) pullRequests
+    filterPrs predicate = filter (\(_, _, status) -> predicate status) pullRequests
 
   let building = filterPrs (== Project.PrStatusBuildPending)
   h2 "Building"
   if null building
     then p "There are no builds in progress at the moment."
-    else viewList viewPullRequestWithApproval info state building
+    else viewList viewPullRequestWithApproval info building
 
   let approved = filterPrs (== Project.PrStatusApproved)
   unless (null approved) $ do
     h2 "Approved"
-    viewList viewPullRequestWithApproval info state approved
+    viewList viewPullRequestWithApproval info approved
 
   let awaitingApproval = filterPrs (== Project.PrStatusAwaitingApproval)
   unless (null awaitingApproval) $ do
     h2 "Awaiting approval"
-    viewList viewPullRequest info state awaitingApproval
+    viewList viewPullRequest info awaitingApproval
 
   let failed = filterPrs $ \ st ->
         (st == Project.PrStatusFailedConflict) || (st == Project.PrStatusFailedBuild)
   unless (null failed) $ do
     h2 "Failed"
     -- TODO: Also render failure reason: conflicted or build failed.
-    viewList viewPullRequestWithApproval info state failed
+    viewList viewPullRequestWithApproval info failed
 
   -- TODO: Keep a list of the last n integrated pull requests, so they stay
   -- around for a bit after they have been closed.
   let integrated = filterPrs (== Project.PrStatusIntegrated)
   unless (null integrated) $ do
     h2 "Recently integrated"
-    viewList viewPullRequestWithApproval info state integrated
+    viewList viewPullRequestWithApproval info integrated
 
 -- Render the html for the queues in a project, excluding the header and footer.
 viewGroupedProjectQueues :: [(ProjectInfo, ProjectState)] -> Html
 viewGroupedProjectQueues projects = do
   let
-    pullRequests :: [((ProjectInfo, ProjectState), [(PullRequestId, Project.PullRequestStatus)])]
-    pullRequests = map (\project@(_, state) -> (project, Project.classifyPullRequests state)) projects
-    filterPrs predicate = filter (not . null . snd) $ map (second (filter (predicate . snd))) pullRequests
-
+    pullRequests :: [(ProjectInfo, [(PullRequestId, PullRequest, Project.PullRequestStatus)])]
+    pullRequests = map (second Project.classifyPullRequests) projects
+    filterPrs predicate = let
+      predicateTriple (_, _, status) = predicate status
+      in  filter (not . null . snd) $ map (second (filter predicateTriple)) pullRequests
   let
-    building :: [((ProjectInfo, ProjectState), [(PullRequestId, Project.PullRequestStatus)])]
     building = filterPrs (== Project.PrStatusBuildPending)
   h2 "Building"
   if null building
@@ -225,16 +225,12 @@ viewGroupedProjectQueues projects = do
   where
     viewList'
           :: (ProjectInfo -> PullRequestId -> PullRequest -> Html)
-          -> (ProjectInfo, ProjectState)
-          -> [(PullRequestId, Project.PullRequestStatus)]
+          -> ProjectInfo
+          -> [(PullRequestId, PullRequest, status)]
           -> Html
-    viewList' view (info, state) prIds = do
+    viewList' view info prs = do
       h3 (toHtml $ Project.repository info)
-      p $ forM_ prIds $ \ (prId, _) ->
-        let
-          pr = fromJust $ Project.lookupPullRequest prId state
-        in
-          p $ view info prId pr
+      forM_ prs $ \(prId, pr, _) -> p $ view info prId pr
 
 -- Renders the contents of a list item with a link for a pull request.
 viewPullRequest :: ProjectInfo -> PullRequestId -> PullRequest -> Html
@@ -261,15 +257,8 @@ viewPullRequestWithApproval info prId pullRequest = do
         " which was not approved. This is a programming error."
 
 -- Render all pull requests in the list with the given view function.
--- TODO: Use a safer abstraction, than a list of IDs for which it is not clear
--- from the types that lookup will not fail.
-viewList :: (ProjectInfo -> PullRequestId -> PullRequest -> Html)
-         -> ProjectInfo
-         -> ProjectState
-         -> [PullRequestId]
-         -> Html
-viewList view info state prIds = forM_ prIds $ \ prId ->
-  let
-    pr = fromJust $ Project.lookupPullRequest prId state
-  in
-    p $ view info prId pr
+viewList  :: (ProjectInfo -> PullRequestId -> PullRequest -> Html)
+          -> ProjectInfo
+          -> [(PullRequestId, PullRequest, status)]
+          -> Html
+viewList view info prs = forM_  prs $ \(prId, pr, _) -> p $ view info prId pr
