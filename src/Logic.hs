@@ -251,19 +251,13 @@ handlePullRequestClosed pr state = return $ Pr.deletePullRequest pr state {
 isMergeCommand :: TriggerConfiguration -> Text -> Bool
 isMergeCommand config message =
   let
-    messageCaseFold = Text.words $ Text.toCaseFold $ Text.strip message
+    messageCaseFold = Text.toCaseFold $ Text.strip message
     prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
-    -- Recursive function that checks a list of words, if the first element is
-    -- the bot prefix and the second merge that we have a merge command. otherwise
-    -- we recurse to check the rest of the message.
-    isMergeCommand' :: Text -> [Text] -> Bool
-    isMergeCommand' prefix messageWords =
-      case messageWords of
-        (p:c:_) | p == prefix && c == "merge" -> True
-        (_:xs)  -> isMergeCommand' prefix xs
-        _       -> False
   in
-    isMergeCommand' prefixCaseFold messageCaseFold
+    -- Check if the prefix followed by ` merge` occurs within the message. We opt
+    -- to include the space here, instead of making it part of the prefix, because
+    -- having the trailing space in config is something that is easy to get wrong.
+    (mappend prefixCaseFold " merge") `Text.isInfixOf` messageCaseFold
 
 -- Mark the pull request as approved by the approver, and leave a comment to
 -- acknowledge that.
