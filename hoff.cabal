@@ -29,32 +29,32 @@ library
                  , Types
                  , WebInterface
 
-  build-depends: aeson             >= 1.1  && < 1.2
-               , aeson-pretty      >= 0.7  && < 0.9
-               , base              >= 4.8  && < 4.10
-               , base16-bytestring >= 0.1  && < 0.2
-               , blaze-html        >= 0.9  && < 0.10
-               , blaze-markup      >= 0.8  && < 0.9
-               , bytestring        >= 0.10 && < 0.11
-               , containers        >= 0.5  && < 0.6
-               , cryptonite        >= 0.23 && < 0.24
-               , directory         >= 1.3  && < 1.4
-               , file-embed        >= 0.0  && < 0.1
-               , filepath          >= 1.4  && < 1.5
-               , free              >= 4.12 && < 4.13
-               , http-types        >= 0.9  && < 0.10
-               , github            >= 0.16 && < 0.17
-               , memory            >= 0.14 && < 0.15
-               , monad-logger      >= 0.3  && < 0.4
-               , process           >= 1.2  && < 1.5
-               , process-extras    >= 0.7  && < 0.8
-               , scotty            >= 0.11 && < 0.12
-               , stm               >= 2.4  && < 2.5
-               , text              >= 1.2  && < 1.3
-               , text-format       >= 0.3  && < 0.4
-               , wai               >= 3.2  && < 3.3
-               , warp              >= 3.2  && < 3.3
-               , warp-tls          >= 3.2  && < 3.3
+  build-depends: aeson
+               , aeson-pretty
+               , base
+               , base16-bytestring
+               , blaze-html
+               , blaze-markup
+               , bytestring
+               , containers
+               , cryptonite
+               , directory
+               , file-embed
+               , filepath
+               , free
+               , http-types
+               , github
+               , memory
+               , monad-logger
+               , process
+               , process-extras
+               , scotty
+               , stm
+               , text
+               , text-format
+               , wai
+               , warp
+               , warp-tls
 
 executable hoff
   default-language: Haskell2010
@@ -62,12 +62,12 @@ executable hoff
   hs-source-dirs:   app
   ghc-options:      -Wall -Werror -Wincomplete-uni-patterns -Wincomplete-record-updates
 
-  build-depends: base         >= 4.8 && < 4.10
-               , directory    >= 1.3 && < 1.4
+  build-depends: base
+               , directory
                , hoff
-               , monad-logger >= 0.3  && < 0.4
-               , github       >= 0.16 && < 0.17
-               , text         >= 1.2  && < 1.3
+               , monad-logger
+               , github
+               , text
 
 test-suite spec
   default-language: Haskell2010
@@ -76,21 +76,21 @@ test-suite spec
   hs-source-dirs: tests
   ghc-options:    -Wall -Werror
 
-  build-depends: aeson      >= 1.1  && < 1.2
-               , base       >= 4.8  && < 4.10
-               , bytestring >= 0.10 && < 0.11
-               , containers >= 0.5  && < 0.6
+  build-depends: aeson
+               , base
+               , bytestring
+               , containers
                -- TODO: Use the new function that really deletes directories,
                -- instead of rolling my own.
-               , directory  >= 1.3  && < 1.4
-               , filepath   >= 1.4  && < 1.5
-               , free       >= 4.12 && < 4.13
+               , directory
+               , filepath
+               , free
                , hoff
-               , hspec        >= 2.4  && < 2.5
-               , hspec-core   >= 2.4  && < 2.5
-               , text         >= 1.2  && < 1.3
-               , transformers >= 0.5  && < 0.6
-               , uuid         >= 1.3  && < 1.4
+               , hspec
+               , hspec-core
+               , text
+               , transformers
+               , uuid
 
 test-suite end-to-end
   default-language: Haskell2010
@@ -100,21 +100,21 @@ test-suite end-to-end
   hs-source-dirs: tests
   ghc-options:    -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
 
-  build-depends: async        >= 2.1  && < 2.2
-               , base         >= 4.8  && < 4.10
-               , bytestring   >= 0.10 && < 0.11
-               , cryptonite   >= 0.23 && < 0.24
-               , filepath     >= 1.4  && < 1.5
+  build-depends: async
+               , base
+               , bytestring
+               , cryptonite
+               , filepath
                -- TODO: Use the new function that really deletes directories,
                -- instead of rolling my own.
-               , directory    >= 1.3  && < 1.4
+               , directory
                , hoff
-               , http-conduit >= 2.2  && < 2.3
-               , hspec        >= 2.4  && < 2.5
-               , hspec-core   >= 2.4  && < 2.5
-               , http-types   >= 0.9  && < 0.10
-               , monad-logger >= 0.3  && < 0.4
-               , random       >= 1.1  && < 1.2
-               , stm          >= 2.4  && < 2.5
-               , text         >= 1.2  && < 1.3
-               , uuid         >= 1.3  && < 1.4
+               , http-conduit
+               , hspec
+               , hspec-core
+               , http-types
+               , monad-logger
+               , random
+               , stm
+               , text
+               , uuid
