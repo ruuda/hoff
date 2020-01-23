@@ -21,7 +21,6 @@ module Logic
   enqueueStopSignal,
   ensureCloned,
   handleEvent,
-  handleEventInternal,
   newEventQueue,
   newStateVar,
   proceedUntilFixedPoint,
