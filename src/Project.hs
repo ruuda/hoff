@@ -17,6 +17,7 @@ module Project
   PullRequest (..),
   PullRequestId (..),
   PullRequestStatus (..),
+  Owner,
   approvedPullRequests,
   candidatePullRequests,
   classifyPullRequest,
@@ -34,7 +35,8 @@ module Project
   setBuildStatus,
   setIntegrationCandidate,
   setIntegrationStatus,
-  updatePullRequest
+  updatePullRequest,
+  getOwners
 )
 where
 
@@ -42,7 +44,7 @@ import Data.Aeson (FromJSON, ToJSON)
 import Data.ByteString (readFile)
 import Data.ByteString.Lazy (writeFile)
 import Data.IntMap.Strict (IntMap)
-import Data.List (intersect)
+import Data.List (intersect, nub)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import GHC.Generics
@@ -100,11 +102,13 @@ data ProjectState = ProjectState
   }
   deriving (Eq, Show, Generic)
 
+type Owner = Text
+
 -- Static information about a project, which does not change while the program
 -- is running.
 data ProjectInfo = ProjectInfo
   {
-    owner      :: Text,
+    owner      :: Owner,
     repository :: Text
   }
   deriving (Eq, Show)
@@ -221,10 +225,10 @@ classifyPullRequest pr = case approvedBy pr of
 
 -- Classify every pull request into one status. Orders pull requests by id in
 -- ascending order.
-classifyPullRequests :: ProjectState -> [(PullRequestId, PullRequestStatus)]
+classifyPullRequests :: ProjectState -> [(PullRequestId, PullRequest, PullRequestStatus)]
 classifyPullRequests state = IntMap.foldMapWithKey aux (pullRequests state)
   where
-    aux i pr = [(PullRequestId i, classifyPullRequest pr)]
+    aux i pr = [(PullRequestId i, pr, classifyPullRequest pr)]
 
 -- Returns the ids of the pull requests that satisfy the predicate, in ascending
 -- order.
@@ -275,3 +279,6 @@ candidatePullRequests state =
     unbuilt      = unbuiltPullRequests state
   in
     approved `intersect` unintegrated `intersect` unbuilt
+
+getOwners :: [ProjectInfo] -> [Owner]
+getOwners = nub . map owner
