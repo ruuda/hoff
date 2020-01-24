@@ -254,13 +254,10 @@ isMergeCommand config message =
     messageCaseFold = Text.toCaseFold $ Text.strip message
     prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
   in
-    case Text.stripPrefix prefixCaseFold messageCaseFold of
-      -- Note the space in front of the command. We opt to include the space
-      -- here, instead of making it part of the prefix, because having the
-      -- trailing space in config is something that is easy to get wrong.
-      Just " merge"   -> True
-      Just _otherCmd -> False -- Not a merge command.
-      Nothing        -> False -- Not a command at all.
+    -- Check if the prefix followed by ` merge` occurs within the message. We opt
+    -- to include the space here, instead of making it part of the prefix, because
+    -- having the trailing space in config is something that is easy to get wrong.
+    (mappend prefixCaseFold " merge") `Text.isInfixOf` messageCaseFold
 
 -- Mark the pull request as approved by the approver, and leave a comment to
 -- acknowledge that.

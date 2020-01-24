@@ -215,6 +215,38 @@ main = hspec $ do
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.approvedBy pr `shouldBe` Just "deckard"
 
+    it "accepts command at end of other comments" $ do
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
+          -- Note: "deckard" is marked as reviewer in the test config.
+          event  = CommentAdded (PullRequestId 1) "deckard" "looks good to me, @bot merge"
+          state' = fst $ runAction $ handleEventTest event state
+          pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
+      Project.approvedBy pr `shouldBe` Just "deckard"
+
+    it "accepts command at end of other comments if tagged multiple times" $ do
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
+          -- Note: "deckard" is marked as reviewer in the test config.
+          event  = CommentAdded (PullRequestId 1) "deckard" "@bot looks good to me, @bot merge"
+          state' = fst $ runAction $ handleEventTest event state
+          pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
+      Project.approvedBy pr `shouldBe` Just "deckard"
+
+    it "accepts command before comments" $ do
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
+          -- Note: "deckard" is marked as reviewer in the test config.
+          event  = CommentAdded (PullRequestId 1) "deckard" "@bot merge\nYou did some fine work here."
+          state' = fst $ runAction $ handleEventTest event state
+          pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
+      Project.approvedBy pr `shouldBe` Just "deckard"
+
+    it "does not accepts merge command with interleaved comments" $ do
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
+          -- Note: "deckard" is marked as reviewer in the test config.
+          event  = CommentAdded (PullRequestId 1) "deckard" "@bot foo merge"
+          state' = fst $ runAction $ handleEventTest event state
+          pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
+      Project.approvedBy pr `shouldBe` Nothing
+
     it "handles a build status change of the integration candidate" $ do
       let event  = BuildStatusChanged (Sha "84c") Project.BuildSucceeded
           state  = candidateState (PullRequestId 1) (Branch "p") (Sha "a38") "johanna" (Sha "84c")
