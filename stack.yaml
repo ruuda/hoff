@@ -1,4 +1,7 @@
-resolver: lts-9.0
+resolver: lts-14.21
 extra-deps:
+  # Custom fork for now because we added an endpoint.
   - git: https://github.com/ruuda/github.git
-    commit: 32098416c898656abc029c91dd22c91a602e6027
+    commit: 8bcd2a957bfc074fc537798524d8e6e3c27efdd6
+  # Dependency of the "github" package.
+  - binary-instances-1@sha256:b17565598b8df3241f9b46fa8e3a3368ecc8e3f2eb175d7c28f319042a6f5c79,2613

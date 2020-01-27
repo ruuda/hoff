@@ -42,6 +42,7 @@ import Data.Text (Text)
 import Data.Text.Format.Params (Params)
 import Data.Text.Lazy (toStrict)
 import Data.Functor.Sum (Sum (InL, InR))
+import GHC.Natural (Natural)
 
 import qualified Data.Text as Text
 import qualified Data.Text.Format as Text
@@ -164,7 +165,7 @@ type EventQueue = TBQueue (Maybe Event)
 type StateVar = TMVar ProjectState
 
 -- Creates a new event queue with the given maximum capacity.
-newEventQueue :: Int -> IO EventQueue
+newEventQueue :: Natural -> IO EventQueue
 newEventQueue capacity = atomically $ newTBQueue capacity
 
 -- Enqueues an event, blocks if the queue is full.

@@ -27,10 +27,10 @@ import Data.Text (Text)
 
 import qualified Data.Text as Text
 
-import qualified GitHub.Data.Id as Github3
 import qualified GitHub.Data.Name as Github3
 import qualified GitHub.Endpoints.Issues.Comments as Github3
 import qualified GitHub.Endpoints.Repos.Collaborators as Github3
+import qualified GitHub.Request as Github3
 
 import Project (ProjectInfo)
 import Types (PullRequestId (..), Username (..))
@@ -67,11 +67,10 @@ runGithub
 runGithub auth projectInfo operation =
   case operation of
     LeaveComment (PullRequestId pr) body cont -> do
-      result <- liftIO $ Github3.createComment
-        auth
+      result <- liftIO $ Github3.github auth $ Github3.createCommentR
         (Github3.N $ Project.owner projectInfo)
         (Github3.N $ Project.repository projectInfo)
-        (Github3.Id pr)
+        (Github3.IssueNumber pr)
         body
       case result of
         Left err -> logWarnN $ Text.append "Failed to comment: " $ Text.pack $ show err
@@ -79,8 +78,7 @@ runGithub auth projectInfo operation =
       pure cont
 
     HasPushAccess (Username username) cont -> do
-      result <- liftIO $ Github3.collaboratorPermissionOn
-        (Just auth)
+      result <- liftIO $ Github3.github auth $ Github3.collaboratorPermissionOnR
         (Github3.N $ Project.owner projectInfo)
         (Github3.N $ Project.repository projectInfo)
         (Github3.N username)

@@ -29,6 +29,8 @@ import Control.Monad.STM (atomically)
 import Data.Aeson (FromJSON (parseJSON), Object, Value (Object, String), (.:))
 import Data.Aeson.Types (Parser, typeMismatch)
 import Data.Text (Text)
+import GHC.Natural (Natural)
+
 import Git (Sha (..), Branch (..))
 import Project (ProjectInfo (..))
 import Types (Username)
@@ -174,7 +176,7 @@ eventProjectInfo event =
 type EventQueue = TBQueue WebhookEvent
 
 -- Creates a new event queue with the given maximum capacity.
-newEventQueue :: Int -> IO EventQueue
+newEventQueue :: Natural -> IO EventQueue
 newEventQueue capacity = atomically $ newTBQueue capacity
 
 -- Enqueues the event if the queue is not full. Returns whether the event has
