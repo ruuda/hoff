@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.0
+
+ * Accept merge command anywhere in comments.
+ * Take dependencies from Stackage LTS 14.21, up from 9.0.
+
 ## 0.10.0
 
  * Do not delete branches after merging a pull request, GitHub has that
