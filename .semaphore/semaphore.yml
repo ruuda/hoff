@@ -50,7 +50,7 @@ blocks:
             # library is tagged as "license other" on Hackage, but the license
             # appears to be ISC, so whitelist it too. See also [1].
             # [1]: https://hackage.haskell.org/package/unexceptionalio-0.3.0/src/COPYING.
-            - "! stack ls dependencies --license | egrep -v 'Apache-2|BSD-?2|BSD-?3|MIT|PublicDomain|MPL-2.0|unexceptionalio'"
+            - "! stack ls dependencies --license | egrep -v 'Apache-2|BSD-?2|BSD-?3|MIT|ISC|PublicDomain|MPL-2.0|unexceptionalio'"
 
             # Check shell scripts for issues.
             - "shellcheck package/*.sh package/deb-postinst"
