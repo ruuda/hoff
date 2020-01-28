@@ -162,14 +162,16 @@ main = hspec $ do
         state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "abc") "alice"
         state1 = Project.setApproval (PullRequestId 1) (Just "hatter") state0
         state2 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated $ Sha "dc0") state1
+        state3 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated $ Sha "dc1") state2
         event  = PullRequestCommitChanged (PullRequestId 1) (Sha "dc0")
-        state3 = fst $ runAction $ handleEventTest event state2
+        stateAfterEvent = fst . runAction . handleEventTest event
       -- The commit changed, but to the sha that is the integration candidate,
-      -- so that should not clear approval; we pushed that ourselves. TODO: If
-      -- we attempted to do a new integration, and the webhook delivery is late,
-      -- it can still happen we lose the approval status. Fix that by tracking
-      -- all historical attempted integrations, not just the most recent one.
-      state2 `shouldBe` state3
+      -- so that should not clear approval; we pushed that ourselves.
+      stateAfterEvent state2 `shouldBe` state2
+      -- Even if in the mean time, we tried to integrate the PR again, and we
+      -- now have a different integration candidate, a CommitChanged event with
+      -- a past integration candidate should be ignored.
+      stateAfterEvent state3 `shouldBe` state3
 
     it "resets the build status after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
