@@ -41,12 +41,12 @@ module Project
 )
 where
 
-import Data.Aeson (FromJSON, ToJSON)
+import Data.Aeson (FromJSON, ToJSON, (.:), (.:?))
 import Data.ByteString (readFile)
 import Data.ByteString.Lazy (writeFile)
 import Data.IntMap.Strict (IntMap)
 import Data.List (intersect, nub)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, fromMaybe)
 import Data.Text (Text)
 import GHC.Generics
 import Git (Branch (..), Sha (..))
@@ -97,6 +97,20 @@ data PullRequest = PullRequest
   }
   deriving (Eq, Show, Generic)
 
+-- Custom implementation so we can gracefully upgrade the state from v0.11.0,
+-- which did not yet contain the "integrationAttempts" key, so we default it to
+-- an empty list. This custom instance can be removed later.
+instance FromJSON PullRequest where
+  parseJSON = Aeson.withObject "PullRequest" $ \v -> PullRequest
+    <$> v .: "sha"
+    <*> v .: "branch"
+    <*> v .: "title"
+    <*> v .: "author"
+    <*> v .: "approvedBy"
+    <*> v .: "buildStatus"
+    <*> v .: "integrationStatus"
+    <*> (fmap (fromMaybe []) (v .:? "integrationAttempts"))
+
 data ProjectState = ProjectState
   {
     pullRequests         :: IntMap PullRequest,
@@ -120,7 +134,6 @@ data ProjectInfo = ProjectInfo
 instance FromJSON BuildStatus
 instance FromJSON IntegrationStatus
 instance FromJSON ProjectState
-instance FromJSON PullRequest
 
 instance ToJSON BuildStatus where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 instance ToJSON IntegrationStatus where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
