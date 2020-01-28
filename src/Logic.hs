@@ -37,7 +37,7 @@ import Control.Exception (assert)
 import Control.Monad (mfilter, when, void)
 import Control.Monad.Free (Free (..), foldFree, liftF, hoistFree)
 import Control.Monad.STM (atomically)
-import Data.Maybe (fromJust, fromMaybe, isJust, maybe)
+import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text.Format.Params (Params)
 import Data.Text.Lazy (toStrict)
@@ -228,17 +228,22 @@ handlePullRequestCommitChanged pr newSha state =
     closedState = handlePullRequestClosed pr state
     update pullRequest =
       let
-        oldSha   = Pr.sha pullRequest
-        branch   = Pr.branch pullRequest
-        title    = Pr.title pullRequest
-        author   = Pr.author pullRequest
-        newState = closedState >>= handlePullRequestOpened pr branch newSha title author
+        branch = Pr.branch pullRequest
+        title  = Pr.title pullRequest
+        author = Pr.author pullRequest
       in
-        -- If the change notification was a false positive, ignore it.
-        if oldSha == newSha then return state else newState
+        closedState >>= handlePullRequestOpened pr branch newSha title author
   in
-    -- If the pull request was not present in the first place, do nothing.
-    maybe (return state) update $ Pr.lookupPullRequest pr state
+    case Pr.lookupPullRequest pr state of
+      -- If the change notification was a false positive, ignore it.
+      Just pullRequest | Pr.sha pullRequest == newSha -> pure state
+      Just pullRequest -> case Pr.integrationStatus pullRequest of
+        -- If the new commit hash is one that we pushed ourselves, ignore the
+        -- change too, we don't want to lose the approval status.
+        Integrated mergeSha | mergeSha == newSha -> pure state
+        _ -> update pullRequest
+      -- If the pull request was not present in the first place, do nothing.
+      Nothing -> pure state
 
 handlePullRequestClosed :: PullRequestId -> ProjectState -> Action ProjectState
 handlePullRequestClosed pr state = return $ Pr.deletePullRequest pr state {
