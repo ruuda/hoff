@@ -237,11 +237,10 @@ handlePullRequestCommitChanged pr newSha state =
     case Pr.lookupPullRequest pr state of
       -- If the change notification was a false positive, ignore it.
       Just pullRequest | Pr.sha pullRequest == newSha -> pure state
-      Just pullRequest -> case Pr.integrationStatus pullRequest of
-        -- If the new commit hash is one that we pushed ourselves, ignore the
-        -- change too, we don't want to lose the approval status.
-        Integrated mergeSha | mergeSha == newSha -> pure state
-        _ -> update pullRequest
+      -- If the new commit hash is one that we pushed ourselves, ignore the
+      -- change too, we don't want to lose the approval status.
+      Just pullRequest | newSha `Pr.wasIntegrationCandidateFor` pullRequest -> pure state
+      Just pullRequest -> update pullRequest
       -- If the pull request was not present in the first place, do nothing.
       Nothing -> pure state
 

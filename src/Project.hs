@@ -36,7 +36,8 @@ module Project
   setIntegrationCandidate,
   setIntegrationStatus,
   updatePullRequest,
-  getOwners
+  getOwners,
+  wasIntegrationCandidateFor,
 )
 where
 
@@ -85,13 +86,14 @@ data PullRequestStatus
   deriving (Eq)
 
 data PullRequest = PullRequest
-  { sha               :: Sha
-  , branch            :: Branch
-  , title             :: Text
-  , author            :: Username
-  , approvedBy        :: Maybe Username
-  , buildStatus       :: BuildStatus
-  , integrationStatus :: IntegrationStatus
+  { sha                 :: Sha
+  , branch              :: Branch
+  , title               :: Text
+  , author              :: Username
+  , approvedBy          :: Maybe Username
+  , buildStatus         :: BuildStatus
+  , integrationStatus   :: IntegrationStatus
+  , integrationAttempts :: [Sha]
   }
   deriving (Eq, Show, Generic)
 
@@ -156,13 +158,14 @@ insertPullRequest
   -> ProjectState
 insertPullRequest (PullRequestId n) prBranch prSha prTitle prAuthor state =
   let pullRequest = PullRequest {
-        sha               = prSha,
-        branch            = prBranch,
-        title             = prTitle,
-        author            = prAuthor,
-        approvedBy        = Nothing,
-        buildStatus       = BuildNotStarted,
-        integrationStatus = NotIntegrated
+        sha                 = prSha,
+        branch              = prBranch,
+        title               = prTitle,
+        author              = prAuthor,
+        approvedBy          = Nothing,
+        buildStatus         = BuildNotStarted,
+        integrationStatus   = NotIntegrated,
+        integrationAttempts = []
       }
   in state { pullRequests = IntMap.insert n pullRequest $ pullRequests state }
 
@@ -198,7 +201,16 @@ setBuildStatus pr newStatus = updatePullRequest pr changeBuildStatus
 -- Sets the integration status for a pull request.
 setIntegrationStatus :: PullRequestId -> IntegrationStatus -> ProjectState -> ProjectState
 setIntegrationStatus pr newStatus = updatePullRequest pr changeIntegrationStatus
-  where changeIntegrationStatus pullRequest = pullRequest { integrationStatus = newStatus }
+  where
+    -- If there is a current integration candidate, remember it, so that we can
+    -- ignore push webhook events for that commit (we probably pushed it
+    -- ourselves, in any case it should not clear approval status).
+    changeIntegrationStatus pullRequest = case integrationStatus pullRequest of
+      Integrated oldSha -> pullRequest
+        { integrationStatus = newStatus
+        , integrationAttempts = oldSha : (integrationAttempts pullRequest)
+        }
+      _notIntegrated -> pullRequest { integrationStatus = newStatus }
 
 getIntegrationCandidate :: ProjectState -> Maybe (PullRequestId, PullRequest)
 getIntegrationCandidate state = do
@@ -278,6 +290,13 @@ isInProgress pr = case approvedBy pr of
       BuildPending    -> True
       BuildSucceeded  -> False
       BuildFailed     -> False
+
+-- Return whether the given commit is, or in this approval cycle ever was, an
+-- integration candidate of this pull request.
+wasIntegrationCandidateFor :: Sha -> PullRequest -> Bool
+wasIntegrationCandidateFor commit pr = case integrationStatus pr of
+  Integrated candidate -> commit `elem` (candidate : integrationAttempts pr)
+  _                    -> commit `elem` (integrationAttempts pr)
 
 -- Returns the pull requests that have not been integrated yet, in order of
 -- ascending id.
