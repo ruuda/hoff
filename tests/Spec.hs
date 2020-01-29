@@ -157,6 +157,22 @@ main = hspec $ do
       Project.approvedBy pr1 `shouldBe` Just "hatter"
       Project.approvedBy pr2 `shouldBe` Nothing
 
+    it "does not lose approval after the PR commit has changed due to a push we caused" $ do
+      let
+        state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "abc") "alice"
+        state1 = Project.setApproval (PullRequestId 1) (Just "hatter") state0
+        state2 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated $ Sha "dc0") state1
+        state3 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated $ Sha "dc1") state2
+        event  = PullRequestCommitChanged (PullRequestId 1) (Sha "dc0")
+        stateAfterEvent = fst . runAction . handleEventTest event
+      -- The commit changed, but to the sha that is the integration candidate,
+      -- so that should not clear approval; we pushed that ourselves.
+      stateAfterEvent state2 `shouldBe` state2
+      -- Even if in the mean time, we tried to integrate the PR again, and we
+      -- now have a different integration candidate, a CommitChanged event with
+      -- a past integration candidate should be ignored.
+      stateAfterEvent state3 `shouldBe` state3
+
     it "resets the build status after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
           state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "abc") "thomas"
@@ -359,13 +375,14 @@ main = hspec $ do
     it "pushes after a successful build" $ do
       let
         pullRequest = PullRequest
-          { Project.branch            = Branch "results/rachael"
-          , Project.sha               = Sha "f35"
-          , Project.title             = "Add my test results"
-          , Project.author            = "rachael"
-          , Project.approvedBy        = Just "deckard"
-          , Project.buildStatus       = Project.BuildSucceeded
-          , Project.integrationStatus = Project.Integrated (Sha "38d")
+          { Project.branch              = Branch "results/rachael"
+          , Project.sha                 = Sha "f35"
+          , Project.title               = "Add my test results"
+          , Project.author              = "rachael"
+          , Project.approvedBy          = Just "deckard"
+          , Project.buildStatus         = Project.BuildSucceeded
+          , Project.integrationStatus   = Project.Integrated (Sha "38d")
+          , Project.integrationAttempts = []
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
@@ -384,13 +401,14 @@ main = hspec $ do
       -- and is ready to be pushed to master.
       let
         pullRequest = PullRequest
-          { Project.branch            = Branch "results/rachael"
-          , Project.sha               = Sha "f35"
-          , Project.title             = "Add my test results"
-          , Project.author            = "rachael"
-          , Project.approvedBy        = Just "deckard"
-          , Project.buildStatus       = Project.BuildSucceeded
-          , Project.integrationStatus = Project.Integrated (Sha "38d")
+          { Project.branch              = Branch "results/rachael"
+          , Project.sha                 = Sha "f35"
+          , Project.title               = "Add my test results"
+          , Project.author              = "rachael"
+          , Project.approvedBy          = Just "deckard"
+          , Project.buildStatus         = Project.BuildSucceeded
+          , Project.integrationStatus   = Project.Integrated (Sha "38d")
+          , Project.integrationAttempts = []
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
@@ -403,8 +421,9 @@ main = hspec $ do
           $ Logic.proceedUntilFixedPoint state
         (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
 
-      Project.integrationStatus pullRequest' `shouldBe` Project.Integrated (Sha "38e")
-      Project.buildStatus       pullRequest' `shouldBe` Project.BuildPending
+      Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e")
+      Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
+      Project.buildStatus         pullRequest' `shouldBe` Project.BuildPending
       actions `shouldBe`
         [ ATryPromote (Branch "results/rachael") (Sha "38d")
         , ATryIntegrate "Merge #1\n\nApproved-by: deckard" (Branch "refs/pull/1/head", Sha "f35")
@@ -414,23 +433,25 @@ main = hspec $ do
     it "picks a new candidate from the queue after a successful push" $ do
       let pullRequest1 = PullRequest
             {
-              Project.branch            = Branch "results/leon",
-              Project.sha               = Sha "f35",
-              Project.title             = "Add Leon test results",
-              Project.author            = "rachael",
-              Project.approvedBy        = Just "deckard",
-              Project.buildStatus       = Project.BuildSucceeded,
-              Project.integrationStatus = Project.Integrated (Sha "38d")
+              Project.branch              = Branch "results/leon",
+              Project.sha                 = Sha "f35",
+              Project.title               = "Add Leon test results",
+              Project.author              = "rachael",
+              Project.approvedBy          = Just "deckard",
+              Project.buildStatus         = Project.BuildSucceeded,
+              Project.integrationStatus   = Project.Integrated (Sha "38d"),
+              Project.integrationAttempts = []
             }
           pullRequest2 = PullRequest
             {
-              Project.branch            = Branch "results/rachael",
-              Project.sha               = Sha "f37",
-              Project.title             = "Add my test results",
-              Project.author            = "rachael",
-              Project.approvedBy        = Just "deckard",
-              Project.buildStatus       = Project.BuildNotStarted,
-              Project.integrationStatus = Project.NotIntegrated
+              Project.branch              = Branch "results/rachael",
+              Project.sha                 = Sha "f37",
+              Project.title               = "Add my test results",
+              Project.author              = "rachael",
+              Project.approvedBy          = Just "deckard",
+              Project.buildStatus         = Project.BuildNotStarted,
+              Project.integrationStatus   = Project.NotIntegrated,
+              Project.integrationAttempts = []
             }
           prMap = IntMap.fromList [(1, pullRequest1), (2, pullRequest2)]
           -- After a successful push, the state of pull request 1 will still be
