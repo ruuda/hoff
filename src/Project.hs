@@ -37,7 +37,7 @@ module Project
   setIntegrationStatus,
   updatePullRequest,
   getOwners,
-  wasIntegrationCandidateFor,
+  wasIntegrationAttemptFor,
 )
 where
 
@@ -306,8 +306,8 @@ isInProgress pr = case approvedBy pr of
 
 -- Return whether the given commit is, or in this approval cycle ever was, an
 -- integration candidate of this pull request.
-wasIntegrationCandidateFor :: Sha -> PullRequest -> Bool
-wasIntegrationCandidateFor commit pr = case integrationStatus pr of
+wasIntegrationAttemptFor :: Sha -> PullRequest -> Bool
+wasIntegrationAttemptFor commit pr = case integrationStatus pr of
   Integrated candidate -> commit `elem` (candidate : integrationAttempts pr)
   _                    -> commit `elem` (integrationAttempts pr)
 

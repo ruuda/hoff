@@ -239,7 +239,7 @@ handlePullRequestCommitChanged pr newSha state =
       Just pullRequest | Pr.sha pullRequest == newSha -> pure state
       -- If the new commit hash is one that we pushed ourselves, ignore the
       -- change too, we don't want to lose the approval status.
-      Just pullRequest | newSha `Pr.wasIntegrationCandidateFor` pullRequest -> pure state
+      Just pullRequest | newSha `Pr.wasIntegrationAttemptFor` pullRequest -> pure state
       Just pullRequest -> update pullRequest
       -- If the pull request was not present in the first place, do nothing.
       Nothing -> pure state
