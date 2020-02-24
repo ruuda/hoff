@@ -372,7 +372,10 @@ tryIntegratePullRequest pr state =
       Nothing  -> do
         -- If integrating failed, perform no further actions but do set the
         -- state to conflicted.
-        leaveComment pr "Failed to rebase, please rebase manually."
+        leaveComment pr $ Text.unlines
+          [ "Failed to rebase, please rebase manually using"
+          , "> `git rebase --interactive --autosquash ...`"
+          ]
         pure $ Pr.setIntegrationStatus pr Conflicted state
 
       Just (Sha sha) -> do
