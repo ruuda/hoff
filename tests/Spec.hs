@@ -27,7 +27,7 @@ import qualified Data.UUID.V4 as Uuid
 import EventLoop (convertGithubEvent)
 import Git (Branch (..), PushResult(..), Sha (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
-import Logic (Action, ActionFree (..), Event (..))
+import Logic (Action, ActionFree (..), Event (..), IntegrationFailure (..))
 import Project (ProjectState (ProjectState), PullRequest (PullRequest))
 import Types (PullRequestId (..), Username (..))
 
@@ -73,7 +73,7 @@ data ActionFlat
 -- together with a list of all actions that would have been performed. Some
 -- actions require input from the outside world. Simulating these actions will
 -- return the pushResult and rebaseResult passed in here.
-runActionWithInit :: Maybe Sha -> PushResult -> Action a -> Writer [ActionFlat] a
+runActionWithInit :: Either IntegrationFailure Sha -> PushResult -> Action a -> Writer [ActionFlat] a
 runActionWithInit integrateResult pushResult =
   let
     -- In the tests, only "deckard" is a reviewer.
@@ -95,13 +95,13 @@ runActionWithInit integrateResult pushResult =
 
 -- Simulates running the action. Use the provided sha as result when integration
 -- is attempted, and use the provided push result when a push is attempted.
-runActionCustom :: Maybe Sha -> PushResult -> Action a -> (a, [ActionFlat])
+runActionCustom :: Either IntegrationFailure Sha -> PushResult -> Action a -> (a, [ActionFlat])
 runActionCustom integrateResult pushResult = runWriter . runActionWithInit integrateResult pushResult
 
 -- Simulates running the action. Pretends that integration always conflicts.
 -- Pretends that pushing is always successful.
 runAction :: Action a -> (a, [ActionFlat])
-runAction = runActionCustom Nothing PushOk
+runAction = runActionCustom (Left $ Logic.IntegrationFailure $ Branch "master") PushOk
 
 -- Handle an event, then advance the state until a fixed point,
 -- and simulate its side effects.
@@ -309,7 +309,7 @@ main = hspec $ do
           , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
           ]
         -- For this test, we assume all integrations and pushes succeed.
-        integrateResult = Just (Sha "b71")
+        integrateResult = Right (Sha "b71")
         pushResult = PushOk
         run = runActionCustom integrateResult pushResult
         actions = snd $ run $ handleEventsTest events state
@@ -361,7 +361,7 @@ main = hspec $ do
           = Project.setApproval (PullRequestId 1) (Just "fred")
           $ singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "f34") "sally"
         (state', actions)
-          = runActionCustom (Just (Sha "38c")) PushRejected
+          = runActionCustom (Right (Sha "38c")) PushRejected
           $ Logic.proceedUntilFixedPoint state
         (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
       Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c")
@@ -389,7 +389,7 @@ main = hspec $ do
           , Project.integrationCandidate = Just $ PullRequestId 1
           }
         (state', actions)
-          = runActionCustom (Just (Sha "38e")) PushOk
+          = runActionCustom (Right (Sha "38e")) PushOk
           $ Logic.proceedUntilFixedPoint state
         candidate = Project.getIntegrationCandidate state'
       -- After a successful push, the candidate should be gone.
@@ -417,7 +417,7 @@ main = hspec $ do
         -- Run 'proceedUntilFixedPoint', and pretend that pushes fail (because
         -- something was pushed in the mean time, for instance).
         (state', actions)
-          = runActionCustom (Just (Sha "38e")) PushRejected
+          = runActionCustom (Right (Sha "38e")) PushRejected
           $ Logic.proceedUntilFixedPoint state
         (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
 
@@ -463,7 +463,7 @@ main = hspec $ do
             }
           -- Proceeding should pick the next pull request as candidate.
           (state', actions)
-            = runActionCustom (Just (Sha "38e")) PushOk
+            = runActionCustom (Right (Sha "38e")) PushOk
             $ Logic.proceedUntilFixedPoint state
           Just (cId, _candidate) = Project.getIntegrationCandidate state'
       cId     `shouldBe` PullRequestId 2

@@ -16,6 +16,7 @@ module Logic
   ActionFree (..),
   Event (..),
   EventQueue,
+  IntegrationFailure (..),
   dequeueEvent,
   enqueueEvent,
   enqueueStopSignal,
@@ -68,7 +69,7 @@ format :: Params ps => Text.Format -> ps -> Text
 format formatString params = toStrict $ Text.format formatString params
 
 data ActionFree a
-  = TryIntegrate Text (Branch, Sha) (Maybe Sha -> a)
+  = TryIntegrate Text (Branch, Sha) (Either IntegrationFailure Sha -> a)
   | TryPromote Branch Sha (PushResult -> a)
   | LeaveComment PullRequestId Text a
   | IsReviewer Username (Bool -> a)
@@ -78,13 +79,17 @@ type Action = Free ActionFree
 
 type Operation = Free (Sum GitOperationFree GithubOperationFree)
 
+-- | Error returned when 'TryIntegrate' fails.
+-- It contains the name of the target branch that the PR was supposed to be integrated into.
+data IntegrationFailure = IntegrationFailure Branch
+
 doGit :: GitOperation a -> Operation a
 doGit = hoistFree InL
 
 doGithub :: GithubOperation a -> Operation a
 doGithub = hoistFree InR
 
-tryIntegrate :: Text -> (Branch, Sha) -> Action (Maybe Sha)
+tryIntegrate :: Text -> (Branch, Sha) -> Action (Either IntegrationFailure Sha)
 tryIntegrate mergeMessage candidate = liftF $ TryIntegrate mergeMessage candidate id
 
 -- Try to fast-forward the remote target branch (usually master) to the new sha.
@@ -114,7 +119,10 @@ runAction config = foldFree $ \case
       sha
       (Git.Branch $ Config.branch config)
       (Git.Branch $ Config.testBranch config)
-    pure $ cont maybeSha
+    pure $ cont $ maybe
+      (Left $ IntegrationFailure $ Branch $ Config.branch config)
+      Right
+      maybeSha
 
   TryPromote prBranch sha cont -> do
     doGit $ ensureCloned config
@@ -369,16 +377,20 @@ tryIntegratePullRequest pr state =
   in do
     result <- tryIntegrate mergeMessage candidate
     case result of
-      Nothing  -> do
+      Left (IntegrationFailure (Branch targetBranchName))  -> do
+        let Branch prBranchName = Pr.branch pullRequest
         -- If integrating failed, perform no further actions but do set the
         -- state to conflicted.
-        leaveComment pr $ Text.unlines
-          [ "Failed to rebase, please rebase manually using"
-          , "> `git rebase --interactive --autosquash ...`"
+        leaveComment pr $ Text.concat
+          [ "Failed to rebase, please rebase manually using\n"
+          , "> `git rebase --interactive --autosquash origin/"
+          , targetBranchName
+          , " "
+          , prBranchName
           ]
         pure $ Pr.setIntegrationStatus pr Conflicted state
 
-      Just (Sha sha) -> do
+      Right (Sha sha) -> do
         -- If it succeeded, update the integration candidate, and set the build
         -- to pending, as pushing should have triggered a build.
         leaveComment pr $ Text.concat ["Rebased as ", sha, ", waiting for CI …"]
