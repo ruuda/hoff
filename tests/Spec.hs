@@ -33,6 +33,7 @@ import Types (PullRequestId (..), Username (..))
 
 import qualified Configuration as Config
 import qualified Github
+import qualified GithubApi
 import qualified Logic
 import qualified Project
 
@@ -67,6 +68,7 @@ data ActionFlat
   | ATryPromote Branch Sha
   | ALeaveComment PullRequestId Text
   | AIsReviewer Username
+  | AGetPullRequestStatus PullRequestId
   deriving (Eq, Show)
 
 -- This function simulates running the actions, and returns the final state,
@@ -78,6 +80,12 @@ runActionWithInit integrateResult pushResult =
   let
     -- In the tests, only "deckard" is a reviewer.
     isReviewer username = username == "deckard"
+    -- In these tests, PR 17 is always closed, PR 19 always fails,
+    -- and any other PR is always open, when we query GitHub.
+    getPullRequestState (PullRequestId pr) = case pr of
+      17 -> GithubApi.StateClosed
+      19 -> GithubApi.StateUnknown
+      _  -> GithubApi.StateOpen
   in
     foldFree $ \case
       TryIntegrate msg candi h -> do
@@ -92,6 +100,10 @@ runActionWithInit integrateResult pushResult =
       IsReviewer username h -> do
         tell [AIsReviewer username]
         pure $ h $ isReviewer username
+      GetPullRequestState pr cont -> do
+        tell [AGetPullRequestStatus pr]
+        pure $ cont $ getPullRequestState pr
+
 
 -- Simulates running the action. Use the provided sha as result when integration
 -- is attempted, and use the provided push result when a push is attempted.

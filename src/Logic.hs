@@ -35,7 +35,7 @@ where
 import Control.Concurrent.STM.TMVar (TMVar, newTMVar, readTMVar, swapTMVar)
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Exception (assert)
-import Control.Monad (mfilter, when, void)
+import Control.Monad (foldM, mfilter, when, void, (>=>))
 import Control.Monad.Free (Free (..), foldFree, liftF, hoistFree)
 import Control.Monad.STM (atomically)
 import Data.Maybe (fromJust, fromMaybe, isJust)
@@ -73,6 +73,7 @@ data ActionFree a
   | TryPromote Branch Sha (PushResult -> a)
   | LeaveComment PullRequestId Text a
   | IsReviewer Username (Bool -> a)
+  | GetPullRequestState PullRequestId (GithubApi.PullRequestState -> a)
   deriving (Functor)
 
 type Action = Free ActionFree
@@ -107,6 +108,9 @@ leaveComment pr body = liftF $ LeaveComment pr body ()
 isReviewer :: Username -> Action Bool
 isReviewer username = liftF $ IsReviewer username id
 
+getPullRequestState :: PullRequestId -> Action GithubApi.PullRequestState
+getPullRequestState pr = liftF $ GetPullRequestState pr id
+
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
 runAction config = foldFree $ \case
@@ -138,6 +142,10 @@ runAction config = foldFree $ \case
     hasPushAccess <- doGithub $ GithubApi.hasPushAccess username
     pure $ cont hasPushAccess
 
+  GetPullRequestState pr cont -> do
+    state <- doGithub $ GithubApi.getPullRequestState pr
+    pure $ cont state
+
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
   let
@@ -167,6 +175,8 @@ data Event
   | CommentAdded PullRequestId Username Text   -- PR, author and body.
   -- CI events
   | BuildStatusChanged Sha BuildStatus
+  -- Internal events
+  | Synchronize
   deriving (Eq, Show)
 
 type EventQueue = TBQueue (Maybe Event)
@@ -215,6 +225,7 @@ handleEventInternal triggerConfig event = case event of
   PullRequestClosed pr            -> handlePullRequestClosed pr
   CommentAdded pr author body     -> handleCommentAdded triggerConfig pr author body
   BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
+  Synchronize                     -> synchronizeState
 
 handlePullRequestOpened
   :: PullRequestId
@@ -323,6 +334,32 @@ handleBuildStatusChanged buildSha newStatus state =
         _ <- mfilter matchesBuild $ Pr.lookupPullRequest candidateId state
         return $ Pr.setBuildStatus candidateId newStatus state
   in return $ fromMaybe state newState
+
+-- Query the GitHub API to resolve inconsistencies between our state and GitHub.
+synchronizeState :: ProjectState -> Action ProjectState
+synchronizeState = synchronizeCheckClosedAll >=> synchronizeCheckOpen
+
+-- For every open pull request that we know of, check if it is still open,
+-- and remove it from the state if it has been closed.
+synchronizeCheckClosedAll :: ProjectState -> Action ProjectState
+synchronizeCheckClosedAll state =
+  let
+    allPullRequestIds = Pr.filterPullRequestsBy (const True) state
+  in
+    foldM synchronizeCheckClosedOne state allPullRequestIds
+
+synchronizeCheckClosedOne :: ProjectState -> PullRequestId -> Action ProjectState
+synchronizeCheckClosedOne state pr = do
+  prState <- getPullRequestState pr
+  case prState of
+    GithubApi.StateOpen    -> pure state
+    GithubApi.StateUnknown -> pure state
+    GithubApi.StateClosed  -> handlePullRequestClosed pr state
+
+-- Get the open pull requests from GitHub, and add any missing ones as a new
+-- pull request to our state.
+synchronizeCheckOpen :: ProjectState -> Action ProjectState
+synchronizeCheckOpen = pure -- TODO
 
 -- Determines if there is anything to do, and if there is, generates the right
 -- actions and updates the state accordingly. For example, if the current

@@ -25,6 +25,7 @@ module Project
   deletePullRequest,
   emptyProjectState,
   existsPullRequest,
+  filterPullRequestsBy,
   getIntegrationCandidate,
   getQueuePosition,
   insertPullRequest,
