@@ -9,8 +9,9 @@
 
 module Main where
 
+import Control.Applicative ((<**>))
 import Control.Concurrent (forkIO)
-import Control.Monad (forM, forM_, void)
+import Control.Monad (forM, forM_, unless, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runStdoutLoggingT)
 import Data.List (zip4)
@@ -20,7 +21,7 @@ import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 import qualified Data.Text.Encoding as Text
 import qualified GitHub.Auth as Github3
 import qualified System.Directory as FileSystem
-import qualified System.Environment
+import qualified Options.Applicative as Opts
 
 import Configuration (Configuration)
 import EventLoop (runGithubEventLoop, runLogicEventLoop)
@@ -35,22 +36,26 @@ import qualified GithubApi
 import qualified Logic
 import qualified Project
 
-getConfigFilePathOrExit :: IO FilePath
-getConfigFilePathOrExit = do
-  args <- System.Environment.getArgs
-  case args of
-    fname : _ -> do
-      exists <- FileSystem.doesFileExist fname
-      if exists then
-        return fname
-      else
-        die $ "Cannot load configuration: the file '" ++ fname ++ "' does not exist."
-    [] ->
-      die $ "No config file specified.\n" ++
-            "The first argument must be the path to the config file."
+data Options = Options
+  { configFilePath :: FilePath
+  , readOnly :: Bool
+  }
+
+commandLineParser :: Opts.ParserInfo Options
+commandLineParser =
+  let
+    optConfigFilePath = Opts.argument Opts.str (Opts.metavar "<config-file>")
+    optReadOnly = Opts.switch (Opts.long "read-only")
+    opts = Options <$> optConfigFilePath <*> optReadOnly
+    help = Opts.fullDesc <> Opts.header "A gatekeeper for your commits"
+  in
+    Opts.info (opts <**> Opts.helper) help
 
 loadConfigOrExit :: FilePath -> IO Configuration
 loadConfigOrExit fname = do
+  exists <- FileSystem.doesFileExist fname
+  unless exists $
+    die $ "Cannot load configuration: the file '" ++ fname ++ "' does not exist."
   maybeConfig <- Config.loadConfiguration fname
   case maybeConfig of
     Right config -> return config
@@ -74,7 +79,10 @@ initializeProjectState fname = do
     return emptyProjectState
 
 main :: IO ()
-main = do
+main = Opts.execParser commandLineParser >>= runMain
+
+runMain :: Options -> IO ()
+runMain options = do
   -- When the runtime detects that stdout is not connected to a console, it
   -- defaults to block buffering instead of line buffering. When running under
   -- systemd, this prevents log messages (which are written to stdout) from
@@ -83,9 +91,11 @@ main = do
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
 
+  putStrLn $ "Config file: " ++ (configFilePath options)
+  putStrLn $ "Read-only: " ++ (show $ readOnly options)
+
   -- Load configuration from the file specified as first program argument.
-  configFilePath <- getConfigFilePathOrExit
-  config <- loadConfigOrExit configFilePath
+  config <- loadConfigOrExit $ configFilePath options
 
   -- Create an event queue for GitHub webhook events. The server enqueues events
   -- here when a webhook is received, and a worker thread will process these
@@ -162,8 +172,12 @@ main = do
       repoDir     = Config.checkout projectConfig
       auth        = Github3.OAuth $ Text.encodeUtf8 $ Config.accessToken config
       projectInfo = ProjectInfo (Config.owner projectConfig) (Config.repository projectConfig)
-      runGit      = Git.runGit (Config.user config) repoDir
-      runGithub   = GithubApi.runGithub auth projectInfo
+      runGit = if readOnly options
+        then Git.runGitReadOnly (Config.user config) repoDir
+        else Git.runGit         (Config.user config) repoDir
+      runGithub = if readOnly options
+        then GithubApi.runGithubReadOnly auth projectInfo
+        else GithubApi.runGithub         auth projectInfo
 
     -- Start a worker thread to run the main event loop for the project.
     forkIO

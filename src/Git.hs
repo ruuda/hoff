@@ -26,6 +26,7 @@ module Git
   push,
   rebase,
   runGit,
+  runGitReadOnly,
   tryIntegrate,
 )
 where
@@ -329,6 +330,40 @@ runGit userConfig repoDir operation =
     DoesGitDirectoryExist cont -> do
       exists <- liftIO $ doesDirectoryExist (repoDir </> ".git")
       pure $ cont exists
+
+-- Interpreter that runs only Git operations that have no side effects on the
+-- remote; it does not push.
+runGitReadOnly
+  :: forall m a
+   . MonadIO m
+  => MonadLogger m
+  => UserConfiguration
+  -> FilePath
+  -> GitOperationFree a
+  -> m a
+runGitReadOnly userConfig repoDir operation =
+  let
+    unsafeResult = runGit userConfig repoDir operation
+  in
+    case operation of
+      -- These operations only operate locally, or only perform reads from the
+      -- remote, so they are safe to execute.
+      FetchBranch {} -> unsafeResult
+      Rebase {} -> unsafeResult
+      Merge {} -> unsafeResult
+      Checkout {} -> unsafeResult
+      Clone {} -> unsafeResult
+      GetParent {} -> unsafeResult
+      DoesGitDirectoryExist {} -> unsafeResult
+
+      -- These operations mutate the remote, so we don't execute them in
+      -- read-only mode.
+      ForcePush (Sha sha) (Branch branch) cont -> do
+        logInfoN $ Text.concat ["Would have force-pushed ", sha, " to ", branch]
+        pure $ cont
+      Push (Sha sha) (Branch branch) cont -> do
+        logInfoN $ Text.concat ["Would have pushed ", sha, " to ", branch]
+        pure $ cont PushRejected
 
 -- Fetches the target branch, rebases the candidate on top of the target branch,
 -- and if that was successfull, force-pushses the resulting commits to the test
