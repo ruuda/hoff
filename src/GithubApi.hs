@@ -14,8 +14,10 @@ module GithubApi
 (
   GithubOperationFree (..),
   GithubOperation,
-  leaveComment,
+  PullRequestState (..),
+  getPullRequestState,
   hasPushAccess,
+  leaveComment,
   runGithub,
 )
 where
@@ -28,7 +30,9 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 
 import qualified GitHub.Data.Name as Github3
+import qualified GitHub.Data.Options as Github3
 import qualified GitHub.Endpoints.Issues.Comments as Github3
+import qualified GitHub.Endpoints.PullRequests as Github3
 import qualified GitHub.Endpoints.Repos.Collaborators as Github3
 import qualified GitHub.Request as Github3
 
@@ -37,9 +41,15 @@ import Types (PullRequestId (..), Username (..))
 
 import qualified Project
 
+data PullRequestState
+  = StateOpen
+  | StateClosed
+  | StateUnknown -- When checking GitHub fails.
+
 data GithubOperationFree a
   = LeaveComment PullRequestId Text a
   | HasPushAccess Username (Bool -> a)
+  | GetPullRequestState PullRequestId (PullRequestState -> a)
   deriving (Functor)
 
 type GithubOperation = Free GithubOperationFree
@@ -49,6 +59,9 @@ leaveComment pr remoteBranch = liftF $ LeaveComment pr remoteBranch ()
 
 hasPushAccess :: Username -> GithubOperation Bool
 hasPushAccess username = liftF $ HasPushAccess username id
+
+getPullRequestState :: PullRequestId -> GithubOperation PullRequestState
+getPullRequestState pr = liftF $ GetPullRequestState pr id
 
 isPermissionToPush :: Github3.CollaboratorPermission -> Bool
 isPermissionToPush perm = case perm of
@@ -102,3 +115,16 @@ runGithub auth projectInfo operation =
             , Text.pack $ show projectInfo
             ]
           pure $ cont $ isPermissionToPush perm
+
+    GetPullRequestState (PullRequestId pr) cont -> do
+      result <- liftIO $ Github3.github auth $ Github3.pullRequestR
+        (Github3.N $ Project.owner projectInfo)
+        (Github3.N $ Project.repository projectInfo)
+        (Github3.IssueNumber pr)
+      case result of
+        Left err -> do
+          logWarnN $ Text.append "Failed to retrieve pull request: " $ Text.pack $ show err
+          pure $ cont StateUnknown
+        Right details -> case Github3.pullRequestState details of
+          Github3.StateOpen -> pure $ cont StateOpen
+          Github3.StateClosed -> pure $ cont StateClosed
