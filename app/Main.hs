@@ -91,6 +91,9 @@ runMain options = do
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
 
+  putStrLn $ "Config file: " ++ (configFilePath options)
+  putStrLn $ "Read-only: " ++ (show $ readOnly options)
+
   -- Load configuration from the file specified as first program argument.
   config <- loadConfigOrExit $ configFilePath options
 
