@@ -169,8 +169,12 @@ runMain options = do
       repoDir     = Config.checkout projectConfig
       auth        = Github3.OAuth $ Text.encodeUtf8 $ Config.accessToken config
       projectInfo = ProjectInfo (Config.owner projectConfig) (Config.repository projectConfig)
-      runGit      = Git.runGit (Config.user config) repoDir
-      runGithub   = GithubApi.runGithub auth projectInfo
+      runGit = if readOnly options
+        then Git.runGitReadOnly (Config.user config) repoDir
+        else Git.runGit         (Config.user config) repoDir
+      runGithub = if readOnly options
+        then GithubApi.runGithubReadOnly auth projectInfo
+        else GithubApi.runGithub         auth projectInfo
 
     -- Start a worker thread to run the main event loop for the project.
     forkIO
