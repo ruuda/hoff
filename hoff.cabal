@@ -64,9 +64,10 @@ executable hoff
 
   build-depends: base
                , directory
+               , github
                , hoff
                , monad-logger
-               , github
+               , optparse-applicative
                , text
 
 test-suite spec
