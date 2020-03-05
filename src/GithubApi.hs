@@ -19,6 +19,7 @@ module GithubApi
   hasPushAccess,
   leaveComment,
   runGithub,
+  runGithubReadOnly,
 )
 where
 
@@ -128,3 +129,27 @@ runGithub auth projectInfo operation =
         Right details -> case Github3.pullRequestState details of
           Github3.StateOpen -> pure $ cont StateOpen
           Github3.StateClosed -> pure $ cont StateClosed
+
+-- Like runGithub, but does not execute operations that have side effects, in
+-- the sense of being observable by Github users. We will still make requests
+-- against the read-only endpoints of the API. This is useful for local testing.
+runGithubReadOnly
+  :: MonadIO m
+  => MonadLogger m
+  => Github3.Auth
+  -> ProjectInfo
+  -> GithubOperationFree a
+  -> m a
+runGithubReadOnly auth projectInfo operation =
+  let
+    unsafeResult = runGithub auth projectInfo operation
+  in
+    case operation of
+      -- These operations are read-only, we can run them for real.
+      HasPushAccess {} -> unsafeResult
+      GetPullRequestState {} -> unsafeResult
+
+      -- These operations have side effects, we fake them.
+      LeaveComment pr body cont -> do
+        logInfoN $ Text.concat ["Would have posted comment on ", Text.pack $ show pr, ": ", body]
+        pure cont
