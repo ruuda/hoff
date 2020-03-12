@@ -40,15 +40,13 @@ import Control.Monad.Free (Free (..), foldFree, liftF, hoistFree)
 import Control.Monad.STM (atomically)
 import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Text (Text)
-import Data.Text.Format.Params (Params)
-import Data.Text.Lazy (toStrict)
 import Data.Functor.Sum (Sum (InL, InR))
 import GHC.Natural (Natural)
 
 import qualified Data.Text as Text
-import qualified Data.Text.Format as Text
 
 import Configuration (ProjectConfiguration, TriggerConfiguration)
+import Format (format)
 import Git (Branch (..), GitOperation, GitOperationFree, PushResult (..), Sha (..))
 import GithubApi (GithubOperation, GithubOperationFree)
 import Project (BuildStatus (..))
@@ -61,12 +59,6 @@ import qualified Git
 import qualified GithubApi
 import qualified Project as Pr
 import qualified Configuration as Config
-
--- Conversion function because of Haskell string type madness. This is just
--- Text.format, but returning a strict Text instead of a lazy one.
--- TODO: Extract into utility module and avoid duplication?
-format :: Params ps => Text.Format -> ps -> Text
-format formatString params = toStrict $ Text.format formatString params
 
 data ActionFree a
   = TryIntegrate Text (Branch, Sha) (Either IntegrationFailure Sha -> a)

@@ -18,8 +18,6 @@ import Data.Monoid ((<>))
 import Data.Bifunctor (second)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
-import Data.Text.Format.Params (Params)
-import Data.Text.Lazy (toStrict)
 import Prelude hiding (id, div, head, span)
 import Text.Blaze ((!), toValue)
 import Text.Blaze.Internal (Attribute, AttributeValue, attribute)
@@ -29,17 +27,12 @@ import Text.Blaze.Html5.Attributes (class_, charset, content, href, id, name, re
 
 import qualified Data.ByteString.Lazy as LazyByteString
 import qualified Data.Text as Text
-import qualified Data.Text.Format as Text
 
+import Format (format)
 import Project (ProjectInfo, ProjectState, PullRequest, Owner)
 import Types (PullRequestId (..), Username (..))
 
 import qualified Project
-
--- Conversion function because of Haskell string type madness. This is just
--- Text.format, but returning a strict Text instead of a lazy one.
-format :: Params ps => Text.Format -> ps -> Text
-format formatString params = toStrict $ Text.format formatString params
 
 -- TODO: Minify this css at inclusion time.
 stylesheet :: Text
