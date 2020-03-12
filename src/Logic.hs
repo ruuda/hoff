@@ -32,15 +32,16 @@ module Logic
 )
 where
 
-import Control.Concurrent.STM.TMVar (TMVar, newTMVar, readTMVar, swapTMVar)
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
+import Control.Concurrent.STM.TMVar (TMVar, newTMVar, readTMVar, swapTMVar)
 import Control.Exception (assert)
 import Control.Monad (foldM, mfilter, when, void, (>=>))
 import Control.Monad.Free (Free (..), foldFree, liftF, hoistFree)
 import Control.Monad.STM (atomically)
+import Data.Functor.Sum (Sum (InL, InR))
+import Data.IntSet (IntSet)
 import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Text (Text)
-import Data.Functor.Sum (Sum (InL, InR))
 import GHC.Natural (Natural)
 
 import qualified Data.Text as Text
@@ -66,6 +67,7 @@ data ActionFree a
   | LeaveComment PullRequestId Text a
   | IsReviewer Username (Bool -> a)
   | GetPullRequestState PullRequestId (GithubApi.PullRequestState -> a)
+  | GetOpenPullRequests (Maybe IntSet -> a)
   deriving (Functor)
 
 type Action = Free ActionFree
@@ -103,6 +105,9 @@ isReviewer username = liftF $ IsReviewer username id
 getPullRequestState :: PullRequestId -> Action GithubApi.PullRequestState
 getPullRequestState pr = liftF $ GetPullRequestState pr id
 
+getOpenPullRequests :: Action (Maybe IntSet)
+getOpenPullRequests = liftF $ GetOpenPullRequests id
+
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
 runAction config = foldFree $ \case
@@ -137,6 +142,10 @@ runAction config = foldFree $ \case
   GetPullRequestState pr cont -> do
     state <- doGithub $ GithubApi.getPullRequestState pr
     pure $ cont state
+
+  GetOpenPullRequests cont -> do
+    openPrIds <- doGithub $ GithubApi.getOpenPullRequests
+    pure $ cont openPrIds
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
@@ -351,7 +360,9 @@ synchronizeCheckClosedOne state pr = do
 -- Get the open pull requests from GitHub, and add any missing ones as a new
 -- pull request to our state.
 synchronizeCheckOpen :: ProjectState -> Action ProjectState
-synchronizeCheckOpen = pure -- TODO
+synchronizeCheckOpen state = do
+  _TODO <- getOpenPullRequests
+  pure state
 
 -- Determines if there is anything to do, and if there is, generates the right
 -- actions and updates the state accordingly. For example, if the current

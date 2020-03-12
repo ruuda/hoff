@@ -22,6 +22,7 @@ import System.FilePath ((</>))
 import Test.Hspec
 
 import qualified Data.IntMap.Strict as IntMap
+import qualified Data.IntSet as IntSet
 import qualified Data.UUID.V4 as Uuid
 
 import EventLoop (convertGithubEvent)
@@ -69,6 +70,7 @@ data ActionFlat
   | ALeaveComment PullRequestId Text
   | AIsReviewer Username
   | AGetPullRequestStatus PullRequestId
+  | AGetOpenPullRequests
   deriving (Eq, Show)
 
 -- This function simulates running the actions, and returns the final state,
@@ -86,6 +88,9 @@ runActionWithInit integrateResult pushResult =
       17 -> GithubApi.StateClosed
       19 -> GithubApi.StateUnknown
       _  -> GithubApi.StateOpen
+    -- In the tests, when we ask GitHub what the open PRs are,
+    -- it will always say 1..5 (and anything else is therefore closed).
+    openPullRequests = IntSet.fromList [1..5]
   in
     foldFree $ \case
       TryIntegrate msg candi h -> do
@@ -103,6 +108,9 @@ runActionWithInit integrateResult pushResult =
       GetPullRequestState pr cont -> do
         tell [AGetPullRequestStatus pr]
         pure $ cont $ getPullRequestState pr
+      GetOpenPullRequests cont -> do
+        tell [AGetOpenPullRequests]
+        pure $ cont $ Just openPullRequests
 
 
 -- Simulates running the action. Use the provided sha as result when integration
@@ -373,7 +381,7 @@ main = hspec $ do
       -- so the state schould not have changed.
       state' `shouldBe` state
       -- We should have queried GitHub whether pull request 1 was open.
-      actions `shouldBe` [AGetPullRequestStatus (PullRequestId 1)]
+      actions `shouldBe` [AGetPullRequestStatus (PullRequestId 1), AGetOpenPullRequests]
 
     it "closes pull requests that are no longer open on synchronize" $ do
       let
@@ -382,7 +390,7 @@ main = hspec $ do
       -- Pull request 17 is always closed on GitHub in the tests,
       -- so the synchronize should have removed it.
       state' `shouldBe` Project.emptyProjectState
-      actions `shouldBe` [AGetPullRequestStatus (PullRequestId 17)]
+      actions `shouldBe` [AGetPullRequestStatus (PullRequestId 17), AGetOpenPullRequests]
 
     it "does not modify the state on an error during synchronize" $ do
       let
@@ -392,7 +400,7 @@ main = hspec $ do
       -- in the tests. On error we do not take action, so the synchronize should
       -- not modify the state.
       state' `shouldBe` state
-      actions `shouldBe` [AGetPullRequestStatus (PullRequestId 19)]
+      actions `shouldBe` [AGetPullRequestStatus (PullRequestId 19), AGetOpenPullRequests]
 
   describe "Logic.proceedUntilFixedPoint" $ do
 

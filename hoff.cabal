@@ -54,6 +54,7 @@ library
                , stm
                , text
                , text-format
+               , vector
                , wai
                , warp
                , warp-tls
@@ -106,6 +107,7 @@ test-suite end-to-end
   build-depends: async
                , base
                , bytestring
+               , containers
                , cryptonite
                , filepath
                -- TODO: Use the new function that really deletes directories,

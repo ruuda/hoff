@@ -26,6 +26,7 @@ import Prelude hiding (appendFile, writeFile)
 import System.FilePath ((</>))
 import Test.Hspec
 
+import qualified Data.IntSet as IntSet
 import qualified Data.UUID.V4 as Uuid
 import qualified System.Directory as FileSystem
 
@@ -202,6 +203,10 @@ fakeRunGithub action = case action of
     17 -> pure $ cont GithubApi.StateClosed
     19 -> pure $ cont GithubApi.StateUnknown
     _  -> pure $ cont GithubApi.StateOpen
+  GithubApi.GetOpenPullRequests cont ->
+    -- In these tests, when we ask GitHub what the open pull requests are,
+    -- it will always say 1..5, and anything else is therefore closed.
+    pure $ cont $ Just $ IntSet.fromList [1..5]
 
 -- Runs the main loop in a separate thread, and feeds it the given events.
 runMainEventLoop

@@ -16,6 +16,7 @@ module GithubApi
   GithubOperationFree (..),
   GithubOperation,
   PullRequestState (..),
+  getOpenPullRequests,
   getPullRequestState,
   hasPushAccess,
   leaveComment,
@@ -27,8 +28,11 @@ where
 import Control.Monad.Free (Free, liftF)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN, logWarnN, logErrorN)
+import Data.IntSet (IntSet)
 import Data.Text (Text)
 
+import qualified Data.IntSet as IntSet
+import qualified Data.Vector as Vector
 import qualified GitHub.Data.Name as Github3
 import qualified GitHub.Data.Options as Github3
 import qualified GitHub.Endpoints.Issues.Comments as Github3
@@ -53,6 +57,7 @@ data GithubOperationFree a
   = LeaveComment PullRequestId Text a
   | HasPushAccess Username (Bool -> a)
   | GetPullRequestState PullRequestId (PullRequestState -> a)
+  | GetOpenPullRequests (Maybe IntSet -> a)
   deriving (Functor)
 
 type GithubOperation = Free GithubOperationFree
@@ -65,6 +70,9 @@ hasPushAccess username = liftF $ HasPushAccess username id
 
 getPullRequestState :: PullRequestId -> GithubOperation PullRequestState
 getPullRequestState pr = liftF $ GetPullRequestState pr id
+
+getOpenPullRequests :: GithubOperation (Maybe IntSet)
+getOpenPullRequests = liftF $ GetOpenPullRequests id
 
 isPermissionToPush :: Github3.CollaboratorPermission -> Bool
 isPermissionToPush perm = case perm of
@@ -138,6 +146,25 @@ runGithub auth projectInfo operation =
           Github3.StateOpen -> pure $ cont StateOpen
           Github3.StateClosed -> pure $ cont StateClosed
 
+    GetOpenPullRequests cont -> do
+      logDebugN $ format "Getting open pull request in {}." [projectInfo]
+      result <- liftIO $ Github3.github auth $ Github3.pullRequestsForR
+        (Github3.N $ Project.owner projectInfo)
+        (Github3.N $ Project.repository projectInfo)
+        Github3.stateOpen
+        Github3.FetchAll
+      case result of
+        Left err -> do
+          logWarnN $ format "Failed to retrieve pull requests in {}: {}" (projectInfo, show err)
+          pure $ cont Nothing
+        Right prs -> do
+          logDebugN $ format "Got {} open pull requests in {}." (Vector.length prs, projectInfo)
+          pure
+            $ cont
+            $ Just
+            $ foldMap (IntSet.singleton . Github3.untagId . Github3.simplePullRequestId)
+            $ prs
+
 -- Like runGithub, but does not execute operations that have side effects, in
 -- the sense of being observable by Github users. We will still make requests
 -- against the read-only endpoints of the API. This is useful for local testing.
@@ -156,6 +183,7 @@ runGithubReadOnly auth projectInfo operation =
       -- These operations are read-only, we can run them for real.
       HasPushAccess {} -> unsafeResult
       GetPullRequestState {} -> unsafeResult
+      GetOpenPullRequests {} -> unsafeResult
 
       -- These operations have side effects, we fake them.
       LeaveComment pr body cont -> do
