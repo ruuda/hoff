@@ -26,7 +26,6 @@ import Prelude hiding (appendFile, writeFile)
 import System.FilePath ((</>))
 import Test.Hspec
 
-import qualified Data.IntSet as IntSet
 import qualified Data.UUID.V4 as Uuid
 import qualified System.Directory as FileSystem
 
@@ -197,13 +196,9 @@ fakeRunGithub :: Monad m => GithubOperationFree a -> m a
 fakeRunGithub action = case action of
   GithubApi.LeaveComment _pr _body cont -> pure cont
   GithubApi.HasPushAccess username cont -> pure $ cont (username `elem` ["rachael", "deckard"])
-  GithubApi.GetPullRequest _pr cont ->
-    -- Pretend that obtaining pull request details always fails in these tests.
-    pure $ cont Nothing
-  GithubApi.GetOpenPullRequests cont ->
-    -- In these tests, when we ask GitHub what the open pull requests are,
-    -- it will always say 1..5, and anything else is therefore closed.
-    pure $ cont $ Just $ IntSet.fromList [1..5]
+  -- Pretend that these two GitHub API calls always fail in these tests.
+  GithubApi.GetPullRequest _pr cont -> pure $ cont Nothing
+  GithubApi.GetOpenPullRequests cont -> pure $ cont Nothing
 
 -- Runs the main loop in a separate thread, and feeds it the given events.
 runMainEventLoop

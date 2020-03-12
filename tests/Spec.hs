@@ -87,16 +87,11 @@ defaultResults :: Results
 defaultResults = Results
     -- Pretend that integration always conflicts.
   { resultIntegrate = Left $ Logic.IntegrationFailure $ Branch "master"
-    -- Pretends that pushing is always successful.
+    -- Pretend that pushing is always successful.
   , resultPush = PushOk
-  , resultGetPullRequest = Just $ GithubApi.PullRequest
-    { GithubApi.sha    = Sha "7faa52318"
-    , GithubApi.branch = Branch "nexus-7"
-    , GithubApi.title  = "Add Nexus 7 experiment"
-    , GithubApi.author = Username "tyrell"
-    }
-    -- Pretends that pull request 1..5 are the only open PRs on GitHub.
-  , resultGetOpenPullRequests = Just $ IntSet.fromList [1..5]
+    -- Pretend that these two calls to GitHub always fail.
+  , resultGetPullRequest = Nothing
+  , resultGetOpenPullRequests = Nothing
   }
 
 -- This function simulates running the actions, and returns the final state,
@@ -420,12 +415,19 @@ main = hspec $ do
     it "adds missing pull requests during synchronize" $ do
       let
         state = Project.emptyProjectState
-        results = defaultResults { resultGetOpenPullRequests = Just $ IntSet.singleton 17 }
+        results = defaultResults
+          { resultGetOpenPullRequests = Just $ IntSet.singleton 17
+          , resultGetPullRequest = Just $ GithubApi.PullRequest
+            { GithubApi.sha    = Sha "7faa52318"
+            , GithubApi.branch = Branch "nexus-7"
+            , GithubApi.title  = "Add Nexus 7 experiment"
+            , GithubApi.author = Username "tyrell"
+            }
+          }
         (state', actions) = runActionCustom results $ handleEventTest Synchronize state
         Just pr17 = Project.lookupPullRequest (PullRequestId 17) state'
 
-      -- PR 17 should have been added, with the details of the default result
-      -- defined at the top of this file.
+      -- PR 17 should have been added, with the details defined above.
       Project.title pr17  `shouldBe` "Add Nexus 7 experiment"
       Project.author pr17 `shouldBe` Username "tyrell"
       Project.branch pr17 `shouldBe` Branch "nexus-7"
