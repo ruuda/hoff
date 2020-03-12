@@ -14,6 +14,7 @@ import Control.Monad.Trans.Writer (Writer, tell, runWriter)
 import Data.Aeson (decode, encode)
 import Data.ByteString.Lazy (readFile)
 import Data.Foldable (foldlM)
+import Data.IntSet (IntSet)
 import Data.Maybe (fromJust, isJust, isNothing)
 import Data.Text (Text)
 import Prelude hiding (readFile)
@@ -77,8 +78,13 @@ data ActionFlat
 -- together with a list of all actions that would have been performed. Some
 -- actions require input from the outside world. Simulating these actions will
 -- return the pushResult and rebaseResult passed in here.
-runActionWithInit :: Either IntegrationFailure Sha -> PushResult -> Action a -> Writer [ActionFlat] a
-runActionWithInit integrateResult pushResult =
+runActionWithInit
+  :: Either IntegrationFailure Sha
+  -> PushResult
+  -> Maybe IntSet
+  -> Action a
+  -> Writer [ActionFlat] a
+runActionWithInit integrateResult pushResult openPrsResult =
   let
     -- In the tests, only "deckard" is a reviewer.
     isReviewer username = username == "deckard"
@@ -88,9 +94,6 @@ runActionWithInit integrateResult pushResult =
       17 -> GithubApi.StateClosed
       19 -> GithubApi.StateUnknown
       _  -> GithubApi.StateOpen
-    -- In the tests, when we ask GitHub what the open PRs are,
-    -- it will always say 1..5 (and anything else is therefore closed).
-    openPullRequests = IntSet.fromList [1..5]
   in
     foldFree $ \case
       TryIntegrate msg candi h -> do
@@ -110,18 +113,31 @@ runActionWithInit integrateResult pushResult =
         pure $ cont $ getPullRequestState pr
       GetOpenPullRequests cont -> do
         tell [AGetOpenPullRequests]
-        pure $ cont $ Just openPullRequests
-
+        pure $ cont openPrsResult
 
 -- Simulates running the action. Use the provided sha as result when integration
 -- is attempted, and use the provided push result when a push is attempted.
-runActionCustom :: Either IntegrationFailure Sha -> PushResult -> Action a -> (a, [ActionFlat])
-runActionCustom integrateResult pushResult = runWriter . runActionWithInit integrateResult pushResult
+runActionCustom
+  :: Either IntegrationFailure Sha
+  -> PushResult
+  -> Maybe IntSet
+  -> Action a
+  -> (a, [ActionFlat])
+runActionCustom integrateResult pushResult openPrsResult
+  = runWriter
+  . runActionWithInit integrateResult pushResult openPrsResult
 
 -- Simulates running the action. Pretends that integration always conflicts.
 -- Pretends that pushing is always successful.
+-- Pretends that pull request 1..5 are the only open PRs on GitHub.
 runAction :: Action a -> (a, [ActionFlat])
-runAction = runActionCustom (Left $ Logic.IntegrationFailure $ Branch "master") PushOk
+runAction =
+  let
+    integrateResult = Left $ Logic.IntegrationFailure $ Branch "master"
+    pushResult = PushOk
+    openPrsResult = Just $ IntSet.fromList [1..5]
+  in
+    runActionCustom integrateResult pushResult openPrsResult
 
 -- Handle an event, then advance the state until a fixed point,
 -- and simulate its side effects.
@@ -331,7 +347,8 @@ main = hspec $ do
         -- For this test, we assume all integrations and pushes succeed.
         integrateResult = Right (Sha "b71")
         pushResult = PushOk
-        run = runActionCustom integrateResult pushResult
+        openPrsResult = Nothing
+        run = runActionCustom integrateResult pushResult openPrsResult
         actions = snd $ run $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
@@ -380,27 +397,33 @@ main = hspec $ do
       -- Pull request 1 is always open on GitHub in the tests,
       -- so the state schould not have changed.
       state' `shouldBe` state
-      -- We should have queried GitHub whether pull request 1 was open.
-      actions `shouldBe` [AGetPullRequestStatus (PullRequestId 1), AGetOpenPullRequests]
+      -- We should have queried GitHub about open pull requests.
+      actions `shouldBe` [AGetOpenPullRequests]
 
     it "closes pull requests that are no longer open on synchronize" $ do
       let
-        state = singlePullRequestState (PullRequestId 17) (Branch "p") (Sha "b7332ba") "tyrell"
+        state = singlePullRequestState (PullRequestId 10) (Branch "p") (Sha "b7332ba") "tyrell"
         (state', actions) = runAction $ handleEventTest Synchronize state
-      -- Pull request 17 is always closed on GitHub in the tests,
+      -- Pull request 10 is always closed on GitHub in the tests,
       -- so the synchronize should have removed it.
       state' `shouldBe` Project.emptyProjectState
-      actions `shouldBe` [AGetPullRequestStatus (PullRequestId 17), AGetOpenPullRequests]
+      actions `shouldBe` [AGetOpenPullRequests]
 
     it "does not modify the state on an error during synchronize" $ do
       let
         state = singlePullRequestState (PullRequestId 19) (Branch "p") (Sha "b7332ba") "tyrell"
-        (state', actions) = runAction $ handleEventTest Synchronize state
-      -- Pull request 19 always results in an error (causing state "unknown")
-      -- in the tests. On error we do not take action, so the synchronize should
-      -- not modify the state.
+        -- Set up some custom results where we simulate that the GitHub API fails.
+        -- These first two results are not used when handling Synchronize.
+        integrateResult = undefined
+        pushResult = undefined
+        openPrsResult = Nothing
+        (state', actions)
+          = runActionCustom integrateResult pushResult openPrsResult
+          $ handleEventTest Synchronize state
+      -- We should not have modified anything on error, even though PR 19 would
+      -- not be open in the success case.
       state' `shouldBe` state
-      actions `shouldBe` [AGetPullRequestStatus (PullRequestId 19), AGetOpenPullRequests]
+      actions `shouldBe` [AGetOpenPullRequests]
 
   describe "Logic.proceedUntilFixedPoint" $ do
 
@@ -410,7 +433,7 @@ main = hspec $ do
           = Project.setApproval (PullRequestId 1) (Just "fred")
           $ singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "f34") "sally"
         (state', actions)
-          = runActionCustom (Right (Sha "38c")) PushRejected
+          = runActionCustom (Right (Sha "38c")) PushRejected Nothing
           $ Logic.proceedUntilFixedPoint state
         (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
       Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c")
@@ -438,7 +461,7 @@ main = hspec $ do
           , Project.integrationCandidate = Just $ PullRequestId 1
           }
         (state', actions)
-          = runActionCustom (Right (Sha "38e")) PushOk
+          = runActionCustom (Right (Sha "38e")) PushOk Nothing
           $ Logic.proceedUntilFixedPoint state
         candidate = Project.getIntegrationCandidate state'
       -- After a successful push, the candidate should be gone.
@@ -466,7 +489,7 @@ main = hspec $ do
         -- Run 'proceedUntilFixedPoint', and pretend that pushes fail (because
         -- something was pushed in the mean time, for instance).
         (state', actions)
-          = runActionCustom (Right (Sha "38e")) PushRejected
+          = runActionCustom (Right (Sha "38e")) PushRejected Nothing
           $ Logic.proceedUntilFixedPoint state
         (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
 
@@ -512,7 +535,7 @@ main = hspec $ do
             }
           -- Proceeding should pick the next pull request as candidate.
           (state', actions)
-            = runActionCustom (Right (Sha "38e")) PushOk
+            = runActionCustom (Right (Sha "38e")) PushOk Nothing
             $ Logic.proceedUntilFixedPoint state
           Just (cId, _candidate) = Project.getIntegrationCandidate state'
       cId     `shouldBe` PullRequestId 2

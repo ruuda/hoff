@@ -35,7 +35,7 @@ where
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Concurrent.STM.TMVar (TMVar, newTMVar, readTMVar, swapTMVar)
 import Control.Exception (assert)
-import Control.Monad (foldM, mfilter, when, void, (>=>))
+import Control.Monad (foldM, mfilter, when, void)
 import Control.Monad.Free (Free (..), foldFree, liftF, hoistFree)
 import Control.Monad.STM (atomically)
 import Data.Functor.Sum (Sum (InL, InR))
@@ -44,6 +44,8 @@ import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Text (Text)
 import GHC.Natural (Natural)
 
+import qualified Data.IntMap.Strict as IntMap
+import qualified Data.IntSet as IntSet
 import qualified Data.Text as Text
 
 import Configuration (ProjectConfiguration, TriggerConfiguration)
@@ -102,8 +104,8 @@ leaveComment pr body = liftF $ LeaveComment pr body ()
 isReviewer :: Username -> Action Bool
 isReviewer username = liftF $ IsReviewer username id
 
-getPullRequestState :: PullRequestId -> Action GithubApi.PullRequestState
-getPullRequestState pr = liftF $ GetPullRequestState pr id
+_getPullRequestState :: PullRequestId -> Action GithubApi.PullRequestState
+_getPullRequestState pr = liftF $ GetPullRequestState pr id
 
 getOpenPullRequests :: Action (Maybe IntSet)
 getOpenPullRequests = liftF $ GetOpenPullRequests id
@@ -338,31 +340,23 @@ handleBuildStatusChanged buildSha newStatus state =
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
 synchronizeState :: ProjectState -> Action ProjectState
-synchronizeState = synchronizeCheckClosedAll >=> synchronizeCheckOpen
+synchronizeState state =
+  getOpenPullRequests >>= \case
+    -- If we fail to obtain the currently open pull requests from GitHub, then
+    -- the synchronize event is a no-op, we keep the current state.
+    Nothing -> pure state
+    Just externalOpenPrIds -> do
+      let
+        internalOpenPrIds = IntMap.keysSet $ Pr.pullRequests state
+        -- We need to convert to a list because IntSet has no Foldable instance.
+        toList = fmap PullRequestId . IntSet.toList
+        prsToClose = toList $ IntSet.difference internalOpenPrIds externalOpenPrIds
+        _prsToOpen = toList $ IntSet.difference externalOpenPrIds internalOpenPrIds
 
--- For every open pull request that we know of, check if it is still open,
--- and remove it from the state if it has been closed.
-synchronizeCheckClosedAll :: ProjectState -> Action ProjectState
-synchronizeCheckClosedAll state =
-  let
-    allPullRequestIds = Pr.filterPullRequestsBy (const True) state
-  in
-    foldM synchronizeCheckClosedOne state allPullRequestIds
-
-synchronizeCheckClosedOne :: ProjectState -> PullRequestId -> Action ProjectState
-synchronizeCheckClosedOne state pr = do
-  prState <- getPullRequestState pr
-  case prState of
-    GithubApi.StateOpen    -> pure state
-    GithubApi.StateUnknown -> pure state
-    GithubApi.StateClosed  -> handlePullRequestClosed pr state
-
--- Get the open pull requests from GitHub, and add any missing ones as a new
--- pull request to our state.
-synchronizeCheckOpen :: ProjectState -> Action ProjectState
-synchronizeCheckOpen state = do
-  _TODO <- getOpenPullRequests
-  pure state
+      -- Close all pull requests that are still open internally (in our state),
+      -- but which are not open externally (on GitHub).
+      foldM (flip handlePullRequestClosed) state prsToClose
+      -- TODO: Open pull requests that are new.
 
 -- Determines if there is anything to do, and if there is, generates the right
 -- actions and updates the state accordingly. For example, if the current
