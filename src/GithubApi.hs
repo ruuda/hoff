@@ -118,20 +118,21 @@ runGithub auth projectInfo operation =
           pure $ cont False
 
         Right (Github3.CollaboratorWithPermission _user perm) -> do
-          logDebugN $ format "User {} has permission {} on {}." (username, show perm, show projectInfo)
+          logDebugN $ format "User {} has permission {} on {}." (username, show perm, projectInfo)
           pure $ cont $ isPermissionToPush perm
 
     GetPullRequestState (PullRequestId pr) cont -> do
+      logDebugN $ format "Checking the status of pull request {} in {}." (pr, projectInfo)
       result <- liftIO $ Github3.github auth $ Github3.pullRequestR
         (Github3.N $ Project.owner projectInfo)
         (Github3.N $ Project.repository projectInfo)
         (Github3.IssueNumber pr)
       case result of
         Left err | is404NotFound err -> do
-          logWarnN $ format "Pull request {} does not exist, assuming closed." [pr]
+          logWarnN $ format "Pull request {} does not exist in {}, assuming closed." (pr, projectInfo)
           pure $ cont StateClosed
         Left err -> do
-          logWarnN $ format "Failed to retrieve pull request {}: {}" (pr, show err)
+          logWarnN $ format "Failed to retrieve pull request {} in {}: {}" (pr, projectInfo, show err)
           pure $ cont StateUnknown
         Right details -> case Github3.pullRequestState details of
           Github3.StateOpen -> pure $ cont StateOpen
