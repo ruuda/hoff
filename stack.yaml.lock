@@ -5,19 +5,12 @@
 
 packages:
 - completed:
-    cabal-file:
-      size: 6955
-      sha256: dffa9964449fee9aefdbef8d7c2c7b3aa560cf578f9fd2923ae48fc75dcf7090
-    name: github
-    version: '0.24'
-    git: https://github.com/ruuda/github.git
+    hackage: github-0.25@sha256:32e1ede86a04976e06740a5993fab5306c5dbfdd17e96d83b79e53b82195739e,7091
     pantry-tree:
-      size: 15769
-      sha256: cc4a674fd3691b09a46bd923ba3118f8c5edf01b87c5f7657723ebffc313b7c5
-    commit: 8bcd2a957bfc074fc537798524d8e6e3c27efdd6
+      size: 7412
+      sha256: 7cdaaf168051ed364ee9e2e565c63e2257755720fe5bfa287331e06581ea78f1
   original:
-    git: https://github.com/ruuda/github.git
-    commit: 8bcd2a957bfc074fc537798524d8e6e3c27efdd6
+    hackage: github-0.25@sha256:32e1ede86a04976e06740a5993fab5306c5dbfdd17e96d83b79e53b82195739e,7091
 - completed:
     hackage: binary-instances-1@sha256:b17565598b8df3241f9b46fa8e3a3368ecc8e3f2eb175d7c28f319042a6f5c79,2613
     pantry-tree:
