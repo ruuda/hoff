@@ -155,6 +155,12 @@ runMain options = do
     zipped = zip4 (Config.projects config) projectQueues stateVars projectStates
     tuples = map (\(cfg, (_, a), (_, b), (_, c)) -> (cfg, a, b, c)) zipped
   forM_ tuples $ \ (projectConfig, projectQueue, stateVar, projectState) -> do
+    -- At startup, enqueue a synchronize event. This will bring the state in
+    -- sync with the current state of GitHub, accounting for any webhooks that
+    -- we missed while not running, or just to fill the state initially after
+    -- setting up a new project.
+    liftIO $ Logic.enqueueEvent projectQueue Logic.Synchronize
+
     let
       -- When the event loop publishes the current project state, save it to
       -- the configured file, and make the new state available to the
