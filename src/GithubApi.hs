@@ -7,6 +7,7 @@
 
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- This module defines high-level Github API operations, plus an interpreter to
 -- run those operations against the real API.
@@ -34,6 +35,8 @@ import qualified GitHub.Endpoints.Issues.Comments as Github3
 import qualified GitHub.Endpoints.PullRequests as Github3
 import qualified GitHub.Endpoints.Repos.Collaborators as Github3
 import qualified GitHub.Request as Github3
+import qualified Network.HTTP.Client as Http
+import qualified Network.HTTP.Types.Status as Http
 
 import Format (format)
 import Project (ProjectInfo)
@@ -69,6 +72,17 @@ isPermissionToPush perm = case perm of
   Github3.CollaboratorPermissionWrite -> True
   Github3.CollaboratorPermissionRead -> False
   Github3.CollaboratorPermissionNone -> False
+
+pattern StatusCodeException :: Http.Response() -> Github3.Error
+pattern StatusCodeException response <-
+  Github3.HTTPError (
+    Http.HttpExceptionRequest _request (Http.StatusCodeException response _body)
+  )
+
+is404NotFound :: Github3.Error -> Bool
+is404NotFound err = case err of
+  StatusCodeException response -> Http.responseStatus response == Http.notFound404
+  _ -> False
 
 runGithub
   :: MonadIO m
@@ -113,6 +127,9 @@ runGithub auth projectInfo operation =
         (Github3.N $ Project.repository projectInfo)
         (Github3.IssueNumber pr)
       case result of
+        Left err | is404NotFound err -> do
+          logWarnN $ format "Pull request {} does not exist, assuming closed." [pr]
+          pure $ cont StateClosed
         Left err -> do
           logWarnN $ format "Failed to retrieve pull request {}: {}" (pr, show err)
           pure $ cont StateUnknown
