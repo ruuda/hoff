@@ -417,6 +417,39 @@ main = hspec $ do
       state' `shouldBe` state
       actions `shouldBe` [AGetOpenPullRequests]
 
+    it "adds missing pull requests during synchronize" $ do
+      let
+        state = Project.emptyProjectState
+        results = defaultResults { resultGetOpenPullRequests = Just $ IntSet.singleton 17 }
+        (state', actions) = runActionCustom results $ handleEventTest Synchronize state
+        Just pr17 = Project.lookupPullRequest (PullRequestId 17) state'
+
+      -- PR 17 should have been added, with the details of the default result
+      -- defined at the top of this file.
+      Project.title pr17  `shouldBe` "Add Nexus 7 experiment"
+      Project.author pr17 `shouldBe` Username "tyrell"
+      Project.branch pr17 `shouldBe` Branch "nexus-7"
+      Project.sha pr17    `shouldBe` Sha "7faa52318"
+
+      -- Approval and integration status should be set to their initial values,
+      -- we do not go back and scan for approval comments on missing PRs.
+      Project.approvedBy pr17          `shouldBe` Nothing
+      Project.buildStatus pr17         `shouldBe` Project.BuildNotStarted
+      Project.integrationStatus pr17   `shouldBe` Project.NotIntegrated
+      Project.integrationAttempts pr17 `shouldBe` []
+      actions `shouldBe` [AGetOpenPullRequests, AGetPullRequest (PullRequestId 17)]
+
+    it "does not query details of existing pull requests on synchronize" $ do
+      let
+        state = singlePullRequestState (PullRequestId 19) (Branch "p") (Sha "b7332ba") "tyrell"
+        results = defaultResults { resultGetOpenPullRequests = Just $ IntSet.singleton 19 }
+        actions = snd $ runActionCustom results $ handleEventTest Synchronize state
+
+      -- We should only obtain pull request details for pull requests that were
+      -- missing. In this case, PR 19 was already present, so we should not have
+      -- obtained its details.
+      actions `shouldBe` [AGetOpenPullRequests]
+
   describe "Logic.proceedUntilFixedPoint" $ do
 
     it "finds a new candidate" $ do
