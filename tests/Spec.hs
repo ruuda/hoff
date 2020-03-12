@@ -365,6 +365,35 @@ main = hspec $ do
       state `shouldBe` Project.emptyProjectState
       actions `shouldBe` []
 
+    it "checks whether pull requests are still open on synchronize" $ do
+      let
+        state = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "b7332ba") "tyrell"
+        (state', actions) = runAction $ handleEventTest Synchronize state
+      -- Pull request 1 is always open on GitHub in the tests,
+      -- so the state schould not have changed.
+      state' `shouldBe` state
+      -- We should have queried GitHub whether pull request 1 was open.
+      actions `shouldBe` [AGetPullRequestStatus (PullRequestId 1)]
+
+    it "closes pull requests that are no longer open on synchronize" $ do
+      let
+        state = singlePullRequestState (PullRequestId 17) (Branch "p") (Sha "b7332ba") "tyrell"
+        (state', actions) = runAction $ handleEventTest Synchronize state
+      -- Pull request 17 is always closed on GitHub in the tests,
+      -- so the synchronize should have removed it.
+      state' `shouldBe` Project.emptyProjectState
+      actions `shouldBe` [AGetPullRequestStatus (PullRequestId 17)]
+
+    it "does not modify the state on an error during synchronize" $ do
+      let
+        state = singlePullRequestState (PullRequestId 19) (Branch "p") (Sha "b7332ba") "tyrell"
+        (state', actions) = runAction $ handleEventTest Synchronize state
+      -- Pull request 19 always results in an error (causing state "unknown")
+      -- in the tests. On error we do not take action, so the synchronize should
+      -- not modify the state.
+      state' `shouldBe` state
+      actions `shouldBe` [AGetPullRequestStatus (PullRequestId 19)]
+
   describe "Logic.proceedUntilFixedPoint" $ do
 
     it "finds a new candidate" $ do
