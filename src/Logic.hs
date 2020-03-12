@@ -68,7 +68,7 @@ data ActionFree a
   | TryPromote Branch Sha (PushResult -> a)
   | LeaveComment PullRequestId Text a
   | IsReviewer Username (Bool -> a)
-  | GetPullRequestState PullRequestId (GithubApi.PullRequestState -> a)
+  | GetPullRequest PullRequestId (Maybe GithubApi.PullRequest -> a)
   | GetOpenPullRequests (Maybe IntSet -> a)
   deriving (Functor)
 
@@ -104,8 +104,8 @@ leaveComment pr body = liftF $ LeaveComment pr body ()
 isReviewer :: Username -> Action Bool
 isReviewer username = liftF $ IsReviewer username id
 
-_getPullRequestState :: PullRequestId -> Action GithubApi.PullRequestState
-_getPullRequestState pr = liftF $ GetPullRequestState pr id
+getPullRequest :: PullRequestId -> Action (Maybe GithubApi.PullRequest)
+getPullRequest pr = liftF $ GetPullRequest pr id
 
 getOpenPullRequests :: Action (Maybe IntSet)
 getOpenPullRequests = liftF $ GetOpenPullRequests id
@@ -115,7 +115,6 @@ runAction :: ProjectConfiguration -> Action a -> Operation a
 runAction config = foldFree $ \case
   TryIntegrate message (ref, sha) cont -> do
     doGit $ ensureCloned config
-    -- TODO: Change types in config to be 'Branch', not 'Text'.
     maybeSha <- doGit $ Git.tryIntegrate
       message
       ref
@@ -141,9 +140,9 @@ runAction config = foldFree $ \case
     hasPushAccess <- doGithub $ GithubApi.hasPushAccess username
     pure $ cont hasPushAccess
 
-  GetPullRequestState pr cont -> do
-    state <- doGithub $ GithubApi.getPullRequestState pr
-    pure $ cont state
+  GetPullRequest pr cont -> do
+    details <- doGithub $ GithubApi.getPullRequest pr
+    pure $ cont details
 
   GetOpenPullRequests cont -> do
     openPrIds <- doGithub $ GithubApi.getOpenPullRequests
@@ -340,23 +339,37 @@ handleBuildStatusChanged buildSha newStatus state =
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
 synchronizeState :: ProjectState -> Action ProjectState
-synchronizeState state =
+synchronizeState stateInitial =
   getOpenPullRequests >>= \case
     -- If we fail to obtain the currently open pull requests from GitHub, then
     -- the synchronize event is a no-op, we keep the current state.
-    Nothing -> pure state
+    Nothing -> pure stateInitial
     Just externalOpenPrIds -> do
       let
-        internalOpenPrIds = IntMap.keysSet $ Pr.pullRequests state
+        internalOpenPrIds = IntMap.keysSet $ Pr.pullRequests stateInitial
         -- We need to convert to a list because IntSet has no Foldable instance.
         toList = fmap PullRequestId . IntSet.toList
         prsToClose = toList $ IntSet.difference internalOpenPrIds externalOpenPrIds
-        _prsToOpen = toList $ IntSet.difference externalOpenPrIds internalOpenPrIds
+        prsToOpen  = toList $ IntSet.difference externalOpenPrIds internalOpenPrIds
+
+        insertMissingPr state pr = getPullRequest pr >>= \case
+          -- On error, ignore this pull request.
+          Nothing -> pure state
+          Just details -> pure $ Pr.insertPullRequest
+            pr
+            (GithubApi.branch details)
+            (GithubApi.sha details)
+            (GithubApi.title details)
+            (GithubApi.author details)
+            state
 
       -- Close all pull requests that are still open internally (in our state),
       -- but which are not open externally (on GitHub).
-      foldM (flip handlePullRequestClosed) state prsToClose
-      -- TODO: Open pull requests that are new.
+      stateClosed <- foldM (flip handlePullRequestClosed) stateInitial prsToClose
+      -- Then get the details for all pull requests that are open on GitHub, but
+      -- which are not yet in our state, and add them.
+      stateOpened <- foldM insertMissingPr stateClosed prsToOpen
+      pure stateOpened
 
 -- Determines if there is anything to do, and if there is, generates the right
 -- actions and updates the state accordingly. For example, if the current

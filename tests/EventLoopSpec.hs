@@ -197,12 +197,9 @@ fakeRunGithub :: Monad m => GithubOperationFree a -> m a
 fakeRunGithub action = case action of
   GithubApi.LeaveComment _pr _body cont -> pure cont
   GithubApi.HasPushAccess username cont -> pure $ cont (username `elem` ["rachael", "deckard"])
-  GithubApi.GetPullRequestState (PullRequestId pr) cont -> case pr of
-    -- In these tests, PR 17 is always closed, PR 19 always fails, and any other
-    -- PR is always open, when we query GitHub.
-    17 -> pure $ cont GithubApi.StateClosed
-    19 -> pure $ cont GithubApi.StateUnknown
-    _  -> pure $ cont GithubApi.StateOpen
+  GithubApi.GetPullRequest _pr cont ->
+    -- Pretend that obtaining pull request details always fails in these tests.
+    pure $ cont Nothing
   GithubApi.GetOpenPullRequests cont ->
     -- In these tests, when we ask GitHub what the open pull requests are,
     -- it will always say 1..5, and anything else is therefore closed.

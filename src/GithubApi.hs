@@ -15,9 +15,9 @@ module GithubApi
 (
   GithubOperationFree (..),
   GithubOperation,
-  PullRequestState (..),
+  PullRequest (..),
   getOpenPullRequests,
-  getPullRequestState,
+  getPullRequest,
   hasPushAccess,
   leaveComment,
   runGithub,
@@ -43,20 +43,25 @@ import qualified Network.HTTP.Client as Http
 import qualified Network.HTTP.Types.Status as Http
 
 import Format (format)
+import Git (Branch (..), Sha (..))
 import Project (ProjectInfo)
 import Types (PullRequestId (..), Username (..))
 
 import qualified Project
 
-data PullRequestState
-  = StateOpen
-  | StateClosed
-  | StateUnknown -- When checking GitHub fails.
+-- A stripped-down version of the `Github3.PullRequest` type, with only the
+-- fields we need.
+data PullRequest = PullRequest
+  { sha    :: Sha
+  , branch :: Branch
+  , title  :: Text
+  , author :: Username
+  }
 
 data GithubOperationFree a
   = LeaveComment PullRequestId Text a
   | HasPushAccess Username (Bool -> a)
-  | GetPullRequestState PullRequestId (PullRequestState -> a)
+  | GetPullRequest PullRequestId (Maybe PullRequest -> a)
   | GetOpenPullRequests (Maybe IntSet -> a)
   deriving (Functor)
 
@@ -68,8 +73,8 @@ leaveComment pr remoteBranch = liftF $ LeaveComment pr remoteBranch ()
 hasPushAccess :: Username -> GithubOperation Bool
 hasPushAccess username = liftF $ HasPushAccess username id
 
-getPullRequestState :: PullRequestId -> GithubOperation PullRequestState
-getPullRequestState pr = liftF $ GetPullRequestState pr id
+getPullRequest :: PullRequestId -> GithubOperation (Maybe PullRequest)
+getPullRequest pr = liftF $ GetPullRequest pr id
 
 getOpenPullRequests :: GithubOperation (Maybe IntSet)
 getOpenPullRequests = liftF $ GetOpenPullRequests id
@@ -129,22 +134,25 @@ runGithub auth projectInfo operation =
           logDebugN $ format "User {} has permission {} on {}." (username, show perm, projectInfo)
           pure $ cont $ isPermissionToPush perm
 
-    GetPullRequestState (PullRequestId pr) cont -> do
-      logDebugN $ format "Checking the status of pull request {} in {}." (pr, projectInfo)
+    GetPullRequest (PullRequestId pr) cont -> do
+      logDebugN $ format "Getting pull request {} in {}." (pr, projectInfo)
       result <- liftIO $ Github3.github auth $ Github3.pullRequestR
         (Github3.N $ Project.owner projectInfo)
         (Github3.N $ Project.repository projectInfo)
         (Github3.IssueNumber pr)
       case result of
         Left err | is404NotFound err -> do
-          logWarnN $ format "Pull request {} does not exist in {}, assuming closed." (pr, projectInfo)
-          pure $ cont StateClosed
+          logWarnN $ format "Pull request {} does not exist in {}." (pr, projectInfo)
+          pure $ cont Nothing
         Left err -> do
           logWarnN $ format "Failed to retrieve pull request {} in {}: {}" (pr, projectInfo, show err)
-          pure $ cont StateUnknown
-        Right details -> case Github3.pullRequestState details of
-          Github3.StateOpen -> pure $ cont StateOpen
-          Github3.StateClosed -> pure $ cont StateClosed
+          pure $ cont Nothing
+        Right details -> pure $ cont $ Just $ PullRequest
+          { sha    = Sha $ Github3.pullRequestCommitSha $ Github3.pullRequestHead details
+          , branch = Branch $ Github3.pullRequestCommitRef $ Github3.pullRequestHead details
+          , title  = Github3.pullRequestTitle details
+          , author = Username $ Github3.untagName $ Github3.simpleUserLogin $ Github3.pullRequestUser details
+          }
 
     GetOpenPullRequests cont -> do
       logDebugN $ format "Getting open pull request in {}." [projectInfo]
@@ -182,7 +190,7 @@ runGithubReadOnly auth projectInfo operation =
     case operation of
       -- These operations are read-only, we can run them for real.
       HasPushAccess {} -> unsafeResult
-      GetPullRequestState {} -> unsafeResult
+      GetPullRequest {} -> unsafeResult
       GetOpenPullRequests {} -> unsafeResult
 
       -- These operations have side effects, we fake them.
