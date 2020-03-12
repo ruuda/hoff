@@ -167,10 +167,10 @@ runGithub auth projectInfo operation =
           pure $ cont Nothing
         Right prs -> do
           logDebugN $ format "Got {} open pull requests in {}." (Vector.length prs, projectInfo)
-          pure
-            $ cont
-            $ Just
-            $ foldMap (IntSet.singleton . Github3.untagId . Github3.simplePullRequestId)
+          pure $ cont $ Just
+            -- Note: we want to extract the *issue number*, not the *id*,
+            -- which is a different integer part of the payload.
+            $ foldMap (IntSet.singleton . Github3.unIssueNumber . Github3.simplePullRequestNumber)
             $ prs
 
 -- Like runGithub, but does not execute operations that have side effects, in
