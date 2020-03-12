@@ -28,8 +28,6 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN, logWarnN, logErrorN)
 import Data.Text (Text)
 
-import qualified Data.Text as Text
-
 import qualified GitHub.Data.Name as Github3
 import qualified GitHub.Data.Options as Github3
 import qualified GitHub.Endpoints.Issues.Comments as Github3
@@ -37,6 +35,7 @@ import qualified GitHub.Endpoints.PullRequests as Github3
 import qualified GitHub.Endpoints.Repos.Collaborators as Github3
 import qualified GitHub.Request as Github3
 
+import Format (format)
 import Project (ProjectInfo)
 import Types (PullRequestId (..), Username (..))
 
@@ -87,8 +86,8 @@ runGithub auth projectInfo operation =
         (Github3.IssueNumber pr)
         body
       case result of
-        Left err -> logWarnN $ Text.append "Failed to comment: " $ Text.pack $ show err
-        Right _ -> logInfoN $ Text.concat ["Posted comment on ", Text.pack $ show pr, ": ", body]
+        Left err -> logWarnN $ format "Failed to comment: {}" [show err]
+        Right _ -> logInfoN $ format "Posted comment on {}: {}" (pr, body)
       pure cont
 
     HasPushAccess (Username username) cont -> do
@@ -99,22 +98,13 @@ runGithub auth projectInfo operation =
 
       case result of
         Left err -> do
-          logErrorN
-            $ Text.append "Failed to retrive collaborator status: "
-            $ Text.pack $ show err
+          logErrorN $ format "Failed to retrive collaborator status: {}" [show err]
           -- To err on the safe side, if the API call fails, we pretend nobody
           -- has push access.
           pure $ cont False
 
         Right (Github3.CollaboratorWithPermission _user perm) -> do
-          logDebugN $ Text.concat
-            [ "User "
-            , username
-            , " has permission "
-            , Text.pack $ show perm
-            , " on "
-            , Text.pack $ show projectInfo
-            ]
+          logDebugN $ format "User {} has permission {} on {}." (username, show perm, show projectInfo)
           pure $ cont $ isPermissionToPush perm
 
     GetPullRequestState (PullRequestId pr) cont -> do
@@ -124,7 +114,7 @@ runGithub auth projectInfo operation =
         (Github3.IssueNumber pr)
       case result of
         Left err -> do
-          logWarnN $ Text.append "Failed to retrieve pull request: " $ Text.pack $ show err
+          logWarnN $ format "Failed to retrieve pull request {}: {}" (pr, show err)
           pure $ cont StateUnknown
         Right details -> case Github3.pullRequestState details of
           Github3.StateOpen -> pure $ cont StateOpen
@@ -151,5 +141,5 @@ runGithubReadOnly auth projectInfo operation =
 
       -- These operations have side effects, we fake them.
       LeaveComment pr body cont -> do
-        logInfoN $ Text.concat ["Would have posted comment on ", Text.pack $ show pr, ": ", body]
+        logInfoN $ format "Would have posted comment on {}: {}" (show pr, body)
         pure cont
