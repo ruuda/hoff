@@ -196,12 +196,9 @@ fakeRunGithub :: Monad m => GithubOperationFree a -> m a
 fakeRunGithub action = case action of
   GithubApi.LeaveComment _pr _body cont -> pure cont
   GithubApi.HasPushAccess username cont -> pure $ cont (username `elem` ["rachael", "deckard"])
-  GithubApi.GetPullRequestState (PullRequestId pr) cont -> case pr of
-    -- In these tests, PR 17 is always closed, PR 19 always fails, and any other
-    -- PR is always open, when we query GitHub.
-    17 -> pure $ cont GithubApi.StateClosed
-    19 -> pure $ cont GithubApi.StateUnknown
-    _  -> pure $ cont GithubApi.StateOpen
+  -- Pretend that these two GitHub API calls always fail in these tests.
+  GithubApi.GetPullRequest _pr cont -> pure $ cont Nothing
+  GithubApi.GetOpenPullRequests cont -> pure $ cont Nothing
 
 -- Runs the main loop in a separate thread, and feeds it the given events.
 runMainEventLoop

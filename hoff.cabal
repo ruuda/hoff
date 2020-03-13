@@ -20,6 +20,7 @@ library
   hs-source-dirs:  src
   exposed-modules: Configuration
                  , EventLoop
+                 , Format
                  , Git
                  , Github
                  , GithubApi
@@ -42,8 +43,9 @@ library
                , file-embed
                , filepath
                , free
-               , http-types
                , github
+               , http-client
+               , http-types
                , memory
                , monad-logger
                , process
@@ -52,6 +54,7 @@ library
                , stm
                , text
                , text-format
+               , vector
                , wai
                , warp
                , warp-tls
@@ -104,6 +107,7 @@ test-suite end-to-end
   build-depends: async
                , base
                , bytestring
+               , containers
                , cryptonite
                , filepath
                -- TODO: Use the new function that really deletes directories,

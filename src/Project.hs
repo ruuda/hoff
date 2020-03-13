@@ -53,6 +53,9 @@ import Git (Branch (..), Sha (..))
 import Prelude hiding (readFile, writeFile)
 import System.Directory (renameFile)
 
+import Data.Text.Buildable (Buildable (build))
+import Data.Text.Lazy.Builder as Text
+
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.IntMap.Strict as IntMap
@@ -128,6 +131,14 @@ data ProjectInfo = ProjectInfo
     repository :: Text
   }
   deriving (Eq, Show)
+
+-- Buildable instance for use with `format`,
+-- mainly for nicer formatting in the logs.
+instance Buildable ProjectInfo where
+  build info
+    =  Text.fromText (owner info)
+    <> Text.singleton '/'
+    <> Text.fromText (repository info)
 
 -- TODO: These default instances produce ugly json. Write a custom
 -- implementation. For now this will suffice.

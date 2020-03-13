@@ -38,8 +38,6 @@ import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import Data.Aeson
 import Data.List (intersperse)
 import Data.Text (Text)
-import Data.Text.Format.Params (Params)
-import Data.Text.Lazy (toStrict)
 import System.Directory (doesDirectoryExist)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (ExitSuccess))
@@ -47,17 +45,12 @@ import System.FilePath ((</>))
 import System.Process.Text (readCreateProcessWithExitCode)
 
 import qualified Data.Text as Text
-import qualified Data.Text.Format as Text
 import qualified System.Process as Process
 
 import Configuration (UserConfiguration)
+import Format (format)
 
 import qualified Configuration as Config
-
--- Conversion function because of Haskell string type madness. This is just
--- Text.format, but returning a strict Text instead of a lazy one.
-format :: Params ps => Text.Format -> ps -> Text
-format formatString params = toStrict $ Text.format formatString params
 
 -- A branch is identified by its name.
 newtype Branch = Branch Text deriving (Eq)

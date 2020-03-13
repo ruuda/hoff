@@ -32,23 +32,24 @@ module Logic
 )
 where
 
-import Control.Concurrent.STM.TMVar (TMVar, newTMVar, readTMVar, swapTMVar)
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
+import Control.Concurrent.STM.TMVar (TMVar, newTMVar, readTMVar, swapTMVar)
 import Control.Exception (assert)
-import Control.Monad (mfilter, when, void)
+import Control.Monad (foldM, mfilter, when, void)
 import Control.Monad.Free (Free (..), foldFree, liftF, hoistFree)
 import Control.Monad.STM (atomically)
+import Data.Functor.Sum (Sum (InL, InR))
+import Data.IntSet (IntSet)
 import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Text (Text)
-import Data.Text.Format.Params (Params)
-import Data.Text.Lazy (toStrict)
-import Data.Functor.Sum (Sum (InL, InR))
 import GHC.Natural (Natural)
 
+import qualified Data.IntMap.Strict as IntMap
+import qualified Data.IntSet as IntSet
 import qualified Data.Text as Text
-import qualified Data.Text.Format as Text
 
 import Configuration (ProjectConfiguration, TriggerConfiguration)
+import Format (format)
 import Git (Branch (..), GitOperation, GitOperationFree, PushResult (..), Sha (..))
 import GithubApi (GithubOperation, GithubOperationFree)
 import Project (BuildStatus (..))
@@ -62,17 +63,13 @@ import qualified GithubApi
 import qualified Project as Pr
 import qualified Configuration as Config
 
--- Conversion function because of Haskell string type madness. This is just
--- Text.format, but returning a strict Text instead of a lazy one.
--- TODO: Extract into utility module and avoid duplication?
-format :: Params ps => Text.Format -> ps -> Text
-format formatString params = toStrict $ Text.format formatString params
-
 data ActionFree a
   = TryIntegrate Text (Branch, Sha) (Either IntegrationFailure Sha -> a)
   | TryPromote Branch Sha (PushResult -> a)
   | LeaveComment PullRequestId Text a
   | IsReviewer Username (Bool -> a)
+  | GetPullRequest PullRequestId (Maybe GithubApi.PullRequest -> a)
+  | GetOpenPullRequests (Maybe IntSet -> a)
   deriving (Functor)
 
 type Action = Free ActionFree
@@ -107,12 +104,17 @@ leaveComment pr body = liftF $ LeaveComment pr body ()
 isReviewer :: Username -> Action Bool
 isReviewer username = liftF $ IsReviewer username id
 
+getPullRequest :: PullRequestId -> Action (Maybe GithubApi.PullRequest)
+getPullRequest pr = liftF $ GetPullRequest pr id
+
+getOpenPullRequests :: Action (Maybe IntSet)
+getOpenPullRequests = liftF $ GetOpenPullRequests id
+
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
 runAction config = foldFree $ \case
   TryIntegrate message (ref, sha) cont -> do
     doGit $ ensureCloned config
-    -- TODO: Change types in config to be 'Branch', not 'Text'.
     maybeSha <- doGit $ Git.tryIntegrate
       message
       ref
@@ -137,6 +139,14 @@ runAction config = foldFree $ \case
   IsReviewer username cont -> do
     hasPushAccess <- doGithub $ GithubApi.hasPushAccess username
     pure $ cont hasPushAccess
+
+  GetPullRequest pr cont -> do
+    details <- doGithub $ GithubApi.getPullRequest pr
+    pure $ cont details
+
+  GetOpenPullRequests cont -> do
+    openPrIds <- doGithub $ GithubApi.getOpenPullRequests
+    pure $ cont openPrIds
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
@@ -167,6 +177,8 @@ data Event
   | CommentAdded PullRequestId Username Text   -- PR, author and body.
   -- CI events
   | BuildStatusChanged Sha BuildStatus
+  -- Internal events
+  | Synchronize
   deriving (Eq, Show)
 
 type EventQueue = TBQueue (Maybe Event)
@@ -215,6 +227,7 @@ handleEventInternal triggerConfig event = case event of
   PullRequestClosed pr            -> handlePullRequestClosed pr
   CommentAdded pr author body     -> handleCommentAdded triggerConfig pr author body
   BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
+  Synchronize                     -> synchronizeState
 
 handlePullRequestOpened
   :: PullRequestId
@@ -323,6 +336,40 @@ handleBuildStatusChanged buildSha newStatus state =
         _ <- mfilter matchesBuild $ Pr.lookupPullRequest candidateId state
         return $ Pr.setBuildStatus candidateId newStatus state
   in return $ fromMaybe state newState
+
+-- Query the GitHub API to resolve inconsistencies between our state and GitHub.
+synchronizeState :: ProjectState -> Action ProjectState
+synchronizeState stateInitial =
+  getOpenPullRequests >>= \case
+    -- If we fail to obtain the currently open pull requests from GitHub, then
+    -- the synchronize event is a no-op, we keep the current state.
+    Nothing -> pure stateInitial
+    Just externalOpenPrIds -> do
+      let
+        internalOpenPrIds = IntMap.keysSet $ Pr.pullRequests stateInitial
+        -- We need to convert to a list because IntSet has no Foldable instance.
+        toList = fmap PullRequestId . IntSet.toList
+        prsToClose = toList $ IntSet.difference internalOpenPrIds externalOpenPrIds
+        prsToOpen  = toList $ IntSet.difference externalOpenPrIds internalOpenPrIds
+
+        insertMissingPr state pr = getPullRequest pr >>= \case
+          -- On error, ignore this pull request.
+          Nothing -> pure state
+          Just details -> pure $ Pr.insertPullRequest
+            pr
+            (GithubApi.branch details)
+            (GithubApi.sha details)
+            (GithubApi.title details)
+            (GithubApi.author details)
+            state
+
+      -- Close all pull requests that are still open internally (in our state),
+      -- but which are not open externally (on GitHub).
+      stateClosed <- foldM (flip handlePullRequestClosed) stateInitial prsToClose
+      -- Then get the details for all pull requests that are open on GitHub, but
+      -- which are not yet in our state, and add them.
+      stateOpened <- foldM insertMissingPr stateClosed prsToOpen
+      pure stateOpened
 
 -- Determines if there is anything to do, and if there is, generates the right
 -- actions and updates the state accordingly. For example, if the current

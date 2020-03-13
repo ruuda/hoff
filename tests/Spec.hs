@@ -14,6 +14,7 @@ import Control.Monad.Trans.Writer (Writer, tell, runWriter)
 import Data.Aeson (decode, encode)
 import Data.ByteString.Lazy (readFile)
 import Data.Foldable (foldlM)
+import Data.IntSet (IntSet)
 import Data.Maybe (fromJust, isJust, isNothing)
 import Data.Text (Text)
 import Prelude hiding (readFile)
@@ -22,6 +23,7 @@ import System.FilePath ((</>))
 import Test.Hspec
 
 import qualified Data.IntMap.Strict as IntMap
+import qualified Data.IntSet as IntSet
 import qualified Data.UUID.V4 as Uuid
 
 import EventLoop (convertGithubEvent)
@@ -33,6 +35,7 @@ import Types (PullRequestId (..), Username (..))
 
 import qualified Configuration as Config
 import qualified Github
+import qualified GithubApi
 import qualified Logic
 import qualified Project
 
@@ -67,41 +70,68 @@ data ActionFlat
   | ATryPromote Branch Sha
   | ALeaveComment PullRequestId Text
   | AIsReviewer Username
+  | AGetPullRequest PullRequestId
+  | AGetOpenPullRequests
   deriving (Eq, Show)
+
+-- Results to return from various operations during the tests. There is a
+-- default, but specific tests can override some results, to test failure cases.
+data Results = Results
+  { resultIntegrate :: Either IntegrationFailure Sha
+  , resultPush :: PushResult
+  , resultGetPullRequest :: Maybe GithubApi.PullRequest
+  , resultGetOpenPullRequests :: Maybe IntSet
+  }
+
+defaultResults :: Results
+defaultResults = Results
+    -- Pretend that integration always conflicts.
+  { resultIntegrate = Left $ Logic.IntegrationFailure $ Branch "master"
+    -- Pretend that pushing is always successful.
+  , resultPush = PushOk
+    -- Pretend that these two calls to GitHub always fail.
+  , resultGetPullRequest = Nothing
+  , resultGetOpenPullRequests = Nothing
+  }
 
 -- This function simulates running the actions, and returns the final state,
 -- together with a list of all actions that would have been performed. Some
 -- actions require input from the outside world. Simulating these actions will
 -- return the pushResult and rebaseResult passed in here.
-runActionWithInit :: Either IntegrationFailure Sha -> PushResult -> Action a -> Writer [ActionFlat] a
-runActionWithInit integrateResult pushResult =
+runActionWithInit :: Results -> Action a -> Writer [ActionFlat] a
+runActionWithInit results =
   let
     -- In the tests, only "deckard" is a reviewer.
     isReviewer username = username == "deckard"
   in
     foldFree $ \case
-      TryIntegrate msg candi h -> do
-        tell [ATryIntegrate msg candi]
-        pure $ h integrateResult
-      TryPromote prBranch headSha h -> do
+      TryIntegrate msg candidate cont -> do
+        tell [ATryIntegrate msg candidate]
+        pure $ cont $ resultIntegrate results
+      TryPromote prBranch headSha cont -> do
         tell [ATryPromote prBranch headSha]
-        pure $ h pushResult
-      LeaveComment pr body x -> do
+        pure $ cont $ resultPush results
+      LeaveComment pr body cont -> do
         tell [ALeaveComment pr body]
-        pure x
-      IsReviewer username h -> do
+        pure cont
+      IsReviewer username cont -> do
         tell [AIsReviewer username]
-        pure $ h $ isReviewer username
+        pure $ cont $ isReviewer username
+      GetPullRequest pr cont -> do
+        tell [AGetPullRequest pr]
+        pure $ cont $ resultGetPullRequest results
+      GetOpenPullRequests cont -> do
+        tell [AGetOpenPullRequests]
+        pure $ cont $ resultGetOpenPullRequests results
 
 -- Simulates running the action. Use the provided sha as result when integration
 -- is attempted, and use the provided push result when a push is attempted.
-runActionCustom :: Either IntegrationFailure Sha -> PushResult -> Action a -> (a, [ActionFlat])
-runActionCustom integrateResult pushResult = runWriter . runActionWithInit integrateResult pushResult
+runActionCustom :: Results -> Action a -> (a, [ActionFlat])
+runActionCustom results = runWriter . runActionWithInit results
 
--- Simulates running the action. Pretends that integration always conflicts.
--- Pretends that pushing is always successful.
+-- Simulates running the action with default results.
 runAction :: Action a -> (a, [ActionFlat])
-runAction = runActionCustom (Left $ Logic.IntegrationFailure $ Branch "master") PushOk
+runAction = runActionCustom defaultResults
 
 -- Handle an event, then advance the state until a fixed point,
 -- and simulate its side effects.
@@ -309,9 +339,8 @@ main = hspec $ do
           , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
           ]
         -- For this test, we assume all integrations and pushes succeed.
-        integrateResult = Right (Sha "b71")
-        pushResult = PushOk
-        run = runActionCustom integrateResult pushResult
+        results = defaultResults { resultIntegrate = Right (Sha "b71") }
+        run = runActionCustom results
         actions = snd $ run $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
@@ -353,6 +382,76 @@ main = hspec $ do
       state `shouldBe` Project.emptyProjectState
       actions `shouldBe` []
 
+    it "checks whether pull requests are still open on synchronize" $ do
+      let
+        state = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "b7332ba") "tyrell"
+        results = defaultResults { resultGetOpenPullRequests = Just $ IntSet.singleton 1 }
+        (state', actions) = runActionCustom results $ handleEventTest Synchronize state
+      -- Pull request 1 is open, so the state should not have changed.
+      state' `shouldBe` state
+      -- We should have queried GitHub about open pull requests.
+      actions `shouldBe` [AGetOpenPullRequests]
+
+    it "closes pull requests that are no longer open on synchronize" $ do
+      let
+        state = singlePullRequestState (PullRequestId 10) (Branch "p") (Sha "b7332ba") "tyrell"
+        results = defaultResults { resultGetOpenPullRequests = Just $ IntSet.empty }
+        (state', actions) = runActionCustom results $ handleEventTest Synchronize state
+      -- No pull requests are open on GitHub, so synchronize should have removed
+      -- the single initial PR.
+      state' `shouldBe` Project.emptyProjectState
+      actions `shouldBe` [AGetOpenPullRequests]
+
+    it "does not modify the state on an error during synchronize" $ do
+      let
+        state = singlePullRequestState (PullRequestId 19) (Branch "p") (Sha "b7332ba") "tyrell"
+        -- Set up some custom results where we simulate that the GitHub API fails.
+        results = defaultResults { resultGetOpenPullRequests = Nothing }
+        (state', actions) = runActionCustom results $ handleEventTest Synchronize state
+      -- We should not have modified anything on error.
+      state' `shouldBe` state
+      actions `shouldBe` [AGetOpenPullRequests]
+
+    it "adds missing pull requests during synchronize" $ do
+      let
+        state = Project.emptyProjectState
+        results = defaultResults
+          { resultGetOpenPullRequests = Just $ IntSet.singleton 17
+          , resultGetPullRequest = Just $ GithubApi.PullRequest
+            { GithubApi.sha    = Sha "7faa52318"
+            , GithubApi.branch = Branch "nexus-7"
+            , GithubApi.title  = "Add Nexus 7 experiment"
+            , GithubApi.author = Username "tyrell"
+            }
+          }
+        (state', actions) = runActionCustom results $ handleEventTest Synchronize state
+        Just pr17 = Project.lookupPullRequest (PullRequestId 17) state'
+
+      -- PR 17 should have been added, with the details defined above.
+      Project.title pr17  `shouldBe` "Add Nexus 7 experiment"
+      Project.author pr17 `shouldBe` Username "tyrell"
+      Project.branch pr17 `shouldBe` Branch "nexus-7"
+      Project.sha pr17    `shouldBe` Sha "7faa52318"
+
+      -- Approval and integration status should be set to their initial values,
+      -- we do not go back and scan for approval comments on missing PRs.
+      Project.approvedBy pr17          `shouldBe` Nothing
+      Project.buildStatus pr17         `shouldBe` Project.BuildNotStarted
+      Project.integrationStatus pr17   `shouldBe` Project.NotIntegrated
+      Project.integrationAttempts pr17 `shouldBe` []
+      actions `shouldBe` [AGetOpenPullRequests, AGetPullRequest (PullRequestId 17)]
+
+    it "does not query details of existing pull requests on synchronize" $ do
+      let
+        state = singlePullRequestState (PullRequestId 19) (Branch "p") (Sha "b7332ba") "tyrell"
+        results = defaultResults { resultGetOpenPullRequests = Just $ IntSet.singleton 19 }
+        actions = snd $ runActionCustom results $ handleEventTest Synchronize state
+
+      -- We should only obtain pull request details for pull requests that were
+      -- missing. In this case, PR 19 was already present, so we should not have
+      -- obtained its details.
+      actions `shouldBe` [AGetOpenPullRequests]
+
   describe "Logic.proceedUntilFixedPoint" $ do
 
     it "finds a new candidate" $ do
@@ -360,9 +459,11 @@ main = hspec $ do
         state
           = Project.setApproval (PullRequestId 1) (Just "fred")
           $ singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "f34") "sally"
-        (state', actions)
-          = runActionCustom (Right (Sha "38c")) PushRejected
-          $ Logic.proceedUntilFixedPoint state
+        results = defaultResults
+          { resultIntegrate = Right (Sha "38c")
+          , resultPush = PushRejected
+          }
+        (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
       Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c")
       Project.buildStatus pullRequest       `shouldBe` Project.BuildPending
@@ -388,9 +489,8 @@ main = hspec $ do
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
           , Project.integrationCandidate = Just $ PullRequestId 1
           }
-        (state', actions)
-          = runActionCustom (Right (Sha "38e")) PushOk
-          $ Logic.proceedUntilFixedPoint state
+        results = defaultResults { resultIntegrate = Right (Sha "38e") }
+        (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         candidate = Project.getIntegrationCandidate state'
       -- After a successful push, the candidate should be gone.
       candidate `shouldBe` Nothing
@@ -416,9 +516,11 @@ main = hspec $ do
           }
         -- Run 'proceedUntilFixedPoint', and pretend that pushes fail (because
         -- something was pushed in the mean time, for instance).
-        (state', actions)
-          = runActionCustom (Right (Sha "38e")) PushRejected
-          $ Logic.proceedUntilFixedPoint state
+        results = defaultResults
+          { resultIntegrate = Right (Sha "38e")
+          , resultPush = PushRejected
+          }
+        (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
 
       Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e")
@@ -462,9 +564,8 @@ main = hspec $ do
               Project.integrationCandidate = Nothing
             }
           -- Proceeding should pick the next pull request as candidate.
-          (state', actions)
-            = runActionCustom (Right (Sha "38e")) PushOk
-            $ Logic.proceedUntilFixedPoint state
+          results = defaultResults { resultIntegrate = Right (Sha "38e") }
+          (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
           Just (cId, _candidate) = Project.getIntegrationCandidate state'
       cId     `shouldBe` PullRequestId 2
       actions `shouldBe`
