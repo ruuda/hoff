@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.0
+
+ * The bot user will now comment with detailed instructions on how to rebase,
+   if the automated rebase fails.
+ * Synchronize the state with GitHub at startup. It is no longer necessary to
+   close and reopen a pull request if a webhook delivery was missed, restarting
+   Hoff should bring everything in sync again.
+ * The binary now accepts `--read-only`, which will prevent disruptive side
+   effects such as pushing and leaving comments, but it will still pull, and
+   make API calls to the GitHub API that only read data. This is useful for
+   local development, or for a dry run of a new setup.
+
 ## 0.12.0
 
  * **Compatibility**: The schema of the state files has changed. Hoff v0.12.0
