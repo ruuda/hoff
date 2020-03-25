@@ -429,8 +429,8 @@ tryIntegratePullRequest pr state =
         -- If integrating failed, perform no further actions but do set the
         -- state to conflicted.
         leaveComment pr $ Text.concat
-          [ "Failed to rebase, please rebase manually using\n"
-          , "> `git rebase --interactive --autosquash origin/"
+          [ "Failed to rebase, please rebase manually using\n\n"
+          , "    git rebase --interactive --autosquash origin/"
           , targetBranchName
           , " "
           , prBranchName
