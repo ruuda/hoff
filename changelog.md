@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0
+
+Released 2020-03-27.
+
+ * Fix formatting typo in the comment that the bot leaves on a failed rebase.
+
 ## 0.13.0
 
  * The bot user will now comment with detailed instructions on how to rebase,
