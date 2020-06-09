@@ -372,6 +372,39 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 3) "Pull request approved by @deckard, waiting for rebase behind 2 pull requests."
         ]
 
+    it "abandons integration when a pull request is closed" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "p") (Sha "a38") "Add Nexus 7 experiment" (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "s") (Sha "dec") "Some PR" (Username "rachael")
+          $ Project.emptyProjectState
+        -- Approve both pull requests, then close the first.
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , PullRequestClosed (PullRequestId 1)
+          ]
+        -- For this test, we assume all integrations and pushes succeed.
+        results = defaultResults { resultIntegrate = Right (Sha "b71") }
+        run = runActionCustom results
+        (state', actions) = run $ handleEventsTest events state
+
+      -- The first pull request should be dropped, and a comment should be
+      -- left indicating why. Then the second pull request should be at the
+      -- front of the queue.
+      Project.integrationCandidate state' `shouldBe` Just (PullRequestId 2)
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1\n\nApproved-by: deckard" (Branch "refs/pull/1/head", Sha "a38")
+        , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2) "Pull request approved by @deckard, waiting for rebase at the front of the queue."
+        , ALeaveComment (PullRequestId 1) "Abandoning this pull request because it was closed."
+        , ATryIntegrate "Merge #2\n\nApproved-by: deckard" (Branch "refs/pull/2/head", Sha "dec")
+        , ALeaveComment (PullRequestId 2) "Rebased as b71, waiting for CI …"
+        ]
+
     it "ignores comments on unknown pull requests" $ do
       let
         -- We comment on PR #1, but the project is empty, so this comment should

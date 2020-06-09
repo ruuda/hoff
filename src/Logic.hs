@@ -266,10 +266,12 @@ handlePullRequestCommitChanged pr newSha state =
       Nothing -> pure state
 
 handlePullRequestClosed :: PullRequestId -> ProjectState -> Action ProjectState
-handlePullRequestClosed pr state = return $ Pr.deletePullRequest pr state {
-  -- If the PR was the current integration candidate, reset that to Nothing.
-  Pr.integrationCandidate = mfilter (/= pr) $ Pr.integrationCandidate state
-}
+handlePullRequestClosed pr state = Pr.deletePullRequest pr <$>
+    case Pr.integrationCandidate state of
+      Just candidatePr | candidatePr == pr -> do
+        leaveComment pr "Abandoning this pull request because it was closed."
+        pure state { Pr.integrationCandidate = Nothing }
+      _notCandidatePr -> pure state
 
 -- Returns whether the message is a command that instructs us to merge the PR.
 -- If the trigger prefix is "@hoffbot", a command "@hoffbot merge" would
