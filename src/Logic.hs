@@ -35,12 +35,12 @@ where
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Concurrent.STM.TMVar (TMVar, newTMVar, readTMVar, swapTMVar)
 import Control.Exception (assert)
-import Control.Monad (foldM, mfilter, when, void)
+import Control.Monad (foldM, when, void)
 import Control.Monad.Free (Free (..), foldFree, liftF, hoistFree)
 import Control.Monad.STM (atomically)
 import Data.Functor.Sum (Sum (InL, InR))
 import Data.IntSet (IntSet)
-import Data.Maybe (fromJust, fromMaybe, isJust)
+import Data.Maybe (fromJust, isJust)
 import Data.Text (Text)
 import GHC.Natural (Natural)
 
@@ -226,7 +226,7 @@ handleEventInternal triggerConfig event = case event of
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosed pr
   CommentAdded pr author body     -> handleCommentAdded triggerConfig pr author body
-  BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
+  BuildStatusChanged sha status   -> pure . handleBuildStatusChanged sha status
   Synchronize                     -> synchronizeState
 
 handlePullRequestOpened
@@ -323,21 +323,20 @@ handleCommentAdded triggerConfig pr author body state =
     -- If the pull request is not in the state, ignore the comment.
     else pure state
 
-handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
+handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> ProjectState
 handleBuildStatusChanged buildSha newStatus state =
   -- If there is an integration candidate, and its integration sha matches that
   -- of the build, then update the build status for that pull request. Otherwise
   -- do nothing.
-  let matchesBuild pr = case Pr.integrationStatus pr of
-        Integrated candidateSha -> candidateSha == buildSha
-        _                       -> False
-      newState = do
-        candidateId <- Pr.integrationCandidate state
-        -- Set the build status only if the build sha matches that of the
-        -- integration candidate.
-        _ <- mfilter matchesBuild $ Pr.lookupPullRequest candidateId state
-        return $ Pr.setBuildStatus candidateId newStatus state
-  in return $ fromMaybe state newState
+  let
+    setBuildStatus pullRequest = case Pr.integrationStatus pullRequest of
+      Integrated candidateSha _oldStatus | candidateSha == buildSha ->
+        pullRequest { Pr.integrationStatus = Integrated buildSha newStatus }
+      _ -> pullRequest
+  in
+    case Pr.integrationCandidate state of
+      Just candidateId -> Pr.updatePullRequest candidateId setBuildStatus state
+      Nothing -> state
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
 synchronizeState :: ProjectState -> Action ProjectState
@@ -397,14 +396,16 @@ proceed state = case Pr.getIntegrationCandidate state of
 -- TODO: Get rid of the tuple; just pass the ID and do the lookup with fromJust.
 proceedCandidate :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
 proceedCandidate (pullRequestId, pullRequest) state =
-  case Pr.buildStatus pullRequest of
-    BuildNotStarted -> error "integration candidate build should at least be pending"
-    BuildPending    -> pure state
-    BuildSucceeded  -> pushCandidate (pullRequestId, pullRequest) state
-    BuildFailed     -> do
-      -- If the build failed, this is no longer a candidate.
-      leaveComment pullRequestId "The build failed."
-      pure $ Pr.setIntegrationCandidate Nothing state
+  case Pr.integrationStatus pullRequest of
+    NotIntegrated -> error "integration candidate should be integrated"
+    Conflicted    -> error "integration candidate should be integrated, not conflicted"
+    Integrated _sha buildStatus -> case buildStatus of
+      BuildPending   -> pure state
+      BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) state
+      BuildFailed    -> do
+        -- If the build failed, this is no longer a candidate.
+        leaveComment pullRequestId "The build failed."
+        pure $ Pr.setIntegrationCandidate Nothing state
 
 -- Given a pull request id, returns the name of the GitHub ref for that pull
 -- request, so it can be fetched.
@@ -444,8 +445,7 @@ tryIntegratePullRequest pr state =
         -- to pending, as pushing should have triggered a build.
         leaveComment pr $ Text.concat ["Rebased as ", sha, ", waiting for CI …"]
         pure
-          $ Pr.setIntegrationStatus pr (Integrated $ Sha sha)
-          $ Pr.setBuildStatus pr BuildPending
+          $ Pr.setIntegrationStatus pr (Integrated (Sha sha) BuildPending)
           $ Pr.setIntegrationCandidate (Just pr)
           $ state
 
@@ -459,12 +459,14 @@ pushCandidate (pullRequestId, pullRequest) state = do
   -- the pull request has really been approved and built successfully. If it was
   -- not, there is a bug in the program.
   let approved  = isJust $ Pr.approvedBy pullRequest
-      succeeded = Pr.buildStatus pullRequest == BuildSucceeded
       status    = Pr.integrationStatus pullRequest
       prBranch  = Pr.branch pullRequest
-      newHead   = assert (approved && succeeded) $ case status of
-        Integrated sha -> sha
-        _              -> error "inconsistent state: build succeeded for non-integrated pull request"
+      newHead   = assert approved $ case status of
+        Integrated sha BuildSucceeded -> sha
+        Integrated _ _notSucceeded ->
+          error "Trying to push a candidate for which the build did not pass."
+        _notIntegrated ->
+          error "Trying to push a candidate that is not integrated."
   pushResult <- tryPromote prBranch newHead
   case pushResult of
     -- If the push worked, then this was the final stage of the pull
