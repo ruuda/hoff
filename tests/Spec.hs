@@ -658,25 +658,23 @@ main = hspec $ do
             [ Right $ Sha "b71"
             , Left $ Logic.IntegrationFailure (Branch "master")
             ]
-          , resultPush =
-            [ PushRejected
-              -- TODO(ruuda): Why is this second result needed? We should not do
-              -- a second push.
-            , PushOk
-            ]
+          , resultPush = [ PushRejected ]
           }
         (_state', actions) = runActionCustom results $ handleEventsTest events state
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 1) "??"
+        , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, rebasing now."
         , ATryIntegrate "Merge #1\n\nApproved-by: deckard" (Branch "refs/pull/1/head", Sha "a39")
           -- The first rebase succeeds.
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI \x2026"
           -- The first promotion attempt fails
         , ATryPromote (Branch "n7") (Sha "b71")
           -- The second rebase fails.
-        , ALeaveComment (PullRequestId 1) "Rebase failed, please rebase manually using "
+        , ATryIntegrate "Merge #1\n\nApproved-by: deckard" (Branch "refs/pull/1/head", Sha "a39")
+        , ALeaveComment (PullRequestId 1)
+            "Failed to rebase, please rebase manually using\n\n\
+            \    git rebase --interactive --autosquash origin/master n7"
         ]
 
     it "picks a new candidate from the queue after a successful push" $ do

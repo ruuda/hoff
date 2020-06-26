@@ -397,8 +397,13 @@ proceed state = case Pr.getIntegrationCandidate state of
 proceedCandidate :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
 proceedCandidate (pullRequestId, pullRequest) state =
   case Pr.integrationStatus pullRequest of
-    NotIntegrated -> error "integration candidate should be integrated"
-    Conflicted    -> error "integration candidate should be integrated, not conflicted"
+    NotIntegrated ->
+      tryIntegratePullRequest pullRequestId state
+
+    Conflicted ->
+      -- If it conflicted, it should no longer be the integration candidate.
+      pure $ Pr.setIntegrationCandidate Nothing state
+
     Integrated _sha buildStatus -> case buildStatus of
       BuildPending   -> pure state
       BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) state
