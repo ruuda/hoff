@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.15.0
+
+Released 2020-06-29.
+
+**Compatibility**:
+
+ * The state serialization format of 0.15.0 is incompatible with 0.14.0. The
+   recommended way to update is to stop Hoff 0.14.0 at a quiet time when no
+   builds are in progress, delete the state files, and start 0.15.0. Hoff will
+   scan for open pull requests at startup, but approval status will be lost.
+
+Other changes:
+
+ * The bot user will now leave a comment when it abandons a pull request that
+   was being integrated.
+ * Unhandled exceptions now crash the process, instead of only the thread. This
+   means failures are now loud, rather than processing slowly grindinding to a
+   halt due to bounded queues filling up.
+ * Fix a crash that could happen when pushing a previously successfully rebased
+   pull request failed (because something else was pushed in the meantime), and
+   a new rebase attempt ended with a conflict.
+
 ## 0.14.0
 
 Released 2020-03-27.
