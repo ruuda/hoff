@@ -10,14 +10,14 @@
 module Main where
 
 import Control.Applicative ((<**>))
-import Control.Concurrent (forkIO)
-import Control.Monad (forM, forM_, unless, void)
+import Control.Monad (forM, unless, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runStdoutLoggingT)
 import Data.List (zip4)
 import System.Exit (die)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 
+import qualified Control.Concurrent.Async as Async
 import qualified Data.Text.Encoding as Text
 import qualified GitHub.Auth as Github3
 import qualified System.Directory as FileSystem
@@ -130,7 +130,7 @@ runMain options = do
       lookup projectInfo projectQueues
 
   -- Start a worker thread to put the GitHub webhook events in the right queue.
-  _ <- forkIO $ runStdoutLoggingT $ runGithubEventLoop ghQueue enqueueEvent
+  ghThread <- Async.async $ runStdoutLoggingT $ runGithubEventLoop ghQueue enqueueEvent
 
   -- Restore the previous state from disk if possible, or start clean.
   projectStates <- forM (Config.projects config) $ \ pconfig -> do
@@ -154,7 +154,7 @@ runMain options = do
     -- out.
     zipped = zip4 (Config.projects config) projectQueues stateVars projectStates
     tuples = map (\(cfg, (_, a), (_, b), (_, c)) -> (cfg, a, b, c)) zipped
-  forM_ tuples $ \ (projectConfig, projectQueue, stateVar, projectState) -> do
+  projectThreads <- forM tuples $ \ (projectConfig, projectQueue, stateVar, projectState) -> do
     -- At startup, enqueue a synchronize event. This will bring the state in
     -- sync with the current state of GitHub, accounting for any webhooks that
     -- we missed while not running, or just to fill the state initially after
@@ -186,7 +186,7 @@ runMain options = do
         else GithubApi.runGithub         auth projectInfo
 
     -- Start a worker thread to run the main event loop for the project.
-    forkIO
+    Async.async
       $ void
       $ runStdoutLoggingT
       $ runLogicEventLoop
@@ -197,6 +197,7 @@ runMain options = do
           getNextEvent
           publish
           projectState
+
   let
     -- When the webhook server receives an event, enqueue it on the webhook
     -- event queue if it is not full.
@@ -218,7 +219,8 @@ runMain options = do
     infos     = fmap (\ pc -> ProjectInfo (Config.owner pc) (Config.repository pc)) $ Config.projects config
   putStrLn $ "Listening for webhooks on port " ++ (show port) ++ "."
   runServer <- fmap fst $ buildServer port tlsConfig infos secret ghTryEnqueue getProjectState getOwnerState
-  runServer
+  serverThread <- Async.async runServer
 
   -- Note that a stop signal is never enqueued. The application just runs until
-  -- it is killed.
+  -- until it is killed, or until any of the threads stop due to an exception.
+  void $ Async.waitAny $ serverThread : ghThread : projectThreads
