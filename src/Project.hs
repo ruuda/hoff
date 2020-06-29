@@ -32,7 +32,6 @@ module Project
   lookupPullRequest,
   saveProjectState,
   setApproval,
-  setBuildStatus,
   setIntegrationCandidate,
   setIntegrationStatus,
   updatePullRequest,
@@ -198,14 +197,6 @@ updatePullRequest (PullRequestId n) f state = state {
 setApproval :: PullRequestId -> Maybe Username -> ProjectState -> ProjectState
 setApproval pr newApprovedBy = updatePullRequest pr changeApproval
   where changeApproval pullRequest = pullRequest { approvedBy = newApprovedBy }
-
--- Sets the build status for an integrated pull request.
-setBuildStatus :: PullRequestId -> BuildStatus -> ProjectState -> ProjectState
-setBuildStatus pr newStatus = updatePullRequest pr changeBuildStatus
-  where
-    changeBuildStatus pullRequest = case integrationStatus pullRequest of
-      Integrated iSha _ -> pullRequest { integrationStatus = Integrated iSha newStatus }
-      _notIntegrated    -> pullRequest
 
 -- Sets the integration status for a pull request.
 setIntegrationStatus :: PullRequestId -> IntegrationStatus -> ProjectState -> ProjectState
