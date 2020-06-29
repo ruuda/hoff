@@ -32,7 +32,6 @@ module Project
   lookupPullRequest,
   saveProjectState,
   setApproval,
-  setBuildStatus,
   setIntegrationCandidate,
   setIntegrationStatus,
   updatePullRequest,
@@ -41,12 +40,12 @@ module Project
 )
 where
 
-import Data.Aeson (FromJSON, ToJSON, (.:), (.:?))
+import Data.Aeson (FromJSON, ToJSON)
 import Data.ByteString (readFile)
 import Data.ByteString.Lazy (writeFile)
 import Data.IntMap.Strict (IntMap)
 import Data.List (intersect, nub)
-import Data.Maybe (isJust, fromMaybe)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import GHC.Generics
 import Git (Branch (..), Sha (..))
@@ -63,8 +62,7 @@ import qualified Data.IntMap.Strict as IntMap
 import Types (PullRequestId (..), Username)
 
 data BuildStatus
-  = BuildNotStarted
-  | BuildPending
+  = BuildPending
   | BuildSucceeded
   | BuildFailed
   deriving (Eq, Show, Generic)
@@ -75,7 +73,7 @@ data BuildStatus
 -- but it resulted in merge conflicts.
 data IntegrationStatus
   = NotIntegrated
-  | Integrated Sha
+  | Integrated Sha BuildStatus
   | Conflicted
   deriving (Eq, Show, Generic)
 
@@ -94,25 +92,10 @@ data PullRequest = PullRequest
   , title               :: Text
   , author              :: Username
   , approvedBy          :: Maybe Username
-  , buildStatus         :: BuildStatus
   , integrationStatus   :: IntegrationStatus
   , integrationAttempts :: [Sha]
   }
   deriving (Eq, Show, Generic)
-
--- Custom implementation so we can gracefully upgrade the state from v0.11.0,
--- which did not yet contain the "integrationAttempts" key, so we default it to
--- an empty list. This custom instance can be removed later.
-instance FromJSON PullRequest where
-  parseJSON = Aeson.withObject "PullRequest" $ \v -> PullRequest
-    <$> v .: "sha"
-    <*> v .: "branch"
-    <*> v .: "title"
-    <*> v .: "author"
-    <*> v .: "approvedBy"
-    <*> v .: "buildStatus"
-    <*> v .: "integrationStatus"
-    <*> (fmap (fromMaybe []) (v .:? "integrationAttempts"))
 
 data ProjectState = ProjectState
   {
@@ -140,11 +123,10 @@ instance Buildable ProjectInfo where
     <> Text.singleton '/'
     <> Text.fromText (repository info)
 
--- TODO: These default instances produce ugly json. Write a custom
--- implementation. For now this will suffice.
 instance FromJSON BuildStatus
 instance FromJSON IntegrationStatus
 instance FromJSON ProjectState
+instance FromJSON PullRequest
 
 instance ToJSON BuildStatus where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 instance ToJSON IntegrationStatus where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
@@ -187,7 +169,6 @@ insertPullRequest (PullRequestId n) prBranch prSha prTitle prAuthor state =
         title               = prTitle,
         author              = prAuthor,
         approvedBy          = Nothing,
-        buildStatus         = BuildNotStarted,
         integrationStatus   = NotIntegrated,
         integrationAttempts = []
       }
@@ -217,11 +198,6 @@ setApproval :: PullRequestId -> Maybe Username -> ProjectState -> ProjectState
 setApproval pr newApprovedBy = updatePullRequest pr changeApproval
   where changeApproval pullRequest = pullRequest { approvedBy = newApprovedBy }
 
--- Sets the build status for a pull request.
-setBuildStatus :: PullRequestId -> BuildStatus -> ProjectState -> ProjectState
-setBuildStatus pr newStatus = updatePullRequest pr changeBuildStatus
-  where changeBuildStatus pullRequest = pullRequest { buildStatus = newStatus }
-
 -- Sets the integration status for a pull request.
 setIntegrationStatus :: PullRequestId -> IntegrationStatus -> ProjectState -> ProjectState
 setIntegrationStatus pr newStatus = updatePullRequest pr changeIntegrationStatus
@@ -230,7 +206,7 @@ setIntegrationStatus pr newStatus = updatePullRequest pr changeIntegrationStatus
     -- ignore push webhook events for that commit (we probably pushed it
     -- ourselves, in any case it should not clear approval status).
     changeIntegrationStatus pullRequest = case integrationStatus pullRequest of
-      Integrated oldSha -> pullRequest
+      Integrated oldSha _buildStatus -> pullRequest
         { integrationStatus = newStatus
         , integrationAttempts = oldSha : (integrationAttempts pullRequest)
         }
@@ -253,11 +229,10 @@ classifyPullRequest pr = case approvedBy pr of
   Just _  -> case integrationStatus pr of
     NotIntegrated -> PrStatusApproved
     Conflicted    -> PrStatusFailedConflict
-    Integrated _  -> case buildStatus pr of
-      BuildNotStarted -> PrStatusApproved
-      BuildPending    -> PrStatusBuildPending
-      BuildSucceeded  -> PrStatusIntegrated
-      BuildFailed     -> PrStatusFailedBuild
+    Integrated _ buildStatus -> case buildStatus of
+      BuildPending   -> PrStatusBuildPending
+      BuildSucceeded -> PrStatusIntegrated
+      BuildFailed    -> PrStatusFailedBuild
 
 -- Classify every pull request into one status. Orders pull requests by id in
 -- ascending order.
@@ -293,13 +268,9 @@ isQueued :: PullRequest -> Bool
 isQueued pr = case approvedBy pr of
   Nothing -> False
   Just _  -> case integrationStatus pr of
-    NotIntegrated -> True
-    Conflicted    -> False
-    Integrated _  -> case buildStatus pr of
-      BuildNotStarted -> False
-      BuildPending    -> False
-      BuildSucceeded  -> False
-      BuildFailed     -> True
+    NotIntegrated  -> True
+    Conflicted     -> False
+    Integrated _ _ -> False
 
 -- Returns whether a pull request is in the process of being integrated (pending
 -- build results).
@@ -309,28 +280,22 @@ isInProgress pr = case approvedBy pr of
   Just _  -> case integrationStatus pr of
     NotIntegrated -> False
     Conflicted    -> False
-    Integrated _  -> case buildStatus pr of
-      BuildNotStarted -> True
-      BuildPending    -> True
-      BuildSucceeded  -> False
-      BuildFailed     -> False
+    Integrated _ buildStatus -> case buildStatus of
+      BuildPending   -> True
+      BuildSucceeded -> False
+      BuildFailed    -> False
 
 -- Return whether the given commit is, or in this approval cycle ever was, an
 -- integration candidate of this pull request.
 wasIntegrationAttemptFor :: Sha -> PullRequest -> Bool
 wasIntegrationAttemptFor commit pr = case integrationStatus pr of
-  Integrated candidate -> commit `elem` (candidate : integrationAttempts pr)
-  _                    -> commit `elem` (integrationAttempts pr)
+  Integrated candidate _buildStatus -> commit `elem` (candidate : integrationAttempts pr)
+  _                                 -> commit `elem` (integrationAttempts pr)
 
 -- Returns the pull requests that have not been integrated yet, in order of
 -- ascending id.
 unintegratedPullRequests :: ProjectState -> [PullRequestId]
 unintegratedPullRequests = filterPullRequestsBy $ (== NotIntegrated) . integrationStatus
-
--- Returns the pull requests that have not been built yet, in order of ascending
--- id.
-unbuiltPullRequests :: ProjectState -> [PullRequestId]
-unbuiltPullRequests = filterPullRequestsBy $ (== BuildNotStarted) . buildStatus
 
 -- Returns the pull requests that have been approved, but for which integration
 -- and building has not yet been attempted.
@@ -339,9 +304,8 @@ candidatePullRequests state =
   let
     approved     = approvedPullRequests state
     unintegrated = unintegratedPullRequests state
-    unbuilt      = unbuiltPullRequests state
   in
-    approved `intersect` unintegrated `intersect` unbuilt
+    approved `intersect` unintegrated
 
 getOwners :: [ProjectInfo] -> [Owner]
 getOwners = nub . map owner
