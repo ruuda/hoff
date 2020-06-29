@@ -268,12 +268,9 @@ isQueued :: PullRequest -> Bool
 isQueued pr = case approvedBy pr of
   Nothing -> False
   Just _  -> case integrationStatus pr of
-    NotIntegrated -> True
-    Conflicted    -> False
-    Integrated _ buildStatus -> case buildStatus of
-      BuildPending   -> False
-      BuildSucceeded -> False
-      BuildFailed    -> True
+    NotIntegrated  -> True
+    Conflicted     -> False
+    Integrated _ _ -> False
 
 -- Returns whether a pull request is in the process of being integrated (pending
 -- build results).
