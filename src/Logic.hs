@@ -468,10 +468,11 @@ pushCandidate (pullRequestId, pullRequest) state = do
           error "Trying to push a candidate that is not integrated."
   pushResult <- tryPromote prBranch newHead
   case pushResult of
-    -- If the push worked, then this was the final stage of the pull
-    -- request; reset the integration candidate.
-    -- TODO: Leave a comment? And close the PR via the API.
-    PushOk -> return $ Pr.setIntegrationCandidate Nothing state
+    -- If the push worked, then this was the final stage of the pull request.
+    -- GitHub will mark the pull request as closed, and when we receive that
+    -- event, we delete the pull request from the state. Until then, reset
+    -- the integration candidate, so we proceed with the next pull request.
+    PushOk -> pure $ Pr.setIntegrationCandidate Nothing state
     -- If something was pushed to the target branch while the candidate was
     -- being tested, try to integrate again and hope that next time the push
     -- succeeds.
