@@ -379,12 +379,6 @@ synchronizeState stateInitial =
 -- in progress is closed, we should find a new candidate.
 proceed :: ProjectState -> Action ProjectState
 proceed state = case Pr.getIntegrationCandidate state of
-  -- If there is a candidate, nothing needs to be done. TODO: not even if the
-  -- build has finished for the candidate? Or if it has not even been started?
-  -- Do I handle that here or in the build status changed event? I think the
-  -- answer is "do as much as possible here" because the events are ephemeral,
-  -- but the state can be persisted to disk, so the process can continue after a
-  -- restart.
   Just candidate -> proceedCandidate candidate state
   -- No current integration candidate, find the next one.
   Nothing -> case Pr.candidatePullRequests state of
