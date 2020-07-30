@@ -379,14 +379,16 @@ synchronizeState stateInitial =
 -- should find a new candidate. Or after the pull request for which a build is
 -- in progress is closed, we should find a new candidate.
 proceed :: ProjectState -> Action ProjectState
-proceed state = case Pr.getIntegrationCandidate state of
-  Just candidate -> proceedCandidate candidate state
-  -- No current integration candidate, find the next one.
-  Nothing -> case Pr.candidatePullRequests state of
-    -- No pull requests eligible, do nothing.
-    []     -> return state
-    -- Found a new candidate, try to integrate it.
-    pr : _ -> tryIntegratePullRequest pr state
+proceed state = do
+  state' <- provideFeedback state
+  case Pr.getIntegrationCandidate state' of
+    Just candidate -> proceedCandidate candidate state'
+    -- No current integration candidate, find the next one.
+    Nothing -> case Pr.candidatePullRequests state' of
+      -- No pull requests eligible, do nothing.
+      []     -> return state'
+      -- Found a new candidate, try to integrate it.
+      pr : _ -> tryIntegratePullRequest pr state'
 
 -- TODO: Get rid of the tuple; just pass the ID and do the lookup with fromJust.
 proceedCandidate :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
@@ -523,15 +525,15 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
 
 -- Leave a comment with the feedback from 'describeStatus' and set the
 -- 'needsFeedback' flag to 'False'.
-feedback :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
-feedback (prId, pr) state = do
+leaveFeedback :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
+leaveFeedback (prId, pr) state = do
   () <- leaveComment prId $ describeStatus prId pr state
   pure $ Pr.setNeedsFeedback prId False state
 
--- Run 'feedback' on all pull requests.
+-- Run 'leaveFeedback' on all pull requests that need feedback.
 provideFeedback :: ProjectState -> Action ProjectState
 provideFeedback state
-  = foldM (flip feedback) state
+  = foldM (flip leaveFeedback) state
   $ filter (Pr.needsFeedback . snd)
   $ fmap (\(key, pr) -> (PullRequestId key, pr))
   $ IntMap.toList $ Pr.pullRequests state
@@ -542,4 +544,4 @@ handleEvent
   -> ProjectState
   -> Action ProjectState
 handleEvent triggerConfig event state =
-  handleEventInternal triggerConfig event state >>= proceedUntilFixedPoint >>= provideFeedback
+  handleEventInternal triggerConfig event state >>= proceedUntilFixedPoint
