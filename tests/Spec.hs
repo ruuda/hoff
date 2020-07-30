@@ -720,6 +720,38 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "Rebased as 38e, waiting for CI \x2026"
         ]
 
+    it "reports the build status if a user retries the same commit" $ do
+      let
+        state
+          = Project.insertPullRequest
+              (PullRequestId 1)
+              (Branch "n7")
+              (Sha "a39")
+              "Add Nexus 7 experiment"
+              (Username "tyrell")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "b71") Project.BuildPending
+          , BuildStatusChanged (Sha "b71") Project.BuildFailed
+            -- User summons bot again because CI failed for an external reason.
+          , CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          ]
+        results = defaultResults { resultIntegrate = [Right (Sha "b71")] }
+        (_state', actions) = runActionCustom results $ handleEventsTest events state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1\n\nApproved-by: deckard" (Branch "refs/pull/1/head", Sha "a39")
+        , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI \x2026"
+        , ALeaveComment (PullRequestId 1) "The build failed."
+        , AIsReviewer "deckard"
+          -- Nothing has changed for the bot because b71 has already failed, so
+          -- it doesn't retry, but reports the correct state.
+        , ALeaveComment (PullRequestId 1) "The build failed."
+        ]
+
   describe "Github._Payload" $ do
 
     it "parses a PullRequestPayload correctly" $ do
