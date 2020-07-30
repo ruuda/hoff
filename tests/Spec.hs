@@ -584,7 +584,6 @@ main = hspec $ do
           , Project.approvedBy          = Just "deckard"
           , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
           , Project.integrationAttempts = []
-          , Project.needsFeedback       = False
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
@@ -609,7 +608,6 @@ main = hspec $ do
           , Project.approvedBy          = Just "deckard"
           , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
           , Project.integrationAttempts = []
-          , Project.needsFeedback       = False
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
@@ -688,8 +686,7 @@ main = hspec $ do
               Project.author              = "rachael",
               Project.approvedBy          = Just "deckard",
               Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded,
-              Project.integrationAttempts = [],
-              Project.needsFeedback       = False
+              Project.integrationAttempts = []
             }
           pullRequest2 = PullRequest
             {
@@ -699,8 +696,7 @@ main = hspec $ do
               Project.author              = "rachael",
               Project.approvedBy          = Just "deckard",
               Project.integrationStatus   = Project.NotIntegrated,
-              Project.integrationAttempts = [],
-              Project.needsFeedback       = False
+              Project.integrationAttempts = []
             }
           prMap = IntMap.fromList [(1, pullRequest1), (2, pullRequest2)]
           -- After a successful push, the state of pull request 1 will still be

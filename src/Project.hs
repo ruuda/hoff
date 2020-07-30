@@ -94,7 +94,6 @@ data PullRequest = PullRequest
   , approvedBy          :: Maybe Username
   , integrationStatus   :: IntegrationStatus
   , integrationAttempts :: [Sha]
-  , needsFeedback       :: Bool
   }
   deriving (Eq, Show, Generic)
 
@@ -171,8 +170,7 @@ insertPullRequest (PullRequestId n) prBranch prSha prTitle prAuthor state =
         author              = prAuthor,
         approvedBy          = Nothing,
         integrationStatus   = NotIntegrated,
-        integrationAttempts = [],
-        needsFeedback       = False
+        integrationAttempts = []
       }
   in state { pullRequests = IntMap.insert n pullRequest $ pullRequests state }
 

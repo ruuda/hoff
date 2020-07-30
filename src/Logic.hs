@@ -54,7 +54,6 @@ import Git (Branch (..), GitOperation, GitOperationFree, PushResult (..), Sha (.
 import GithubApi (GithubOperation, GithubOperationFree)
 import Project (BuildStatus (..))
 import Project (IntegrationStatus (..))
-import Project (PullRequestStatus (..))
 import Project (ProjectState)
 import Project (PullRequest)
 import Types (PullRequestId (..), Username (..))
@@ -291,13 +290,13 @@ isMergeCommand config message =
 -- Mark the pull request as approved by the approver, and leave a comment to
 -- acknowledge that.
 approvePullRequest :: PullRequestId -> Username -> ProjectState -> Action ProjectState
-approvePullRequest pr approver state =
-  pure $ Pr.updatePullRequest pr
-    (\pullRequest -> pullRequest
-      { Pr.approvedBy = Just approver
-      , Pr.needsFeedback = True
-      })
-    state
+approvePullRequest pr approver state = do
+  let newState = Pr.updatePullRequest pr (\pullRequest -> pullRequest { Pr.approvedBy = Just approver }) state
+  leaveComment pr $ case Pr.getQueuePosition pr state of
+    0 -> format "Pull request approved by @{}, rebasing now." [approver]
+    1 -> format "Pull request approved by @{}, waiting for rebase at the front of the queue." [approver]
+    n -> format "Pull request approved by @{}, waiting for rebase behind {} pull requests." (approver, n)
+  pure newState
 
 handleCommentAdded
   :: TriggerConfiguration
@@ -489,32 +488,10 @@ proceedUntilFixedPoint state = do
     then return state
     else proceedUntilFixedPoint newState
 
--- Provide feedback for pull requests where 'needsFeedback' is set.
-feedback :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
-feedback (prId, pr) state = case Pr.classifyPullRequest pr of
-  PrStatusApproved -> do
-    let approver = fromJust $ Pr.approvedBy pr
-    leaveComment prId $ case Pr.getQueuePosition prId state of
-      0 -> format "Pull request approved by @{}, rebasing now." [approver]
-      1 -> format "Pull request approved by @{}, waiting for rebase at the front of the queue." [approver]
-      n -> format "Pull request approved by @{}, waiting for rebase behind {} pull requests." (approver, n)
-    let newState = Pr.updatePullRequest prId (\pullRequest -> pullRequest { Pr.needsFeedback = False }) state
-    pure newState
-  _ -> pure state
-
--- Run 'feedback' on all pull requests.
-provideFeedback :: ProjectState -> Action ProjectState
-provideFeedback state =
-  -- Only when needs feedback.
-  foldM (flip feedback) state $
-  filter (Pr.needsFeedback . snd) $
-  fmap (\(key, pr) -> (PullRequestId key, pr)) $
-  IntMap.toList $ Pr.pullRequests state
-
 handleEvent
   :: TriggerConfiguration
   -> Event
   -> ProjectState
   -> Action ProjectState
 handleEvent triggerConfig event state =
-  handleEventInternal triggerConfig event state >>= proceedUntilFixedPoint >>= provideFeedback
+  handleEventInternal triggerConfig event state >>= proceedUntilFixedPoint
