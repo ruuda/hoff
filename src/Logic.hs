@@ -395,7 +395,7 @@ proceedCandidate (pullRequestId, pullRequest) state =
     NotIntegrated ->
       tryIntegratePullRequest pullRequestId state
 
-    Conflicted ->
+    Conflicted _branch ->
       -- If it conflicted, it should no longer be the integration candidate.
       pure $ Pr.setIntegrationCandidate Nothing state
 
@@ -404,8 +404,8 @@ proceedCandidate (pullRequestId, pullRequest) state =
       BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) state
       BuildFailed    -> do
         -- If the build failed, this is no longer a candidate.
-        leaveComment pullRequestId "The build failed."
-        pure $ Pr.setIntegrationCandidate Nothing state
+        pure $ Pr.setIntegrationCandidate Nothing $
+          Pr.setNeedsFeedback pullRequestId True state
 
 -- Given a pull request id, returns the name of the GitHub ref for that pull
 -- request, so it can be fetched.
@@ -427,26 +427,19 @@ tryIntegratePullRequest pr state =
   in do
     result <- tryIntegrate mergeMessage candidate
     case result of
-      Left (IntegrationFailure (Branch targetBranchName))  -> do
-        let Branch prBranchName = Pr.branch pullRequest
+      Left (IntegrationFailure targetBranch) ->
         -- If integrating failed, perform no further actions but do set the
         -- state to conflicted.
-        leaveComment pr $ Text.concat
-          [ "Failed to rebase, please rebase manually using\n\n"
-          , "    git rebase --interactive --autosquash origin/"
-          , targetBranchName
-          , " "
-          , prBranchName
-          ]
-        pure $ Pr.setIntegrationStatus pr Conflicted state
+        pure $ Pr.setIntegrationStatus pr (Conflicted targetBranch) $
+          Pr.setNeedsFeedback pr True state
 
       Right (Sha sha) -> do
         -- If it succeeded, update the integration candidate, and set the build
         -- to pending, as pushing should have triggered a build.
-        leaveComment pr $ Text.concat ["Rebased as ", sha, ", waiting for CI …"]
         pure
           $ Pr.setIntegrationStatus pr (Integrated (Sha sha) BuildPending)
           $ Pr.setIntegrationCandidate (Just pr)
+          $ Pr.setNeedsFeedback pr True
           $ state
 
 -- Pushes the integrated commits of the given candidate pull request to the
@@ -489,27 +482,59 @@ proceedUntilFixedPoint state = do
     then return state
     else proceedUntilFixedPoint newState
 
--- Provide feedback for pull requests where 'needsFeedback' is set.
-feedback :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
-feedback (prId, pr) state = case Pr.classifyPullRequest pr of
-  PrStatusApproved -> do
+-- Describe the status of the pull request.
+describeStatus :: PullRequestId -> PullRequest -> ProjectState -> Text
+describeStatus prId pr state = case Pr.classifyPullRequest pr of
+  PrStatusAwaitingApproval -> "Pull request awaiting approval."
+  PrStatusApproved ->
     let approver = fromJust $ Pr.approvedBy pr
-    leaveComment prId $ case Pr.getQueuePosition prId state of
+    in case Pr.getQueuePosition prId state of
       0 -> format "Pull request approved by @{}, rebasing now." [approver]
       1 -> format "Pull request approved by @{}, waiting for rebase at the front of the queue." [approver]
       n -> format "Pull request approved by @{}, waiting for rebase behind {} pull requests." (approver, n)
-    let newState = Pr.updatePullRequest prId (\pullRequest -> pullRequest { Pr.needsFeedback = False }) state
-    pure newState
-  _ -> pure state
+  PrStatusBuildPending ->
+    let Sha sha = fromJust $ getIntegrationSha pr
+    in Text.concat ["Rebased as ", sha, ", waiting for CI …"]
+  PrStatusIntegrated -> "The build succeeded."
+  PrStatusFailedConflict ->
+    let
+      Branch targetBranchName = fromJust $ getIntegrationTargetBranch pr
+      Branch prBranchName = Pr.branch pr
+    in Text.concat
+      [ "Failed to rebase, please rebase manually using\n\n"
+      , "    git rebase --interactive --autosquash origin/"
+      , targetBranchName
+      , " "
+      , prBranchName
+      ]
+  PrStatusFailedBuild -> "The build failed."
+  where
+    getIntegrationSha :: PullRequest -> Maybe Sha
+    getIntegrationSha pullRequest =
+      case Pr.integrationStatus pullRequest of
+        Integrated sha _ -> Just sha
+        _                -> Nothing
+
+    getIntegrationTargetBranch :: PullRequest -> Maybe Branch
+    getIntegrationTargetBranch pullRequest =
+      case Pr.integrationStatus pullRequest of
+        Conflicted targetBranch -> Just targetBranch
+        _                       -> Nothing
+
+-- Leave a comment with the feedback from 'describeStatus' and set the
+-- 'needsFeedback' flag to 'False'.
+feedback :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
+feedback (prId, pr) state = do
+  () <- leaveComment prId $ describeStatus prId pr state
+  pure $ Pr.setNeedsFeedback prId False state
 
 -- Run 'feedback' on all pull requests.
 provideFeedback :: ProjectState -> Action ProjectState
-provideFeedback state =
-  -- Only when needs feedback.
-  foldM (flip feedback) state $
-  filter (Pr.needsFeedback . snd) $
-  fmap (\(key, pr) -> (PullRequestId key, pr)) $
-  IntMap.toList $ Pr.pullRequests state
+provideFeedback state
+  = foldM (flip feedback) state
+  $ filter (Pr.needsFeedback . snd)
+  $ fmap (\(key, pr) -> (PullRequestId key, pr))
+  $ IntMap.toList $ Pr.pullRequests state
 
 handleEvent
   :: TriggerConfiguration

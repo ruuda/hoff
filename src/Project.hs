@@ -34,6 +34,7 @@ module Project
   setApproval,
   setIntegrationCandidate,
   setIntegrationStatus,
+  setNeedsFeedback,
   updatePullRequest,
   getOwners,
   wasIntegrationAttemptFor,
@@ -74,7 +75,7 @@ data BuildStatus
 data IntegrationStatus
   = NotIntegrated
   | Integrated Sha BuildStatus
-  | Conflicted
+  | Conflicted Branch
   deriving (Eq, Show, Generic)
 
 data PullRequestStatus
@@ -220,17 +221,21 @@ getIntegrationCandidate state = do
   candidate     <- lookupPullRequest pullRequestId state
   return (pullRequestId, candidate)
 
-setIntegrationCandidate :: Maybe PullRequestId -> ProjectState  -> ProjectState
+setIntegrationCandidate :: Maybe PullRequestId -> ProjectState -> ProjectState
 setIntegrationCandidate pr state = state {
   integrationCandidate = pr
 }
+
+setNeedsFeedback :: PullRequestId -> Bool -> ProjectState -> ProjectState
+setNeedsFeedback pr value state =
+  updatePullRequest pr (\pullRequest -> pullRequest { needsFeedback = value }) state
 
 classifyPullRequest :: PullRequest -> PullRequestStatus
 classifyPullRequest pr = case approvedBy pr of
   Nothing -> PrStatusAwaitingApproval
   Just _  -> case integrationStatus pr of
     NotIntegrated -> PrStatusApproved
-    Conflicted    -> PrStatusFailedConflict
+    Conflicted _  -> PrStatusFailedConflict
     Integrated _ buildStatus -> case buildStatus of
       BuildPending   -> PrStatusBuildPending
       BuildSucceeded -> PrStatusIntegrated
@@ -271,7 +276,7 @@ isQueued pr = case approvedBy pr of
   Nothing -> False
   Just _  -> case integrationStatus pr of
     NotIntegrated  -> True
-    Conflicted     -> False
+    Conflicted _   -> False
     Integrated _ _ -> False
 
 -- Returns whether a pull request is in the process of being integrated (pending
@@ -281,7 +286,7 @@ isInProgress pr = case approvedBy pr of
   Nothing -> False
   Just _  -> case integrationStatus pr of
     NotIntegrated -> False
-    Conflicted    -> False
+    Conflicted _  -> False
     Integrated _ buildStatus -> case buildStatus of
       BuildPending   -> True
       BuildSucceeded -> False
