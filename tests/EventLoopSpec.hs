@@ -459,7 +459,7 @@ eventLoopSpec = parallel $ do
         -- the conflicted rebase, so that the next commit can be integrated
         -- properly.
         let Just pullRequest3 = Project.lookupPullRequest pr3 state
-        Project.integrationStatus pullRequest3 `shouldBe` Conflicted
+        Project.integrationStatus pullRequest3 `shouldBe` Conflicted (Branch "master")
 
         -- The second pull request should still be pending, awaiting the build
         -- result.
