@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.16.0
+
+Released 2020-08-05.
+
+**Compatibility**:
+
+ * The state serialization format of 0.16.0 is incompatible with 0.15.0. The
+   recommended way to update is to stop Hoff 0.15.0 at a quiet time when no
+   builds are in progress, delete the state files, and start 0.16.0. Hoff will
+   scan for open pull requests at startup, but approval status will be lost.
+
+Bugfixes:
+
+ * Hoff will no longer incorrectly leave a comment that it will rebase a pull
+   request after re-approving a pull request that failed to build. It now
+   re-reports the build failure in the reply instead. Close and re-open the pull
+   request to clear the build status.
+
 ## 0.15.0
 
 Released 2020-06-29.
