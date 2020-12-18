@@ -421,11 +421,12 @@ tryIntegratePullRequest pr state =
   let
     PullRequestId prNumber = pr
     pullRequest  = fromJust $ Pr.lookupPullRequest pr state
+    title = Pr.title pullRequest
     Username approvedBy = fromJust $ Pr.approvedBy pullRequest
     candidateSha = Pr.sha pullRequest
     candidateRef = getPullRequestRef pr
     candidate = (candidateRef, candidateSha)
-    mergeMessage = format "Merge #{}\n\nApproved-by: {}" (prNumber, approvedBy)
+    mergeMessage = format "Merge #{}: {}\n\nApproved-by: {}" (prNumber, title, approvedBy)
   in do
     result <- tryIntegrate mergeMessage candidate
     case result of
