@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.0
+
+Released 2021-01-06.
+
+ * Include pull request title in the merge commit message.
+
 ## 0.16.0
 
 Released 2020-08-05.
