@@ -237,8 +237,8 @@ viewPullRequest info (PullRequestId n) pullRequest =
 viewPullRequestWithApproval :: ProjectInfo -> PullRequestId -> PullRequest -> Html
 viewPullRequestWithApproval info prId pullRequest = do
   viewPullRequest info prId pullRequest
-  case Project.approvedBy pullRequest of
-    Just (Username username) ->
+  case Project.approval pullRequest of
+    Just (Username username, _) ->
       span ! class_ "review" $ do
         void "Approved by "
         -- TODO: Link to approval comment, not just username.

@@ -52,6 +52,8 @@ import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Format (format)
 import Git (Branch (..), GitOperation, GitOperationFree, PushResult (..), Sha (..))
 import GithubApi (GithubOperation, GithubOperationFree)
+import Project (Approval)
+import Project (ApprovedFor (..))
 import Project (BuildStatus (..))
 import Project (IntegrationStatus (..))
 import Project (PullRequestStatus (..))
@@ -274,10 +276,11 @@ handlePullRequestClosed pr state = Pr.deletePullRequest pr <$>
         pure state { Pr.integrationCandidate = Nothing }
       _notCandidatePr -> pure state
 
--- Returns whether the message is a command that instructs us to merge the PR.
+-- Returns the approval type contained in the given text, if the message is a
+-- command that instructs us to merge the PR.
 -- If the trigger prefix is "@hoffbot", a command "@hoffbot merge" would
--- indicate approval.
-isMergeCommand :: TriggerConfiguration -> Text -> Bool
+-- indicate the `Merge` approval type.
+isMergeCommand :: TriggerConfiguration -> Text -> Maybe ApprovedFor
 isMergeCommand config message =
   let
     messageCaseFold = Text.toCaseFold $ Text.strip message
@@ -286,15 +289,16 @@ isMergeCommand config message =
     -- Check if the prefix followed by ` merge` occurs within the message. We opt
     -- to include the space here, instead of making it part of the prefix, because
     -- having the trailing space in config is something that is easy to get wrong.
-    (mappend prefixCaseFold " merge") `Text.isInfixOf` messageCaseFold
+    if (mappend prefixCaseFold " merge") `Text.isInfixOf` messageCaseFold
+    then Just Merge
+    else Nothing
 
--- Mark the pull request as approved by the approver, and leave a comment to
--- acknowledge that.
-approvePullRequest :: PullRequestId -> Username -> ProjectState -> Action ProjectState
-approvePullRequest pr approver state =
+-- Mark the pull request as approved, and leave a comment to acknowledge that.
+approvePullRequest :: PullRequestId -> Approval -> ProjectState -> Action ProjectState
+approvePullRequest pr approval state =
   pure $ Pr.updatePullRequest pr
     (\pullRequest -> pullRequest
-      { Pr.approvedBy = Just approver
+      { Pr.approval = Just approval
       , Pr.needsFeedback = True
       })
     state
@@ -313,12 +317,13 @@ handleCommentAdded triggerConfig pr author body state =
     -- frequently, but most comments are not merge commands, and checking that
     -- a user has push access requires an API call.
     then do
-      isApproved <- if isMergeCommand triggerConfig body
+      let approvalType = isMergeCommand triggerConfig body
+      isApproved <- if isJust approvalType
         then isReviewer author
         else pure False
       if isApproved
         -- The PR has now been approved by the author of the comment.
-        then approvePullRequest pr author state
+        then approvePullRequest pr (author, fromJust approvalType) state
         else pure state
 
     -- If the pull request is not in the state, ignore the comment.
@@ -422,7 +427,7 @@ tryIntegratePullRequest pr state =
     PullRequestId prNumber = pr
     pullRequest  = fromJust $ Pr.lookupPullRequest pr state
     title = Pr.title pullRequest
-    Username approvedBy = fromJust $ Pr.approvedBy pullRequest
+    Username approvedBy = fst $ fromJust $ Pr.approval pullRequest
     candidateSha = Pr.sha pullRequest
     candidateRef = getPullRequestRef pr
     candidate = (candidateRef, candidateSha)
@@ -454,7 +459,7 @@ pushCandidate (pullRequestId, pullRequest) state = do
   -- Look up the sha that will be pushed to the target branch. Also assert that
   -- the pull request has really been approved and built successfully. If it was
   -- not, there is a bug in the program.
-  let approved  = isJust $ Pr.approvedBy pullRequest
+  let approved  = isJust $ Pr.approval pullRequest
       status    = Pr.integrationStatus pullRequest
       prBranch  = Pr.branch pullRequest
       newHead   = assert approved $ case status of
@@ -490,7 +495,7 @@ describeStatus :: PullRequestId -> PullRequest -> ProjectState -> Text
 describeStatus prId pr state = case Pr.classifyPullRequest pr of
   PrStatusAwaitingApproval -> "Pull request awaiting approval."
   PrStatusApproved ->
-    let approver = fromJust $ Pr.approvedBy pr
+    let approver = fst $ fromJust $ Pr.approval pr
     in case Pr.getQueuePosition prId state of
       0 -> format "Pull request approved by @{}, rebasing now." [approver]
       1 -> format "Pull request approved by @{}, waiting for rebase at the front of the queue." [approver]
