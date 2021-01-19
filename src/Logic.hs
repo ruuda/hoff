@@ -280,8 +280,8 @@ handlePullRequestClosed pr state = Pr.deletePullRequest pr <$>
 -- command that instructs us to merge the PR.
 -- If the trigger prefix is "@hoffbot", a command "@hoffbot merge" would
 -- indicate the `Merge` approval type.
-isMergeCommand :: TriggerConfiguration -> Text -> Maybe ApprovedFor
-isMergeCommand config message =
+parseMergeCommand :: TriggerConfiguration -> Text -> Maybe ApprovedFor
+parseMergeCommand config message =
   let
     messageCaseFold = Text.toCaseFold $ Text.strip message
     prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
@@ -317,7 +317,7 @@ handleCommentAdded triggerConfig pr author body state =
     -- frequently, but most comments are not merge commands, and checking that
     -- a user has push access requires an API call.
     then do
-      let approvalType = isMergeCommand triggerConfig body
+      let approvalType = parseMergeCommand triggerConfig body
       isApproved <- if isJust approvalType
         then isReviewer author
         else pure False
