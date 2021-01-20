@@ -29,7 +29,7 @@ import qualified Data.ByteString.Lazy as LazyByteString
 import qualified Data.Text as Text
 
 import Format (format)
-import Project (Approval (..), ProjectInfo, ProjectState, PullRequest, Owner)
+import Project (Approval (..), ApprovedFor (..), ProjectInfo, ProjectState, PullRequest, Owner)
 import Types (PullRequestId (..), Username (..))
 
 import qualified Project
@@ -238,9 +238,12 @@ viewPullRequestWithApproval :: ProjectInfo -> PullRequestId -> PullRequest -> Ht
 viewPullRequestWithApproval info prId pullRequest = do
   viewPullRequest info prId pullRequest
   case Project.approval pullRequest of
-    Just Approval { approver = Username username } ->
+    Just Approval { approver = Username username, approvedFor = approvalType } ->
       span ! class_ "review" $ do
-        void "Approved by "
+        let approvedAction = case approvalType of
+              Merge -> "merge"
+              MergeAndDeploy -> "merge and deploy"
+        toHtml $ format "Approved for {} by " [approvedAction :: String]
         -- TODO: Link to approval comment, not just username.
         let url = Text.append "https://github.com/" username
         a ! href (toValue url) $ toHtml username
