@@ -10,6 +10,8 @@
 
 module Project
 (
+  Approval (..),
+  ApprovedFor (..),
   BuildStatus (..),
   IntegrationStatus (..),
   ProjectInfo (..),
@@ -87,12 +89,28 @@ data PullRequestStatus
   | PrStatusFailedBuild      -- Integrated, but the build failed.
   deriving (Eq)
 
+-- A PR can currently be approved to be merged with "<prefix> merge".
+-- Later on we intend to add different approval commands that trigger different
+-- behaviour, and this enumeration will distinguish these cases.
+data ApprovedFor
+  = Merge
+  -- | MergeAndDeploy
+  deriving (Eq, Show, Generic)
+
+-- For a PR to be approved a specific user must give a specific approval
+-- command, i.e. either just "merge" or "merge and deploy".
+data Approval = Approval
+  { approver :: Username
+  , approvedFor :: ApprovedFor
+  }
+  deriving (Eq, Show, Generic)
+
 data PullRequest = PullRequest
   { sha                 :: Sha
   , branch              :: Branch
   , title               :: Text
   , author              :: Username
-  , approvedBy          :: Maybe Username
+  , approval            :: Maybe Approval
   , integrationStatus   :: IntegrationStatus
   , integrationAttempts :: [Sha]
   , needsFeedback       :: Bool
@@ -127,11 +145,15 @@ instance Buildable ProjectInfo where
 
 instance FromJSON BuildStatus
 instance FromJSON IntegrationStatus
+instance FromJSON ApprovedFor
+instance FromJSON Approval
 instance FromJSON ProjectState
 instance FromJSON PullRequest
 
 instance ToJSON BuildStatus where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 instance ToJSON IntegrationStatus where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
+instance ToJSON ApprovedFor where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
+instance ToJSON Approval where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 instance ToJSON ProjectState where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 instance ToJSON PullRequest where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 
@@ -170,7 +192,7 @@ insertPullRequest (PullRequestId n) prBranch prSha prTitle prAuthor state =
         branch              = prBranch,
         title               = prTitle,
         author              = prAuthor,
-        approvedBy          = Nothing,
+        approval            = Nothing,
         integrationStatus   = NotIntegrated,
         integrationAttempts = [],
         needsFeedback       = False
@@ -197,9 +219,9 @@ updatePullRequest (PullRequestId n) f state = state {
 }
 
 -- Marks the pull request as approved by somebody or nobody.
-setApproval :: PullRequestId -> Maybe Username -> ProjectState -> ProjectState
-setApproval pr newApprovedBy = updatePullRequest pr changeApproval
-  where changeApproval pullRequest = pullRequest { approvedBy = newApprovedBy }
+setApproval :: PullRequestId -> Maybe Approval -> ProjectState -> ProjectState
+setApproval pr newApproval = updatePullRequest pr changeApproval
+  where changeApproval pullRequest = pullRequest { approval = newApproval }
 
 -- Sets the integration status for a pull request.
 setIntegrationStatus :: PullRequestId -> IntegrationStatus -> ProjectState -> ProjectState
@@ -231,7 +253,7 @@ setNeedsFeedback pr value state =
   updatePullRequest pr (\pullRequest -> pullRequest { needsFeedback = value }) state
 
 classifyPullRequest :: PullRequest -> PullRequestStatus
-classifyPullRequest pr = case approvedBy pr of
+classifyPullRequest pr = case approval pr of
   Nothing -> PrStatusAwaitingApproval
   Just _  -> case integrationStatus pr of
     NotIntegrated -> PrStatusApproved
@@ -256,7 +278,7 @@ filterPullRequestsBy p =
 
 -- Returns the pull requests that have been approved, in order of ascending id.
 approvedPullRequests :: ProjectState -> [PullRequestId]
-approvedPullRequests = filterPullRequestsBy $ isJust . approvedBy
+approvedPullRequests = filterPullRequestsBy $ isJust . approval
 
 -- Returns the number of pull requests that will be rebased and checked on CI
 -- before the PR with the given id will be rebased, in case no other pull
@@ -272,7 +294,7 @@ getQueuePosition pr state =
 -- Returns whether a pull request is queued for merging, but not already in
 -- progress (pending build results).
 isQueued :: PullRequest -> Bool
-isQueued pr = case approvedBy pr of
+isQueued pr = case approval pr of
   Nothing -> False
   Just _  -> case integrationStatus pr of
     NotIntegrated  -> True
@@ -282,7 +304,7 @@ isQueued pr = case approvedBy pr of
 -- Returns whether a pull request is in the process of being integrated (pending
 -- build results).
 isInProgress :: PullRequest -> Bool
-isInProgress pr = case approvedBy pr of
+isInProgress pr = case approval pr of
   Nothing -> False
   Just _  -> case integrationStatus pr of
     NotIntegrated -> False

@@ -31,7 +31,7 @@ import EventLoop (convertGithubEvent)
 import Git (Branch (..), PushResult(..), Sha (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
 import Logic (Action, ActionFree (..), Event (..), IntegrationFailure (..))
-import Project (ProjectState (ProjectState), PullRequest (PullRequest))
+import Project (Approval (..), ProjectState (ProjectState), PullRequest (PullRequest))
 import Types (PullRequestId (..), Username (..))
 
 import qualified Configuration as Config
@@ -56,11 +56,11 @@ singlePullRequestState pr prBranch prSha prAuthor =
     fst $ runAction $ handleEventTest event Project.emptyProjectState
 
 candidateState :: PullRequestId -> Branch -> Sha -> Username -> Username -> Sha -> ProjectState
-candidateState pr prBranch prSha prAuthor approver candidateSha =
+candidateState pr prBranch prSha prAuthor approvedBy candidateSha =
   let
     state = Project.setIntegrationStatus pr
       (Project.Integrated candidateSha Project.BuildPending)
-      $ Project.setApproval pr (Just approver)
+      $ Project.setApproval pr (Just (Approval approvedBy Project.Merge))
       $ singlePullRequestState pr prBranch prSha prAuthor
   in
     state { Project.integrationCandidate = Just pr }
@@ -199,7 +199,7 @@ main = hspec $ do
       let pr = fromJust $ Project.lookupPullRequest (PullRequestId 3) state
       Project.sha pr               `shouldBe` Sha "e0f"
       Project.author pr            `shouldBe` "lisa"
-      Project.approvedBy pr        `shouldBe` Nothing
+      Project.approval pr          `shouldBe` Nothing
       Project.integrationStatus pr `shouldBe` Project.NotIntegrated
 
     it "handles PullRequestClosed" $ do
@@ -225,17 +225,17 @@ main = hspec $ do
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
           state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "abc") "alice"
-          state1 = Project.setApproval (PullRequestId 1) (Just "hatter") state0
+          state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge)) state0
           state2 = fst $ runAction $ handleEventTest event state1
           pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
           pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
-      Project.approvedBy pr1 `shouldBe` Just "hatter"
-      Project.approvedBy pr2 `shouldBe` Nothing
+      Project.approval pr1 `shouldBe` Just (Approval "hatter" Project.Merge)
+      Project.approval pr2 `shouldBe` Nothing
 
     it "does not lose approval after the PR commit has changed due to a push we caused" $ do
       let
         state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "abc") "alice"
-        state1 = Project.setApproval (PullRequestId 1) (Just "hatter") state0
+        state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge)) state0
         state2 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc0") Project.BuildPending) state1
         state3 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc1") Project.BuildPending) state2
         event  = PullRequestCommitChanged (PullRequestId 1) (Sha "dc0")
@@ -255,9 +255,9 @@ main = hspec $ do
         state2  = fst $ runAction $ handleEventTest newPush state1
         prAt1   = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
         prAt2   = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
-      Project.approvedBy        prAt1 `shouldBe` Just "deckard"
+      Project.approval          prAt1 `shouldBe` Just (Approval "deckard" Project.Merge)
       Project.integrationStatus prAt1 `shouldBe` Project.Integrated (Sha "bcd") Project.BuildPending
-      Project.approvedBy        prAt2 `shouldBe` Nothing
+      Project.approval          prAt2 `shouldBe` Nothing
       Project.integrationStatus prAt2 `shouldBe` Project.NotIntegrated
 
     it "ignores false positive commit changed events" $ do
@@ -266,13 +266,13 @@ main = hspec $ do
         -- lose the approval status.
         event  = PullRequestCommitChanged (PullRequestId 1) (Sha "000")
         state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "000") "cindy"
-        state1 = Project.setApproval (PullRequestId 1) (Just "daniel") state0
+        state1 = Project.setApproval (PullRequestId 1) (Just (Approval "daniel" Project.Merge)) state0
         (state2, _actions) = runAction $ Logic.proceedUntilFixedPoint state1
         (state3, actions)  = runAction $ handleEventTest event state2
         prAt3 = fromJust $ Project.lookupPullRequest (PullRequestId 1) state3
       state3 `shouldBe` state2
       actions `shouldBe` []
-      Project.approvedBy prAt3 `shouldBe` Just "daniel"
+      Project.approval prAt3 `shouldBe` Just (Approval "daniel" Project.Merge)
 
     it "sets approval after a stamp from a reviewer" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "toby"
@@ -280,7 +280,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot merge"
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approvedBy pr `shouldBe` Just "deckard"
+      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge)
 
     it "does not set approval after a stamp from a non-reviewer" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "toby"
@@ -289,7 +289,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "rachael" "@bot merge"
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approvedBy pr `shouldBe` Nothing
+      Project.approval pr `shouldBe` Nothing
 
     it "does not set approval after a comment with the wrong prefix" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "patrick"
@@ -303,7 +303,7 @@ main = hspec $ do
           event5 = CommentAdded (PullRequestId 1) "deckard" "@bot, merge"
           state' = fst $ runAction $ handleEventsTest [event1, event2, event3, event4, event5] state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approvedBy pr `shouldBe` Nothing
+      Project.approval pr `shouldBe` Nothing
 
     it "accepts command comments case-insensitively" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
@@ -311,7 +311,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "@BoT MeRgE"
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approvedBy pr `shouldBe` Just "deckard"
+      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge)
 
     it "accepts command at end of other comments" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
@@ -319,7 +319,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "looks good to me, @bot merge"
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approvedBy pr `shouldBe` Just "deckard"
+      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge)
 
     it "accepts command at end of other comments if tagged multiple times" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
@@ -327,7 +327,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot looks good to me, @bot merge"
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approvedBy pr `shouldBe` Just "deckard"
+      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge)
 
     it "accepts command before comments" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
@@ -335,7 +335,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot merge\nYou did some fine work here."
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approvedBy pr `shouldBe` Just "deckard"
+      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge)
 
     it "does not accepts merge command with interleaved comments" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
@@ -343,7 +343,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot foo merge"
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approvedBy pr `shouldBe` Nothing
+      Project.approval pr `shouldBe` Nothing
 
     it "handles a build status change of the integration candidate" $ do
       let
@@ -536,7 +536,7 @@ main = hspec $ do
 
       -- Approval and integration status should be set to their initial values,
       -- we do not go back and scan for approval comments on missing PRs.
-      Project.approvedBy pr17          `shouldBe` Nothing
+      Project.approval pr17            `shouldBe` Nothing
       Project.integrationStatus pr17   `shouldBe` Project.NotIntegrated
       Project.integrationAttempts pr17 `shouldBe` []
       actions `shouldBe` [AGetOpenPullRequests, AGetPullRequest (PullRequestId 17)]
@@ -559,7 +559,7 @@ main = hspec $ do
     it "finds a new candidate" $ do
       let
         state
-          = Project.setApproval (PullRequestId 1) (Just "fred")
+          = Project.setApproval (PullRequestId 1) (Just (Approval "fred" Project.Merge))
           $ singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "f34") "sally"
         results = defaultResults
           { resultIntegrate = [Right (Sha "38c")]
@@ -581,7 +581,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approvedBy          = Just "deckard"
+          , Project.approval            = Just (Approval "deckard" Project.Merge)
           , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
@@ -606,7 +606,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approvedBy          = Just "deckard"
+          , Project.approval            = Just (Approval "deckard" Project.Merge)
           , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
@@ -686,7 +686,7 @@ main = hspec $ do
               Project.sha                 = Sha "f35",
               Project.title               = "Add Leon test results",
               Project.author              = "rachael",
-              Project.approvedBy          = Just "deckard",
+              Project.approval            = Just (Approval "deckard" Project.Merge),
               Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded,
               Project.integrationAttempts = [],
               Project.needsFeedback       = False
@@ -697,7 +697,7 @@ main = hspec $ do
               Project.sha                 = Sha "f37",
               Project.title               = "Add my test results",
               Project.author              = "rachael",
-              Project.approvedBy          = Just "deckard",
+              Project.approval            = Just (Approval "deckard" Project.Merge),
               Project.integrationStatus   = Project.NotIntegrated,
               Project.integrationAttempts = [],
               Project.needsFeedback       = False
