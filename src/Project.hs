@@ -10,7 +10,7 @@
 
 module Project
 (
-  Approval,
+  Approval (..),
   ApprovedFor (..),
   BuildStatus (..),
   IntegrationStatus (..),
@@ -99,7 +99,11 @@ data ApprovedFor
 
 -- For a PR to be approved a specific user must give a specific approval
 -- command, i.e. either just "merge" or "merge and deploy".
-type Approval = (Username, ApprovedFor)
+data Approval = Approval
+  { approver :: Username
+  , approvedFor :: ApprovedFor
+  }
+  deriving (Eq, Show, Generic)
 
 data PullRequest = PullRequest
   { sha                 :: Sha
@@ -142,13 +146,15 @@ instance Buildable ProjectInfo where
 instance FromJSON BuildStatus
 instance FromJSON IntegrationStatus
 instance FromJSON ApprovedFor
+instance FromJSON Approval
 instance FromJSON ProjectState
 instance FromJSON PullRequest
 
 instance ToJSON BuildStatus where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 instance ToJSON IntegrationStatus where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
-instance ToJSON ProjectState where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 instance ToJSON ApprovedFor where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
+instance ToJSON Approval where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
+instance ToJSON ProjectState where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 instance ToJSON PullRequest where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 
 -- Reads and parses the state. Returns Nothing if parsing failed, but crashes if

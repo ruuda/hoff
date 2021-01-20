@@ -52,7 +52,7 @@ import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Format (format)
 import Git (Branch (..), GitOperation, GitOperationFree, PushResult (..), Sha (..))
 import GithubApi (GithubOperation, GithubOperationFree)
-import Project (Approval)
+import Project (Approval (..))
 import Project (ApprovedFor (..))
 import Project (BuildStatus (..))
 import Project (IntegrationStatus (..))
@@ -323,7 +323,7 @@ handleCommentAdded triggerConfig pr author body state =
         else pure False
       if isApproved
         -- The PR has now been approved by the author of the comment.
-        then approvePullRequest pr (author, fromJust approvalType) state
+        then approvePullRequest pr (Approval author (fromJust approvalType)) state
         else pure state
 
     -- If the pull request is not in the state, ignore the comment.
@@ -427,7 +427,7 @@ tryIntegratePullRequest pr state =
     PullRequestId prNumber = pr
     pullRequest  = fromJust $ Pr.lookupPullRequest pr state
     title = Pr.title pullRequest
-    Username approvedBy = fst $ fromJust $ Pr.approval pullRequest
+    Username approvedBy = approver $ fromJust $ Pr.approval pullRequest
     candidateSha = Pr.sha pullRequest
     candidateRef = getPullRequestRef pr
     candidate = (candidateRef, candidateSha)
@@ -495,11 +495,11 @@ describeStatus :: PullRequestId -> PullRequest -> ProjectState -> Text
 describeStatus prId pr state = case Pr.classifyPullRequest pr of
   PrStatusAwaitingApproval -> "Pull request awaiting approval."
   PrStatusApproved ->
-    let approver = fst $ fromJust $ Pr.approval pr
+    let approvedBy = approver $ fromJust $ Pr.approval pr
     in case Pr.getQueuePosition prId state of
-      0 -> format "Pull request approved by @{}, rebasing now." [approver]
-      1 -> format "Pull request approved by @{}, waiting for rebase at the front of the queue." [approver]
-      n -> format "Pull request approved by @{}, waiting for rebase behind {} pull requests." (approver, n)
+      0 -> format "Pull request approved by @{}, rebasing now." [approvedBy]
+      1 -> format "Pull request approved by @{}, waiting for rebase at the front of the queue." [approvedBy]
+      n -> format "Pull request approved by @{}, waiting for rebase behind {} pull requests." (approvedBy, n)
   PrStatusBuildPending ->
     let Sha sha = fromJust $ getIntegrationSha pr
     in Text.concat ["Rebased as ", sha, ", waiting for CI …"]
