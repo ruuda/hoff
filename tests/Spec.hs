@@ -390,11 +390,11 @@ main = hspec $ do
           $ Project.insertPullRequest (PullRequestId 2) (Branch "s") (Sha "dec") "Some PR" (Username "rachael")
           $ Project.insertPullRequest (PullRequestId 3) (Branch "s") (Sha "f16") "Another PR" (Username "rachael")
           $ Project.emptyProjectState
-        -- Approve pull request in order of ascending id.
+        -- Approve pull request in order of ascending id, mark the last PR for deployment.
         events =
           [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
-          , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 3) "deckard" "@bot merge and deploy"
           ]
         -- For this test, we assume all integrations and pushes succeed.
         results = defaultResults { resultIntegrate = [Right (Sha "b71")] }
@@ -408,7 +408,7 @@ main = hspec $ do
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase at the front of the queue."
         , AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 3) "Pull request approved for merge by @deckard, waiting for rebase behind 2 pull requests."
+        , ALeaveComment (PullRequestId 3) "Pull request approved for merge and deploy by @deckard, waiting for rebase behind 2 pull requests."
         ]
 
       -- Approve pull requests, but not in order of ascending id.
