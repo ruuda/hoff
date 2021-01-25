@@ -68,7 +68,7 @@ candidateState pr prBranch prSha prAuthor approvedBy candidateSha =
 -- Types and functions to mock running an action without actually doing anything.
 
 data ActionFlat
-  = ATryIntegrate Text (Branch, Sha)
+  = ATryIntegrate Text (Branch, Sha) Bool
   | ATryPromote Branch Sha
   | ALeaveComment PullRequestId Text
   | AIsReviewer Username
@@ -150,8 +150,8 @@ runActionRws =
     isReviewer username = username == "deckard"
   in
     foldFree $ \case
-      TryIntegrate msg candidate cont -> do
-        Rws.tell [ATryIntegrate msg candidate]
+      TryIntegrate msg candidate alwaysMergeCommit cont -> do
+        Rws.tell [ATryIntegrate msg candidate alwaysMergeCommit]
         cont <$> takeResultIntegrate
       TryPromote prBranch headSha cont -> do
         Rws.tell [ATryPromote prBranch headSha]
@@ -377,7 +377,7 @@ main = hspec $ do
       actions1 `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
-        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a38")
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a38") False
         , ALeaveComment (PullRequestId 1)
             "Failed to rebase, please rebase manually using\n\n\
             \    git rebase --interactive --autosquash origin/master p"
@@ -403,7 +403,7 @@ main = hspec $ do
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
-        , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a38")
+        , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a38") False
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI …"
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase at the front of the queue."
@@ -422,7 +422,7 @@ main = hspec $ do
       actionsPermuted `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, rebasing now."
-        , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/2/head", Sha "dec")
+        , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/2/head", Sha "dec") False
         , ALeaveComment (PullRequestId 2) "Rebased as b71, waiting for CI …"
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, waiting for rebase at the front of the queue."
@@ -456,12 +456,12 @@ main = hspec $ do
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
-        , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a38")
+        , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a38") False
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI …"
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase at the front of the queue."
         , ALeaveComment (PullRequestId 1) "Abandoning this pull request because it was closed."
-        , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/2/head", Sha "dec")
+        , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/2/head", Sha "dec") False
         , ALeaveComment (PullRequestId 2) "Rebased as b72, waiting for CI …"
         ]
 
@@ -570,7 +570,7 @@ main = hspec $ do
       Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") Project.BuildPending
       prId    `shouldBe` PullRequestId 1
       actions `shouldBe`
-        [ ATryIntegrate "Merge #1: Untitled\n\nApproved-by: fred\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "f34")
+        [ ATryIntegrate "Merge #1: Untitled\n\nApproved-by: fred\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "f34") False
         , ALeaveComment (PullRequestId 1) "Rebased as 38c, waiting for CI \x2026"
         ]
 
@@ -628,7 +628,7 @@ main = hspec $ do
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
       actions `shouldBe`
         [ ATryPromote (Branch "results/rachael") (Sha "38d")
-        , ATryIntegrate "Merge #1: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "f35")
+        , ATryIntegrate "Merge #1: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "f35") False
         , ALeaveComment (PullRequestId 1) "Rebased as 38e, waiting for CI \x2026"
         ]
 
@@ -667,13 +667,13 @@ main = hspec $ do
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
-        , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a39")
+        , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a39") False
           -- The first rebase succeeds.
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI \x2026"
           -- The first promotion attempt fails
         , ATryPromote (Branch "n7") (Sha "b71")
           -- The second rebase fails.
-        , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a39")
+        , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a39") False
         , ALeaveComment (PullRequestId 1)
             "Failed to rebase, please rebase manually using\n\n\
             \    git rebase --interactive --autosquash origin/master n7"
@@ -716,7 +716,7 @@ main = hspec $ do
           Just (cId, _candidate) = Project.getIntegrationCandidate state'
       cId     `shouldBe` PullRequestId 2
       actions `shouldBe`
-        [ ATryIntegrate "Merge #2: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/2/head", Sha "f37")
+        [ ATryIntegrate "Merge #2: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/2/head", Sha "f37") False
         , ALeaveComment (PullRequestId 2) "Rebased as 38e, waiting for CI \x2026"
         ]
 
@@ -743,7 +743,7 @@ main = hspec $ do
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
-        , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a39")
+        , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a39") False
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI \x2026"
         , ALeaveComment (PullRequestId 1) "The build failed."
         , AIsReviewer "deckard"

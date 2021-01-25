@@ -67,7 +67,7 @@ import qualified Project as Pr
 import qualified Configuration as Config
 
 data ActionFree a
-  = TryIntegrate Text (Branch, Sha) (Either IntegrationFailure Sha -> a)
+  = TryIntegrate Text (Branch, Sha) Bool (Either IntegrationFailure Sha -> a)
   | TryPromote Branch Sha (PushResult -> a)
   | LeaveComment PullRequestId Text a
   | IsReviewer Username (Bool -> a)
@@ -89,8 +89,8 @@ doGit = hoistFree InL
 doGithub :: GithubOperation a -> Operation a
 doGithub = hoistFree InR
 
-tryIntegrate :: Text -> (Branch, Sha) -> Action (Either IntegrationFailure Sha)
-tryIntegrate mergeMessage candidate = liftF $ TryIntegrate mergeMessage candidate id
+tryIntegrate :: Text -> (Branch, Sha) -> Bool -> Action (Either IntegrationFailure Sha)
+tryIntegrate mergeMessage candidate alwaysAddMergeCommit = liftF $ TryIntegrate mergeMessage candidate alwaysAddMergeCommit id
 
 -- Try to fast-forward the remote target branch (usually master) to the new sha.
 -- Before doing so, force-push that thas to the pull request branch, and after
@@ -116,7 +116,7 @@ getOpenPullRequests = liftF $ GetOpenPullRequests id
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
 runAction config = foldFree $ \case
-  TryIntegrate message (ref, sha) cont -> do
+  TryIntegrate message (ref, sha) alwaysAddMergeCommit cont -> do
     doGit $ ensureCloned config
     maybeSha <- doGit $ Git.tryIntegrate
       message
@@ -124,6 +124,7 @@ runAction config = foldFree $ \case
       sha
       (Git.Branch $ Config.branch config)
       (Git.Branch $ Config.testBranch config)
+      alwaysAddMergeCommit
     pure $ cont $ maybe
       (Left $ IntegrationFailure $ Branch $ Config.branch config)
       Right
@@ -446,8 +447,9 @@ tryIntegratePullRequest pr state =
       , format "Auto-deploy: {}" [if approvalType == MergeAndDeploy then "true" else "false" :: Text]
       ]
     mergeMessage = Text.unlines mergeMessageLines
+    alwaysAddMergeCommit = approvalType == MergeAndDeploy
   in do
-    result <- tryIntegrate mergeMessage candidate
+    result <- tryIntegrate mergeMessage candidate alwaysAddMergeCommit
     case result of
       Left (IntegrationFailure targetBranch) ->
         -- If integrating failed, perform no further actions but do set the
