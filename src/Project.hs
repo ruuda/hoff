@@ -89,12 +89,12 @@ data PullRequestStatus
   | PrStatusFailedBuild      -- Integrated, but the build failed.
   deriving (Eq)
 
--- A PR can currently be approved to be merged with "<prefix> merge".
--- Later on we intend to add different approval commands that trigger different
--- behaviour, and this enumeration will distinguish these cases.
+-- A PR can be approved to be merged with "<prefix> merge", or it can be
+-- approved to be merged and also deployed with "<prefix> merge and deploy".
+-- This enumeration distinguishes these cases.
 data ApprovedFor
   = Merge
-  -- | MergeAndDeploy
+  | MergeAndDeploy
   deriving (Eq, Show, Generic)
 
 -- For a PR to be approved a specific user must give a specific approval

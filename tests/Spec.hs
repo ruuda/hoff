@@ -376,7 +376,7 @@ main = hspec $ do
       actions0 `shouldBe` []
       actions1 `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, rebasing now."
+        , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard" (Branch "refs/pull/1/head", Sha "a38")
         , ALeaveComment (PullRequestId 1)
             "Failed to rebase, please rebase manually using\n\n\
@@ -390,11 +390,11 @@ main = hspec $ do
           $ Project.insertPullRequest (PullRequestId 2) (Branch "s") (Sha "dec") "Some PR" (Username "rachael")
           $ Project.insertPullRequest (PullRequestId 3) (Branch "s") (Sha "f16") "Another PR" (Username "rachael")
           $ Project.emptyProjectState
-        -- Approve pull request in order of ascending id.
+        -- Approve pull request in order of ascending id, mark the last PR for deployment.
         events =
           [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
-          , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 3) "deckard" "@bot merge and deploy"
           ]
         -- For this test, we assume all integrations and pushes succeed.
         results = defaultResults { resultIntegrate = [Right (Sha "b71")] }
@@ -402,13 +402,13 @@ main = hspec $ do
         actions = snd $ run $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, rebasing now."
+        , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard" (Branch "refs/pull/1/head", Sha "a38")
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI …"
         , AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 2) "Pull request approved by @deckard, waiting for rebase at the front of the queue."
+        , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase at the front of the queue."
         , AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 3) "Pull request approved by @deckard, waiting for rebase behind 2 pull requests."
+        , ALeaveComment (PullRequestId 3) "Pull request approved for merge and deploy by @deckard, waiting for rebase behind 2 pull requests."
         ]
 
       -- Approve pull requests, but not in order of ascending id.
@@ -421,13 +421,13 @@ main = hspec $ do
         actionsPermuted = snd $ run $ handleEventsTest eventsPermuted state
       actionsPermuted `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 2) "Pull request approved by @deckard, rebasing now."
+        , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard" (Branch "refs/pull/2/head", Sha "dec")
         , ALeaveComment (PullRequestId 2) "Rebased as b71, waiting for CI …"
         , AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, waiting for rebase at the front of the queue."
+        , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, waiting for rebase at the front of the queue."
         , AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 3) "Pull request approved by @deckard, waiting for rebase behind 2 pull requests."
+        , ALeaveComment (PullRequestId 3) "Pull request approved for merge by @deckard, waiting for rebase behind 2 pull requests."
         ]
 
     it "abandons integration when a pull request is closed" $ do
@@ -455,11 +455,11 @@ main = hspec $ do
       Project.integrationCandidate state' `shouldBe` Just (PullRequestId 2)
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, rebasing now."
+        , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard" (Branch "refs/pull/1/head", Sha "a38")
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI …"
         , AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 2) "Pull request approved by @deckard, waiting for rebase at the front of the queue."
+        , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase at the front of the queue."
         , ALeaveComment (PullRequestId 1) "Abandoning this pull request because it was closed."
         , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard" (Branch "refs/pull/2/head", Sha "dec")
         , ALeaveComment (PullRequestId 2) "Rebased as b72, waiting for CI …"
@@ -666,7 +666,7 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, rebasing now."
+        , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard" (Branch "refs/pull/1/head", Sha "a39")
           -- The first rebase succeeds.
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI \x2026"
@@ -742,7 +742,7 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 1) "Pull request approved by @deckard, rebasing now."
+        , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard" (Branch "refs/pull/1/head", Sha "a39")
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI \x2026"
         , ALeaveComment (PullRequestId 1) "The build failed."
