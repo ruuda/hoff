@@ -435,7 +435,7 @@ tryIntegratePullRequest pr state =
     PullRequestId prNumber = pr
     pullRequest  = fromJust $ Pr.lookupPullRequest pr state
     title = Pr.title pullRequest
-    Username approvedBy = approver $ fromJust $ Pr.approval pullRequest
+    Approval (Username approvedBy) approvalType = fromJust $ Pr.approval pullRequest
     candidateSha = Pr.sha pullRequest
     candidateRef = getPullRequestRef pr
     candidate = (candidateRef, candidateSha)
@@ -443,6 +443,7 @@ tryIntegratePullRequest pr state =
       [ format "Merge #{}: {}" (prNumber, title)
       , ""
       , format "Approved-by: {}" [approvedBy]
+      , format "Auto-deploy: {}" [if approvalType == MergeAndDeploy then "true" else "false" :: Text]
       ]
     mergeMessage = Text.unlines mergeMessageLines
   in do
