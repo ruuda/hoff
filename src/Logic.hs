@@ -439,7 +439,12 @@ tryIntegratePullRequest pr state =
     candidateSha = Pr.sha pullRequest
     candidateRef = getPullRequestRef pr
     candidate = (candidateRef, candidateSha)
-    mergeMessage = format "Merge #{}: {}\n\nApproved-by: {}" (prNumber, title, approvedBy)
+    mergeMessageLines =
+      [ format "Merge #{}: {}" (prNumber, title)
+      , ""
+      , format "Approved-by: {}" [approvedBy]
+      ]
+    mergeMessage = Text.unlines mergeMessageLines
   in do
     result <- tryIntegrate mergeMessage candidate
     case result of
