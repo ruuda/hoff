@@ -67,7 +67,13 @@ import qualified Project as Pr
 import qualified Configuration as Config
 
 data ActionFree a
-  = TryIntegrate Text (Branch, Sha) Bool (Either IntegrationFailure Sha -> a)
+  = TryIntegrate
+    -- This is a record type, but the names are currently only used for documentation.
+    { _mergeCommitMessage :: Text
+    , _integrationCandidate :: (Branch, Sha)
+    , _alwaysAddMergeCommit :: Bool
+    , _cont :: Either IntegrationFailure Sha -> a
+    }
   | TryPromote Branch Sha (PushResult -> a)
   | LeaveComment PullRequestId Text a
   | IsReviewer Username (Bool -> a)
