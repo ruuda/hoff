@@ -68,7 +68,11 @@ candidateState pr prBranch prSha prAuthor approvedBy candidateSha =
 -- Types and functions to mock running an action without actually doing anything.
 
 data ActionFlat
-  = ATryIntegrate Text (Branch, Sha) Bool
+  = ATryIntegrate
+    { mergeMessage :: Text
+    , integrationCandidate :: (Branch, Sha)
+    , alwaysAddMergeCommit :: Bool
+    }
   | ATryPromote Branch Sha
   | ALeaveComment PullRequestId Text
   | AIsReviewer Username
