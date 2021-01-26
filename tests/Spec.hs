@@ -150,8 +150,8 @@ runActionRws =
     isReviewer username = username == "deckard"
   in
     foldFree $ \case
-      TryIntegrate msg candidate alwaysMergeCommit cont -> do
-        Rws.tell [ATryIntegrate msg candidate alwaysMergeCommit]
+      TryIntegrate msg candidate alwaysAddMergeCommit' cont -> do
+        Rws.tell [ATryIntegrate msg candidate alwaysAddMergeCommit']
         cont <$> takeResultIntegrate
       TryPromote prBranch headSha cont -> do
         Rws.tell [ATryPromote prBranch headSha]
@@ -553,6 +553,26 @@ main = hspec $ do
       -- missing. In this case, PR 19 was already present, so we should not have
       -- obtained its details.
       actions `shouldBe` [AGetOpenPullRequests]
+
+    it "recognizes 'merge and deploy' commands as the proper ApprovedFor value" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge and deploy"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (state', actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge and deploy by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\n" (Branch "refs/pull/1/head", Sha "abc1234") True
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") Project.MergeAndDeploy))
 
   describe "Logic.proceedUntilFixedPoint" $ do
 
