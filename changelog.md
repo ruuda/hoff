@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.18.0
+
+Released 2021-01-27.
+
+**Compatibility**:
+
+ * The state serialization format of 0.18.0 is incompatible with 0.17.0. The
+   recommended way to update is to stop Hoff 0.17.0 at a quiet time when no
+   builds are in progress, delete the state files, and start 0.18.0. Hoff will
+   scan for open pull requests at startup, but approval status will be lost.
+
+   The new version of Hoff will automatically create a new state file using the
+   new format when run.
+
+Changes:
+
+ - Add `Auto-deploy: false` as a Git trailer to merge commit messages of PRs
+   approved with the "{prefix} merge" command.
+
+   This change does not affect single-commit PRs, as these are merged by
+   fast-forwarding the target branch and don't have a merge message.
+
+ - Add support for a new merge command "{prefix} merge and deploy".
+
+   When this command is used Hoff will perform a rebase and merge in the same
+   way as is done in response to the "merge" command.
+
+   Unlike the "merge" command, Hoff will
+     - Always create a merge commit, even for single-commit PRs, and
+     - Append `Auto-deploy: true` (instead of `Auto-deploy: false`) to the
+       commit message of the resulting merge commit.
+
+       This information can later be used in a CI/CD pipeline to trigger an
+       automatic deploy.
+
 ## 0.17.0
 
 Released 2021-01-06.
