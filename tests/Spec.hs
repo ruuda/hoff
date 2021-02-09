@@ -813,7 +813,7 @@ main = hspec $ do
           number        = Github.number     (payload :: CommentPayload)
           commentAuthor = Github.author     (payload :: CommentPayload)
           commentBody   = Github.body       (payload :: CommentPayload)
-      action        `shouldBe` Github.Created
+      action        `shouldBe` Left Github.CommentCreated
       owner         `shouldBe` "baxterthehacker"
       repository    `shouldBe` "public-repo"
       number        `shouldBe` 2
@@ -832,7 +832,7 @@ main = hspec $ do
           number        = Github.number     (payload :: CommentPayload)
           commentAuthor = Github.author     (payload :: CommentPayload)
           commentBody   = Github.body       (payload :: CommentPayload)
-      action        `shouldBe` Github.Created
+      action        `shouldBe` Right Github.ReviewSubmitted
       owner         `shouldBe` "crtschin"
       repository    `shouldBe` "test"
       number        `shouldBe` 1
@@ -933,17 +933,32 @@ main = hspec $ do
           }
 
     it "converts a comment created event" $ do
-      let payload = testCommentPayload Github.Created
+      let payload = testCommentPayload $ Left Github.CommentCreated
+          Just event = convertGithubEvent $ Github.Comment payload
+      event `shouldBe` (CommentAdded (PullRequestId 1) "deckard" "Must be expensive.")
+
+    it "converts a review submitted event" $ do
+      let payload = testCommentPayload $ Right Github.ReviewSubmitted
           Just event = convertGithubEvent $ Github.Comment payload
       event `shouldBe` (CommentAdded (PullRequestId 1) "deckard" "Must be expensive.")
 
     it "ignores a comment edited event" $ do
-      let payload = testCommentPayload Github.Edited
+      let payload = testCommentPayload $ Left Github.CommentEdited
           event = convertGithubEvent $ Github.Comment payload
       event `shouldBe` Nothing
 
     it "ignores a comment deleted event" $ do
-      let payload = testCommentPayload Github.Deleted
+      let payload = testCommentPayload $ Left Github.CommentDeleted
+          event = convertGithubEvent $ Github.Comment payload
+      event `shouldBe` Nothing
+
+    it "ignores a review edited event" $ do
+      let payload = testCommentPayload $ Right Github.ReviewEdited
+          event = convertGithubEvent $ Github.Comment payload
+      event `shouldBe` Nothing
+
+    it "ignores a review dismissed event" $ do
+      let payload = testCommentPayload $ Right Github.ReviewDismissed
           event = convertGithubEvent $ Github.Comment payload
       event `shouldBe` Nothing
 

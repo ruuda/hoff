@@ -17,6 +17,7 @@ module Github
   EventQueue,
   PullRequestAction (..),
   PullRequestPayload (..),
+  ReviewAction (..),
   WebhookEvent (..),
   eventProjectInfo,
   newEventQueue,
@@ -45,9 +46,15 @@ data PullRequestAction
   deriving (Eq, Show)
 
 data CommentAction
-  = Created
-  | Edited
-  | Deleted
+  = CommentCreated
+  | CommentEdited
+  | CommentDeleted
+  deriving (Eq, Show)
+
+data ReviewAction
+  = ReviewSubmitted
+  | ReviewEdited
+  | ReviewDismissed
   deriving (Eq, Show)
 
 data CommitStatus
@@ -69,7 +76,7 @@ data PullRequestPayload = PullRequestPayload {
 } deriving (Eq, Show)
 
 data CommentPayload = CommentPayload {
-  action     :: CommentAction, -- Corresponds to "action".
+  action     :: Either CommentAction ReviewAction, -- Corresponds to "action".
   owner      :: Text,     -- Corresponds to "repository.owner.login".
   repository :: Text,     -- Corresponds to "repository.name".
   number     :: Int,      -- Corresponds to "issue.number" or "pull_request.number".
@@ -93,12 +100,16 @@ instance FromJSON PullRequestAction where
   parseJSON _                      = fail "unexpected pull_request action"
 
 instance FromJSON CommentAction where
-  parseJSON (String "created")   = return Created
-  parseJSON (String "submitted") = return Created
-  parseJSON (String "edited")    = return Edited
-  parseJSON (String "deleted")   = return Deleted
-  parseJSON (String "dismissed") = return Deleted
+  parseJSON (String "created")   = return CommentCreated
+  parseJSON (String "edited")    = return CommentEdited
+  parseJSON (String "deleted")   = return CommentDeleted
   parseJSON _                    = fail "unexpected issue_comment action"
+
+instance FromJSON ReviewAction where
+  parseJSON (String "submitted") = return ReviewSubmitted
+  parseJSON (String "edited")    = return ReviewEdited
+  parseJSON (String "dismissed") = return ReviewDismissed
+  parseJSON _                    = fail "unexpected pull_request_review action"
 
 instance FromJSON CommitStatus where
   parseJSON (String "pending") = return Pending
@@ -131,7 +142,7 @@ instance FromJSON PullRequestPayload where
 
 instance FromJSON CommentPayload where
   parseJSON (Object v) = CommentPayload
-    <$> (v .: "action")
+    <$> ((Left <$> v .: "action") <|> (Right <$> v .: "action"))
     <*> getNested v ["repository", "owner", "login"]
     <*> getNested v ["repository", "name"]
     -- We subscribe to both issue comments and pull request review comments.

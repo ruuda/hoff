@@ -60,14 +60,15 @@ eventFromCommentPayload payload =
   let number = Github.number (payload :: CommentPayload) -- TODO: Use PullRequestId wrapper from beginning.
       author = Github.author (payload :: CommentPayload) -- TODO: Wrapper type
       body   = Github.body   (payload :: CommentPayload)
+      commentAdded = Logic.CommentAdded (PullRequestId number) author body
   in case Github.action (payload :: CommentPayload) of
-    Github.Created -> Just $ Logic.CommentAdded (PullRequestId number) author body
+    Left Github.CommentCreated -> Just commentAdded
+    Right Github.ReviewSubmitted -> Just commentAdded
     -- Do not bother with edited and deleted comments, as it would tremendously
     -- complicate handling of approval. Once approved, this cannot be undone.
     -- And if approval undo is desired, it would be better implemented as a
     -- separate magic comment, rather than editing the approval comment.
-    Github.Edited  -> Nothing
-    Github.Deleted -> Nothing
+    _ -> Nothing
 
 mapCommitStatus :: Github.CommitStatus -> Project.BuildStatus
 mapCommitStatus status = case status of
