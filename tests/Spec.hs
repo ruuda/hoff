@@ -801,7 +801,7 @@ main = hspec $ do
       title      `shouldBe` "Update the README with new information"
       prAuthor   `shouldBe` "baxterthehacker2"
 
-    it "parses a CommentPayload correctly" $ do
+    it "parses a CommentPayload from an issue_comment correctly" $ do
       examplePayload <- readFile "tests/data/issue-comment-payload.json"
       let maybePayload :: Maybe CommentPayload
           maybePayload = decode examplePayload
@@ -819,6 +819,25 @@ main = hspec $ do
       number        `shouldBe` 2
       commentAuthor `shouldBe` "baxterthehacker2"
       commentBody   `shouldBe` "You are totally right! I'll get this fixed right away."
+
+    it "parses a CommentPayload from a pull_request_review correctly" $ do
+      examplePayload <- readFile "tests/data/pull-request-review-payload.json"
+      let maybePayload :: Maybe CommentPayload
+          maybePayload = decode examplePayload
+      maybePayload `shouldSatisfy` isJust
+      let payload       = fromJust maybePayload
+          action        = Github.action     (payload :: CommentPayload)
+          owner         = Github.owner      (payload :: CommentPayload)
+          repository    = Github.repository (payload :: CommentPayload)
+          number        = Github.number     (payload :: CommentPayload)
+          commentAuthor = Github.author     (payload :: CommentPayload)
+          commentBody   = Github.body       (payload :: CommentPayload)
+      action        `shouldBe` Github.Created
+      owner         `shouldBe` "crtschin"
+      repository    `shouldBe` "test"
+      number        `shouldBe` 1
+      commentAuthor `shouldBe` "crtschin"
+      commentBody   `shouldBe` "This is the finalization comment on the pull request review page"
 
     it "parses a CommitStatusPayload correctly" $ do
       examplePayload <- readFile "tests/data/status-payload.json"

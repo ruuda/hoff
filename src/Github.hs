@@ -24,6 +24,7 @@ module Github
 )
 where
 
+import Control.Applicative ((<|>))
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueue, writeTBQueue)
 import Control.Monad.STM (atomically)
 import Data.Aeson (FromJSON (parseJSON), Object, Value (Object, String), (.:))
@@ -34,6 +35,7 @@ import GHC.Natural (Natural)
 import Git (Sha (..), Branch (..))
 import Project (ProjectInfo (..))
 import Types (Username)
+import Data.Maybe (fromMaybe)
 
 data PullRequestAction
   = Opened
@@ -70,9 +72,9 @@ data CommentPayload = CommentPayload {
   action     :: CommentAction, -- Corresponds to "action".
   owner      :: Text,     -- Corresponds to "repository.owner.login".
   repository :: Text,     -- Corresponds to "repository.name".
-  number     :: Int,      -- Corresponds to "issue.number".
+  number     :: Int,      -- Corresponds to "issue.number" or "pull_request.number".
   author     :: Username, -- Corresponds to "sender.login".
-  body       :: Text      -- Corresponds to "comment.body".
+  body       :: Text      -- Corresponds to "comment.body" or "review.body".
 } deriving (Eq, Show)
 
 data CommitStatusPayload = CommitStatusPayload {
@@ -91,10 +93,12 @@ instance FromJSON PullRequestAction where
   parseJSON _                      = fail "unexpected pull_request action"
 
 instance FromJSON CommentAction where
-  parseJSON (String "created") = return Created
-  parseJSON (String "edited")  = return Edited
-  parseJSON (String "deleted") = return Deleted
-  parseJSON _                  = fail "unexpected issue_comment action"
+  parseJSON (String "created")   = return Created
+  parseJSON (String "submitted") = return Created
+  parseJSON (String "edited")    = return Edited
+  parseJSON (String "deleted")   = return Deleted
+  parseJSON (String "dismissed") = return Deleted
+  parseJSON _                    = fail "unexpected issue_comment action"
 
 instance FromJSON CommitStatus where
   parseJSON (String "pending") = return Pending
@@ -130,10 +134,13 @@ instance FromJSON CommentPayload where
     <$> (v .: "action")
     <*> getNested v ["repository", "owner", "login"]
     <*> getNested v ["repository", "name"]
-    <*> getNested v ["issue", "number"]
+    -- We subscribe to both issue comments and pull request review comments.
+    <*> (getNested v ["issue", "number"]
+      <|> getNested v ["pull_request", "number"])
     <*> getNested v ["sender", "login"]
-    <*> getNested v ["comment", "body"]
-  parseJSON nonObject = typeMismatch "issue_comment payload" nonObject
+    <*> (getNested v ["comment", "body"]
+      <|> fromMaybe "" <$> getNested v ["review", "body"])
+  parseJSON nonObject = typeMismatch "(issue_comment | pull_request_review) payload" nonObject
 
 instance FromJSON CommitStatusPayload where
   parseJSON (Object v) = CommitStatusPayload
