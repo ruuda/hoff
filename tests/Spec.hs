@@ -801,8 +801,8 @@ main = hspec $ do
       title      `shouldBe` "Update the README with new information"
       prAuthor   `shouldBe` "baxterthehacker2"
 
-    it "parses a CommentPayload correctly" $ do
-      examplePayload <- readFile "tests/data/issue-comment-payload.json"
+    it "parses a CommentPayload from a created issue_comment correctly" $ do
+      examplePayload <- readFile "tests/data/issue-comment-created-payload.json"
       let maybePayload :: Maybe CommentPayload
           maybePayload = decode examplePayload
       maybePayload `shouldSatisfy` isJust
@@ -813,12 +813,69 @@ main = hspec $ do
           number        = Github.number     (payload :: CommentPayload)
           commentAuthor = Github.author     (payload :: CommentPayload)
           commentBody   = Github.body       (payload :: CommentPayload)
-      action        `shouldBe` Github.Created
+      action        `shouldBe` Left Github.CommentCreated
       owner         `shouldBe` "baxterthehacker"
       repository    `shouldBe` "public-repo"
       number        `shouldBe` 2
       commentAuthor `shouldBe` "baxterthehacker2"
       commentBody   `shouldBe` "You are totally right! I'll get this fixed right away."
+
+    it "parses a CommentPayload from an edited issue_comment correctly" $ do
+      examplePayload <- readFile "tests/data/issue-comment-edited-payload.json"
+      let maybePayload :: Maybe CommentPayload
+          maybePayload = decode examplePayload
+      maybePayload `shouldSatisfy` isJust
+      let payload       = fromJust maybePayload
+          action        = Github.action     (payload :: CommentPayload)
+          owner         = Github.owner      (payload :: CommentPayload)
+          repository    = Github.repository (payload :: CommentPayload)
+          number        = Github.number     (payload :: CommentPayload)
+          commentAuthor = Github.author     (payload :: CommentPayload)
+          commentBody   = Github.body       (payload :: CommentPayload)
+      action        `shouldBe` Left Github.CommentEdited
+      owner         `shouldBe` "crtschin"
+      repository    `shouldBe` "test"
+      number        `shouldBe` 1
+      commentAuthor `shouldBe` "crtschin"
+      commentBody   `shouldBe` "This is an edit of a comment on the issue page."
+
+    it "parses a CommentPayload from a submitted pull_request_review correctly" $ do
+      examplePayload <- readFile "tests/data/pull-request-review-submitted-payload.json"
+      let maybePayload :: Maybe CommentPayload
+          maybePayload = decode examplePayload
+      maybePayload `shouldSatisfy` isJust
+      let payload       = fromJust maybePayload
+          action        = Github.action     (payload :: CommentPayload)
+          owner         = Github.owner      (payload :: CommentPayload)
+          repository    = Github.repository (payload :: CommentPayload)
+          number        = Github.number     (payload :: CommentPayload)
+          commentAuthor = Github.author     (payload :: CommentPayload)
+          commentBody   = Github.body       (payload :: CommentPayload)
+      action        `shouldBe` Right Github.ReviewSubmitted
+      owner         `shouldBe` "crtschin"
+      repository    `shouldBe` "test"
+      number        `shouldBe` 1
+      commentAuthor `shouldBe` "crtschin"
+      commentBody   `shouldBe` "This is the finalization comment on the pull request review page."
+
+    it "parses a CommentPayload from a edited pull_request_review correctly" $ do
+      examplePayload <- readFile "tests/data/pull-request-review-edited-payload.json"
+      let maybePayload :: Maybe CommentPayload
+          maybePayload = decode examplePayload
+      maybePayload `shouldSatisfy` isJust
+      let payload       = fromJust maybePayload
+          action        = Github.action     (payload :: CommentPayload)
+          owner         = Github.owner      (payload :: CommentPayload)
+          repository    = Github.repository (payload :: CommentPayload)
+          number        = Github.number     (payload :: CommentPayload)
+          commentAuthor = Github.author     (payload :: CommentPayload)
+          commentBody   = Github.body       (payload :: CommentPayload)
+      action        `shouldBe` Right Github.ReviewEdited
+      owner         `shouldBe` "crtschin"
+      repository    `shouldBe` "test"
+      number        `shouldBe` 1
+      commentAuthor `shouldBe` "crtschin"
+      commentBody   `shouldBe` "This is an edit of the finalization comment of the review on the issue page."
 
     it "parses a CommitStatusPayload correctly" $ do
       examplePayload <- readFile "tests/data/status-payload.json"
@@ -914,17 +971,32 @@ main = hspec $ do
           }
 
     it "converts a comment created event" $ do
-      let payload = testCommentPayload Github.Created
+      let payload = testCommentPayload $ Left Github.CommentCreated
+          Just event = convertGithubEvent $ Github.Comment payload
+      event `shouldBe` (CommentAdded (PullRequestId 1) "deckard" "Must be expensive.")
+
+    it "converts a review submitted event" $ do
+      let payload = testCommentPayload $ Right Github.ReviewSubmitted
           Just event = convertGithubEvent $ Github.Comment payload
       event `shouldBe` (CommentAdded (PullRequestId 1) "deckard" "Must be expensive.")
 
     it "ignores a comment edited event" $ do
-      let payload = testCommentPayload Github.Edited
+      let payload = testCommentPayload $ Left Github.CommentEdited
           event = convertGithubEvent $ Github.Comment payload
       event `shouldBe` Nothing
 
     it "ignores a comment deleted event" $ do
-      let payload = testCommentPayload Github.Deleted
+      let payload = testCommentPayload $ Left Github.CommentDeleted
+          event = convertGithubEvent $ Github.Comment payload
+      event `shouldBe` Nothing
+
+    it "ignores a review edited event" $ do
+      let payload = testCommentPayload $ Right Github.ReviewEdited
+          event = convertGithubEvent $ Github.Comment payload
+      event `shouldBe` Nothing
+
+    it "ignores a review dismissed event" $ do
+      let payload = testCommentPayload $ Right Github.ReviewDismissed
           event = convertGithubEvent $ Github.Comment payload
       event `shouldBe` Nothing
 
