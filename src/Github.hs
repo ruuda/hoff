@@ -25,7 +25,7 @@ module Github
 )
 where
 
-import Control.Applicative ((<|>))
+import Control.Applicative ((<|>), optional)
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueue, writeTBQueue)
 import Control.Monad.STM (atomically)
 import Data.Aeson (FromJSON (parseJSON), Object, Value (Object, String), (.:))
@@ -141,16 +141,20 @@ instance FromJSON PullRequestPayload where
   parseJSON nonObject = typeMismatch "pull_request payload" nonObject
 
 instance FromJSON CommentPayload where
-  parseJSON (Object v) = CommentPayload
-    <$> ((Left <$> v .: "action") <|> (Right <$> v .: "action"))
-    <*> getNested v ["repository", "owner", "login"]
-    <*> getNested v ["repository", "name"]
-    -- We subscribe to both issue comments and pull request review comments.
-    <*> (getNested v ["issue", "number"]
-      <|> getNested v ["pull_request", "number"])
-    <*> getNested v ["sender", "login"]
-    <*> (getNested v ["comment", "body"]
-      <|> fromMaybe "" <$> getNested v ["review", "body"])
+  parseJSON (Object v) = do
+    isReview <- optional (v .: "review" :: Parser Value)
+    parsedAction <- case isReview of
+      Nothing -> Left <$> v .: "action"
+      Just _ -> Right <$> v .: "action"
+    CommentPayload parsedAction
+      <$> getNested v ["repository", "owner", "login"]
+      <*> getNested v ["repository", "name"]
+      -- We subscribe to both issue comments and pull request review comments.
+      <*> (getNested v ["issue", "number"]
+        <|> getNested v ["pull_request", "number"])
+      <*> getNested v ["sender", "login"]
+      <*> (getNested v ["comment", "body"]
+        <|> fromMaybe "" <$> getNested v ["review", "body"])
   parseJSON nonObject = typeMismatch "(issue_comment | pull_request_review) payload" nonObject
 
 instance FromJSON CommitStatusPayload where

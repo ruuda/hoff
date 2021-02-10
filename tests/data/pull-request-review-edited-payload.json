@@ -1,5 +1,5 @@
 {
-  "action": "submitted",
+  "action": "edited",
   "review": {
     "id": 585737905,
     "node_id": "MDE3OlB1bGxSZXF1ZXN0UmV2aWV3NTg1NzM3OTA1",
@@ -23,7 +23,7 @@
       "type": "User",
       "site_admin": false
     },
-    "body": "This is the finalization comment on the pull request review page",
+    "body": "This is an edit of the finalization comment of the review on the issue page.",
     "commit_id": "c0591ebc994a8ed69fdf5edd95c7c9a916bd501f",
     "submitted_at": "2021-02-08T17:21:12Z",
     "state": "commented",
@@ -73,7 +73,7 @@
     },
     "body": "",
     "created_at": "2021-02-08T17:19:15Z",
-    "updated_at": "2021-02-08T17:21:12Z",
+    "updated_at": "2021-02-10T11:01:42Z",
     "closed_at": null,
     "merged_at": null,
     "merge_commit_sha": "36b750d2bcae0b3d79821ca6ea1d3c2a8ec5e433",
@@ -372,6 +372,11 @@
     "author_association": "OWNER",
     "auto_merge": null,
     "active_lock_reason": null
+  },
+  "changes": {
+    "body": {
+      "from": "This is the finalization comment on the pull request review page"
+    }
   },
   "repository": {
     "id": 337149693,
