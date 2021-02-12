@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.19.0
+
+Released 2021-02-12.
+
+ * Hoff now interprets instructions left through a pull request review, so you
+   can say “@bot merge” directly from a review. This applies to the overall
+   review body, not to individual review comments left on the diff. Hoff ignores
+   the status of the review (approval, changes requested, etc.), it only looks
+   for the “@bot merge” command.
+
 ## 0.18.0
 
 Released 2021-01-27.
