@@ -179,6 +179,7 @@ the following events to be delivered:
 
  * *Pull request*, to make the daemon aware of new or closed pull requests.
  * *Issue comment*, to listen for LGTM stamps.
+ * *Pull request reviews*, to listen for LGTM stamps in review summaries.
  * *Status*, to get updates on the build status from a linked CI service.
 
 GitHub will deliver a ping event, and if everything is okay a green checkmark
