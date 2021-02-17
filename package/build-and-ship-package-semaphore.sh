@@ -27,7 +27,7 @@ if [[ "$SEMAPHORE_GIT_REF_TYPE" != "tag" ]]; then
 fi
 
 PKGFILE="hoff_$VERSION-1.deb"
-FREIGHT_HOST="freight@archive.channable.com"
+FREIGHT_HOST="freight@archive-external.channable.com"
 
 scp "$PKGFILE" "$FREIGHT_HOST:/tmp/$PKGFILE"
 
