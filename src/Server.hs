@@ -109,7 +109,7 @@ serveGithubWebhook serveEnqueueEvent = do
     Just "issue_comment" -> do
       payload <- jsonData :: ActionM Github.CommentPayload
       serveEnqueueEvent $ Github.Comment payload
-    Just "pull_request_review_comment" -> do
+    Just "pull_request_review" -> do
       payload <- jsonData :: ActionM Github.CommentPayload
       serveEnqueueEvent $ Github.Comment payload
     Just "status" -> do
