@@ -1,0 +1,14 @@
+cradle:
+  stack:
+    - path: "./src"
+      component: "hoff:lib"
+    - path: "./app"
+      component: "hoff:exe:hoff"
+    - path: "./tests/EndToEnd.hs"
+      component: "hoff:test:end-to-end"
+    - path: "./tests/ServerSpec.hs"
+      component: "hoff:test:end-to-end"
+    - path: "./tests/EventLoopSpec.hs"
+      component: "hoff:test:end-to-end"
+    - path: "./tests"
+      component: "hoff:test:spec"
