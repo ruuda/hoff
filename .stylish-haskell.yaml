@@ -19,7 +19,7 @@ steps:
   # and only applies to statements where each element occupies a single
   # line.
   - simple_align:
-      cases: true
+      cases: false
       top_level_patterns: true
       records: true
 
