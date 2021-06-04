@@ -14,7 +14,6 @@ import Control.Monad (forM_, unless, void)
 import Crypto.Hash (Digest, SHA256, hash)
 import Data.ByteArray.Encoding (Base(Base64, Base64URLUnpadded), convertToBase)
 import Data.FileEmbed (embedStringFile)
-import Data.Monoid ((<>))
 import Data.Bifunctor (second)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
@@ -248,7 +247,7 @@ viewPullRequestWithApproval info prId pullRequest = do
         let url = Text.append "https://github.com/" username
         a ! href (toValue url) $ toHtml username
     Nothing ->
-      fail $
+      error $
         "Tried to render approval link for pull request " ++ (show prId) ++
         " which was not approved. This is a programming error."
 
