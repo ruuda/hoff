@@ -124,7 +124,7 @@ runAction config = foldFree $ \case
       message
       ref
       sha
-      (Git.Branch $ Config.branch config)
+      (Git.RemoteBranch $ Config.branch config)
       (Git.Branch $ Config.testBranch config)
       alwaysAddMergeCommit
     pure $ cont $ maybe

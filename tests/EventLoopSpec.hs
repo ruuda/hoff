@@ -29,8 +29,8 @@ import Test.Hspec
 import qualified Data.UUID.V4 as Uuid
 import qualified System.Directory as FileSystem
 
-import Configuration (ProjectConfiguration, UserConfiguration, TriggerConfiguration)
-import Git (Branch (..), Sha (..))
+import Configuration (ProjectConfiguration, TriggerConfiguration, UserConfiguration)
+import Git (Branch (..), RefSpec (refSpec), Sha (..))
 import GithubApi (GithubOperationFree)
 import Project (BuildStatus (..), IntegrationStatus (..), ProjectState, PullRequestId (..))
 
@@ -66,9 +66,9 @@ populateRepository dir =
       gitInit              = void $ git ["init"]
       gitConfig key value  = void $ git ["config", key, value]
       gitAdd file          = void $ git ["add", file]
-      gitBranch name sha   = void $ git ["checkout", "-b", name, show sha]
-      gitSetRef name sha   = void $ git ["update-ref", name, show sha]
-      getHeadSha           = fmap (Sha . Text.strip) $ git ["rev-parse", "@"]
+      gitBranch name sha   = void $ git ["checkout", "-b", name, refSpec sha]
+      gitSetRef name sha   = void $ git ["update-ref", name, refSpec sha]
+      getHeadSha           = Sha <$> git ["rev-parse", "@"]
       -- Commits with the given message and returns the sha of the new commit.
       gitCommit message    = git ["commit", "-m", message] >> getHeadSha
   in  do
@@ -305,8 +305,8 @@ withTestEnv' body = do
   masterLog <- callGit ["-C", originDir, "log", "--format=%s", "--graph", "master"]
   branchesRaw <- callGit ["-C", originDir, "branch", "--format=%(refname:short)"]
   let
-    commits = fmap (Text.strip . Text.takeWhile (/= ':')) $ Text.lines masterLog
-    branches = fmap Branch $ Text.lines branchesRaw
+    commits = Text.strip . Text.takeWhile (/= ':') <$> Text.lines masterLog
+    branches = Branch <$> Text.lines branchesRaw
 
   makeWritableRecursive testDir
   FileSystem.removeDirectoryRecursive testDir
@@ -497,7 +497,7 @@ eventLoopSpec = parallel $ do
         -- to the origin "master" branch, so that pushing the rebased c6 will
         -- fail later on.
         git ["fetch", "origin", "ahead"] -- The ref for commit c4.
-        git ["push", "origin", (show c4) ++ ":refs/heads/master"]
+        git ["push", "origin", refSpec (c4, Branch "master")]
 
         -- Extract the sha of the rebased commit from the project state, and
         -- tell the loop that building the commit succeeded.
@@ -587,7 +587,7 @@ eventLoopSpec = parallel $ do
           ]
 
         git ["fetch", "origin", "ahead"] -- The ref for commit c4.
-        git ["push", "origin", (show c4) ++ ":refs/heads/master"]
+        git ["push", "origin", refSpec (c4, Branch "master")]
 
         -- Extract the sha of the rebased commit from the project state, and
         -- tell the loop that building the commit succeeded.
@@ -633,7 +633,7 @@ eventLoopSpec = parallel $ do
         -- the bad commit c7 is already on master. Note that origin/master is
         -- not a parent of c8, so we force-push.
         git ["fetch", "origin", "fixup"] -- The ref for commit c7f.
-        git ["push", "--force", "origin", (show c8) ++ ":refs/heads/master"]
+        git ["push", "--force", "origin", refSpec (c8, Branch "master")]
 
         state <- runLoop Project.emptyProjectState
           [
