@@ -289,30 +289,31 @@ parseMergeCommand config message =
     messageCaseFold = Text.toCaseFold $ Text.strip message
     prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
   in
-    -- Check if the prefix followed by ` merge and deploy` occurs within the message.
+    -- Check if the prefix followed by ` merge and {deploy,tag}` occurs within the message.
     -- We opt to include the space here, instead of making it part of the
     -- prefix, because having the trailing space in config is something that is
     -- easy to get wrong.
-    -- Note that because "merge" is an infix of "merge and deploy" we need to
-    -- check for the "merge and deploy" command first: if this order were
-    -- reversed all "merge and deploy" commands would be detected as a Merge
+    -- Note that because "merge" is an infix of "merge and xxx" we need to
+    -- check for the "merge and xxx" commands first: if this order were
+    -- reversed all "merge and xxx" commands would be detected as a Merge
     -- command.
     if (prefixCaseFold <> " merge and deploy") `Text.isInfixOf` messageCaseFold
     then Just MergeAndDeploy
     else
-      if (prefixCaseFold <> " merge") `Text.isInfixOf` messageCaseFold
-      then Just Merge
-      else Nothing
+      if (prefixCaseFold <> " merge and tag") `Text.isInfixOf` messageCaseFold
+      then Just MergeAndTag
+      else
+        if (prefixCaseFold <> " merge") `Text.isInfixOf` messageCaseFold
+        then Just Merge
+        else Nothing
 
 -- Mark the pull request as approved, and leave a comment to acknowledge that.
 approvePullRequest :: PullRequestId -> Approval -> ProjectState -> Action ProjectState
-approvePullRequest pr approval state =
-  pure $ Pr.updatePullRequest pr
+approvePullRequest pr approval = pure . Pr.updatePullRequest pr
     (\pullRequest -> pullRequest
       { Pr.approval = Just approval
       , Pr.needsFeedback = True
       })
-    state
 
 handleCommentAdded
   :: TriggerConfiguration
