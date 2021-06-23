@@ -37,6 +37,7 @@ module Project
   needsTag,
   displayApproval,
   setApproval,
+  newApprovalOrder,
   setIntegrationCandidate,
   setIntegrationStatus,
   setNeedsFeedback,
@@ -106,6 +107,7 @@ data ApprovedFor
 data Approval = Approval
   { approver    :: Username
   , approvedFor :: ApprovedFor
+  , approvalOrder :: Int
   }
   deriving (Eq, Show, Generic)
 
@@ -122,9 +124,9 @@ data PullRequest = PullRequest
   deriving (Eq, Show, Generic)
 
 data ProjectState = ProjectState
-  {
-    pullRequests         :: IntMap PullRequest,
-    integrationCandidate :: Maybe PullRequestId
+  { pullRequests              :: IntMap PullRequest
+  , integrationCandidate      :: Maybe PullRequestId
+  , pullRequestApprovalIndex  :: Int
   }
   deriving (Eq, Show, Generic)
 
@@ -163,8 +165,8 @@ instance ToJSON PullRequest where toEncoding = Aeson.genericToEncoding Aeson.def
 
 -- Reads and parses the state. Returns Nothing if parsing failed, but crashes if
 -- the file could not be read.
-loadProjectState :: FilePath -> IO (Maybe ProjectState)
-loadProjectState = fmap Aeson.decodeStrict' . readFile
+loadProjectState :: FilePath -> IO (Either String ProjectState)
+loadProjectState = fmap Aeson.eitherDecodeStrict' . readFile
 
 saveProjectState :: FilePath -> ProjectState -> IO ()
 saveProjectState fname state = do
@@ -177,7 +179,8 @@ saveProjectState fname state = do
 emptyProjectState :: ProjectState
 emptyProjectState = ProjectState {
   pullRequests         = IntMap.empty,
-  integrationCandidate = Nothing
+  integrationCandidate = Nothing,
+  pullRequestApprovalIndex = 0
 }
 
 -- Inserts a new pull request into the project, with approval set to Nothing,
@@ -226,6 +229,11 @@ updatePullRequest (PullRequestId n) f state = state {
 setApproval :: PullRequestId -> Maybe Approval -> ProjectState -> ProjectState
 setApproval pr newApproval = updatePullRequest pr changeApproval
   where changeApproval pullRequest = pullRequest { approval = newApproval }
+
+newApprovalOrder :: ProjectState -> (Int, ProjectState)
+newApprovalOrder state =
+  let index = pullRequestApprovalIndex state
+  in (index, state{ pullRequestApprovalIndex = index + 1})
 
 -- Sets the integration status for a pull request.
 setIntegrationStatus :: PullRequestId -> IntegrationStatus -> ProjectState -> ProjectState
