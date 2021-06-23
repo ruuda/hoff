@@ -161,7 +161,11 @@ runAction config = foldFree $ \case
     Git.forcePush sha prBranch >>
     Git.tag' sha newTag >>=
     \case TagFailed _ -> cont . (Left "Please check the logs",) <$> Git.push sha (Git.Branch $ Config.branch config)
-          TagOk tagName -> cont . (Right tagName,) <$> Git.pushAtomic [AsRefSpec tagName, AsRefSpec (sha, Git.Branch $ Config.branch config)]
+          TagOk tagName -> cont . (Right tagName,)
+            <$> Git.pushAtomic [AsRefSpec tagName, AsRefSpec (sha, Git.Branch $ Config.branch config)]
+            <*  Git.deleteTag tagName
+            -- Deleting tag after atomic pushg is important to maintain one "source of truth", namely
+            -- - the origin
 
   LeaveComment pr body cont -> do
     doGithub $ GithubApi.leaveComment pr body

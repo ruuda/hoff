@@ -505,6 +505,52 @@ eventLoopSpec = parallel $ do
         , "* c0"
         ]
 
+    it "tags version consistently across multiple PRs" $ do
+      (history, _branches, tags) <- withTestEnv' $ \ shas runLoop _git -> do
+        let [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
+            pr4 = PullRequestId 4
+            pr6 = PullRequestId 6
+            br4 = Branch "ahead"
+            br6 = Branch "intro"
+
+        state <- runLoop Project.emptyProjectState
+          [
+            Logic.PullRequestOpened pr4 br4 c4 "Add Leon test results" "deckard",
+            Logic.PullRequestOpened pr6 br6 c6 "Add Rachael test results" "deckard",
+            Logic.CommentAdded pr6 "rachael" "@bot merge and tag",
+            Logic.CommentAdded pr4 "rachael" "@bot merge and tag"
+          ]
+
+        let
+          Just (_prId, pullRequest6)      = Project.getIntegrationCandidate state
+          Project.Integrated rebasedSha _ = Project.integrationStatus pullRequest6
+
+        state' <- runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
+
+        let
+          Just (_prId, pullRequest4)       = Project.getIntegrationCandidate state'
+          Project.Integrated rebasedSha' _ = Project.integrationStatus pullRequest4
+        void $ runLoop state' [Logic.BuildStatusChanged rebasedSha' BuildSucceeded]
+
+      history `shouldBe`
+        [ "* c4"
+        , "*   Merge #6"
+        , "|\\"
+        , "| * c6"
+        , "| * c5"
+        , "|/"
+        , "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
+      -- PR 6 had been "built" before PR 4 and version should reflect that
+      tags `shouldMatchList`
+        [ "v3 c4"
+        , "v2 Merge #6"
+        , "v1 c1"
+        ]
+
     it "skips conflicted pull requests" $ do
       (history, branches, _tags) <- withTestEnv' $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
@@ -603,6 +649,108 @@ eventLoopSpec = parallel $ do
         ]
       -- The remote branch will still be present here,
       -- but GitHub will remove it automatically if configured to do so.
+
+    it "pushes tags atomically (rejected push)" $ do
+      (history, _branches, tags) <- withTestEnv' $ \ shas runLoop git -> do
+        let
+          [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
+          pr6 = PullRequestId 6
+          branch = Branch "intro"
+
+        state <- runLoop Project.emptyProjectState
+          [
+            Logic.PullRequestOpened pr6 branch c6 "Add test results" "deckard",
+            Logic.CommentAdded pr6 "rachael" "@bot merge and tag"
+          ]
+
+        -- At this point, c6 has been rebased and pushed to the "integration"
+        -- branch for building. Before we notify build success, push commmit c4
+        -- to the origin "master" branch, so that pushing the rebased c6 will
+        -- fail later on.
+        git ["fetch", "origin", "ahead"] -- The ref for commit c4.
+        git ["push", "origin", refSpec (c4, Branch "master")]
+
+        let
+          Just (_prId, pullRequest)       = Project.getIntegrationCandidate state
+          Project.Integrated rebasedSha _ = Project.integrationStatus pullRequest
+        state' <- runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
+
+        -- Again notify build success, now for the new commit.
+        let
+          Just (_prId, pullRequest')       = Project.getIntegrationCandidate state'
+          Project.Integrated rebasedSha' _ = Project.integrationStatus pullRequest'
+        void $ runLoop state' [Logic.BuildStatusChanged rebasedSha' BuildSucceeded]
+
+        -- After the second build success, the pull request should have been
+        -- integrated properly, version should be incremented only once
+
+      history `shouldBe`
+        [ "*   Merge #6"
+        , "|\\"
+        , "| * c6"
+        , "| * c5"
+        , "|/"
+        , "* c4"
+        , "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
+      tags `shouldMatchList`
+        [ "v1 c1"
+        , "v2 Merge #6"]
+
+    it "pushes tags atomically (new tag appears)" $ do
+      (history, _branches, tags) <- withTestEnv' $ \ shas runLoop git -> do
+        let
+          [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
+          pr6 = PullRequestId 6
+          branch = Branch "intro"
+
+        state <- runLoop Project.emptyProjectState
+          [
+            Logic.PullRequestOpened pr6 branch c6 "Add test results" "deckard",
+            Logic.CommentAdded pr6 "rachael" "@bot merge and tag"
+          ]
+
+        -- At this point, c6 has been rebased and pushed to the "integration" branch for building.
+        -- Before we notify build success, push commmit c4 and a new tag to the origin "master"
+        -- branch, so that pushing the rebased c6 will fail later on.
+        git ["fetch", "origin", "ahead"] -- The ref for commit c4.
+        git ["push", "origin", refSpec (c4, Branch "master")]
+        git ["tag", "-a", "v2", "-m", "v2", refSpec c4]
+        git ["push", "origin", refSpec (Git.TagName "v2")]
+
+        let
+          Just (_prId, pullRequest)       = Project.getIntegrationCandidate state
+          Project.Integrated rebasedSha _ = Project.integrationStatus pullRequest
+        state' <- runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
+
+        -- Again notify build success, now for the new commit.
+        let
+          Just (_prId, pullRequest')       = Project.getIntegrationCandidate state'
+          Project.Integrated rebasedSha' _ = Project.integrationStatus pullRequest'
+        void $ runLoop state' [Logic.BuildStatusChanged rebasedSha' BuildSucceeded]
+
+        -- After the second build success, the pull request should have been integrated properly,
+        -- version should be incremented only once, and follow version that appeared in the meantime
+
+      history `shouldBe`
+        [ "*   Merge #6"
+        , "|\\"
+        , "| * c6"
+        , "| * c5"
+        , "|/"
+        , "* c4"
+        , "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
+      tags `shouldMatchList`
+        [ "v1 c1"
+        , "v2 c4"
+        , "v3 Merge #6"]
 
     it "applies fixup commits during rebase, even if fast forward is possible" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do

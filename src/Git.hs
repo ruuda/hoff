@@ -29,6 +29,7 @@ module Git
   TagResult (..),
   callGit,
   clone,
+  deleteTag,
   doesGitDirectoryExist,
   fetchBranch,
   forcePush,
@@ -154,6 +155,7 @@ data GitOperationFree a
   | DoesGitDirectoryExist (Bool -> a)
   | LastTag Sha (Maybe Text -> a)
   | Tag Sha TagName Text (TagResult -> a)
+  | DeleteTag TagName a
   deriving (Functor)
 
 type GitOperation = Free GitOperationFree
@@ -199,6 +201,9 @@ tag sha name message = liftF $ Tag sha name message id
 
 tag' :: Sha -> TagName -> GitOperation TagResult
 tag' sha t@(TagName name) = tag sha t name
+
+deleteTag :: TagName -> GitOperation ()
+deleteTag t = liftF $ DeleteTag t ()
 
 -- Invokes Git with the given arguments. Returns its output on success, or the
 -- exit code and stderr on error.
@@ -263,7 +268,7 @@ runGit userConfig repoDir operation =
 
   in case operation of
     FetchBranch branch cont -> do
-      result <- callGitInRepo ["fetch", "origin", refSpec branch]
+      result <- callGitInRepo ["fetch", "--tags", "origin", refSpec branch]
       case result of
         Left  _ -> logWarnN "warning: git fetch failed"
         Right _ -> return ()
@@ -394,6 +399,8 @@ runGit userConfig repoDir operation =
           logInfoN $ format "tagged {} with {}" [show sha, show t]
           pure $ cont $ TagOk t
 
+    DeleteTag t cont -> cont <$ callGitInRepo ["tag", "-d", refSpec t]
+
 -- Interpreter that runs only Git operations that have no side effects on the
 -- remote; it does not push.
 runGitReadOnly
@@ -420,6 +427,7 @@ runGitReadOnly userConfig repoDir operation =
       DoesGitDirectoryExist {} -> unsafeResult
       LastTag {} -> unsafeResult
       Tag {} -> unsafeResult
+      DeleteTag {} -> unsafeResult
 
       -- These operations mutate the remote, so we don't execute them in
       -- read-only mode.
