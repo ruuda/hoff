@@ -49,6 +49,7 @@ import Control.Monad.Free (Free, liftF)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import Data.Aeson
+import Data.Either (isLeft)
 import Data.List (intersperse)
 import Data.Text (Text)
 import System.Directory (doesDirectoryExist)
@@ -198,10 +199,6 @@ tag sha name message = liftF $ Tag sha name message id
 
 tag' :: Sha -> TagName -> GitOperation TagResult
 tag' sha t@(TagName name) = tag sha t name
-
-isLeft :: Either a b -> Bool
-isLeft (Left _)  = True
-isLeft (Right _) = False
 
 -- Invokes Git with the given arguments. Returns its output on success, or the
 -- exit code and stderr on error.

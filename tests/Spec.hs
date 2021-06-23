@@ -8,6 +8,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 import Control.Monad.Free (foldFree)
 import Control.Monad.Trans.RWS.Strict (RWS)
@@ -28,7 +29,7 @@ import qualified Data.IntSet as IntSet
 import qualified Data.UUID.V4 as Uuid
 
 import EventLoop (convertGithubEvent)
-import Git (Branch (..), PushResult(..), Sha (..))
+import Git (Branch (..), PushResult (..), Sha (..), TagName (TagName))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
 import Logic (Action, ActionFree (..), Event (..), IntegrationFailure (..))
 import Project (Approval (..), ProjectState (ProjectState), PullRequest (PullRequest))
@@ -69,11 +70,12 @@ candidateState pr prBranch prSha prAuthor approvedBy candidateSha =
 
 data ActionFlat
   = ATryIntegrate
-    { mergeMessage :: Text
+    { mergeMessage         :: Text
     , integrationCandidate :: (Branch, Sha)
     , alwaysAddMergeCommit :: Bool
     }
   | ATryPromote Branch Sha
+  | ATryPromoteWithTag Branch Sha TagName
   | ALeaveComment PullRequestId Text
   | AIsReviewer Username
   | AGetPullRequest PullRequestId
@@ -83,10 +85,11 @@ data ActionFlat
 -- Results to return from various operations during the tests. There is a
 -- default, but specific tests can override some results, to test failure cases.
 data Results = Results
-  { resultIntegrate :: [Either IntegrationFailure Sha]
-  , resultPush :: [PushResult]
-  , resultGetPullRequest :: [Maybe GithubApi.PullRequest]
+  { resultIntegrate           :: [Either IntegrationFailure Sha]
+  , resultPush                :: [PushResult]
+  , resultGetPullRequest      :: [Maybe GithubApi.PullRequest]
   , resultGetOpenPullRequests :: [Maybe IntSet]
+  , resultGetLatestVersion    :: [Either TagName Integer]
   }
 
 defaultResults :: Results
@@ -94,10 +97,12 @@ defaultResults = Results
     -- Pretend that integration always conflicts.
   { resultIntegrate = repeat $ Left $ Logic.IntegrationFailure $ Branch "master"
     -- Pretend that pushing is always successful.
-  , resultPush = repeat $ PushOk
+  , resultPush = repeat PushOk
     -- Pretend that these two calls to GitHub always fail.
-  , resultGetPullRequest = repeat $ Nothing
-  , resultGetOpenPullRequests = repeat $ Nothing
+  , resultGetPullRequest = repeat Nothing
+  , resultGetOpenPullRequests = repeat Nothing
+    -- And pretend that latest version just grows incrementally
+  , resultGetLatestVersion = Right <$> [1 ..]
   }
 
 -- Consume the head of the field with given getter and setter in the Results.
@@ -143,6 +148,13 @@ takeResultGetOpenPullRequests =
     resultGetOpenPullRequests
     (\v res -> res { resultGetOpenPullRequests = v })
 
+takeResultGetLatestVersion :: (HasCallStack, Monoid w) => RWS r w Results (Either TagName Integer)
+takeResultGetLatestVersion =
+  takeFromList
+    "resultGetLatestVersion"
+    resultGetLatestVersion
+    (\v res -> res { resultGetLatestVersion = v })
+
 -- This function simulates running the actions, and returns the final state,
 -- together with a list of all actions that would have been performed. Some
 -- actions require input from the outside world. Simulating these actions will
@@ -160,6 +172,9 @@ runActionRws =
       TryPromote prBranch headSha cont -> do
         Rws.tell [ATryPromote prBranch headSha]
         cont <$> takeResultPush
+      TryPromoteWithTag prBranch headSha newTag cont -> do
+        Rws.tell [ATryPromoteWithTag prBranch headSha newTag]
+        cont . (Right newTag, ) <$> takeResultPush
       LeaveComment pr body cont -> do
         Rws.tell [ALeaveComment pr body]
         pure cont
@@ -172,6 +187,7 @@ runActionRws =
       GetOpenPullRequests cont -> do
         Rws.tell [AGetOpenPullRequests]
         cont <$> takeResultGetOpenPullRequests
+      GetLatestVersion _ cont -> cont <$> takeResultGetLatestVersion
 
 -- Simulates running the action. Use the provided results as result for various
 -- operations. Results are consumed one by one.
@@ -185,7 +201,7 @@ runAction = runActionCustom defaultResults
 -- Handle an event, then advance the state until a fixed point,
 -- and simulate its side effects.
 handleEventTest :: Event -> ProjectState -> Action ProjectState
-handleEventTest event state = Logic.handleEvent testTriggerConfig event state
+handleEventTest = Logic.handleEvent testTriggerConfig
 
 -- Handle events (advancing the state until a fixed point in between) and
 -- simulate their side effects.
@@ -578,6 +594,26 @@ main = hspec $ do
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.approval pr== Just (Approval (Username "deckard") Project.MergeAndDeploy))
 
+    it "recognizes 'merge and tag' command" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge and tag"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (state', actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge and tag by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag))
+
   describe "Logic.proceedUntilFixedPoint" $ do
 
     it "finds a new candidate" $ do
@@ -621,6 +657,57 @@ main = hspec $ do
       candidate `shouldBe` Nothing
       actions   `shouldBe` [ATryPromote (Branch "results/rachael") (Sha "38d")]
 
+    it "pushes and tags with a new version after a successful build" $ do
+      let
+        pullRequest = PullRequest
+          { Project.branch              = Branch "results/rachael"
+          , Project.sha                 = Sha "f35"
+          , Project.title               = "Add my test results"
+          , Project.author              = "rachael"
+          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag)
+          , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
+          , Project.integrationAttempts = []
+          , Project.needsFeedback       = False
+          }
+        state = ProjectState
+          { Project.pullRequests         = IntMap.singleton 1 pullRequest
+          , Project.integrationCandidate = Just $ PullRequestId 1
+          }
+        results = defaultResults { resultIntegrate = [Right (Sha "38e")] }
+        (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
+        candidate = Project.getIntegrationCandidate state'
+      -- After a successful push, the candidate should be gone.
+      candidate `shouldBe` Nothing
+      actions   `shouldBe` [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2")
+                           , ALeaveComment (PullRequestId 1) "@deckard I tagged your PR with `v2`. Don't forget to deploy it!"
+                           ]
+
+    it "pushes after successful build even if tagging failed" $ do
+      let
+        pullRequest = PullRequest
+          { Project.branch              = Branch "results/rachael"
+          , Project.sha                 = Sha "f35"
+          , Project.title               = "Add my test results"
+          , Project.author              = "rachael"
+          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag)
+          , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
+          , Project.integrationAttempts = []
+          , Project.needsFeedback       = False
+          }
+        state = ProjectState
+          { Project.pullRequests         = IntMap.singleton 1 pullRequest
+          , Project.integrationCandidate = Just $ PullRequestId 1
+          }
+        results = defaultResults { resultIntegrate = [Right (Sha "38e")]
+                                 , resultGetLatestVersion = [Left (TagName "abcdef")] }
+        (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
+        candidate = Project.getIntegrationCandidate state'
+      -- After a successful push, the candidate should be gone.
+      candidate `shouldBe` Nothing
+      actions   `shouldBe` [ ALeaveComment (PullRequestId 1) "@deckard Sorry, I could not tag your PR. The previous tag `abcdef` seems invalid"
+                           , ATryPromote (Branch "results/rachael") (Sha "38d")]
+
+
     it "restarts the sequence after a rejected push" $ do
       -- Set up a pull request that has gone through the review and build cycle,
       -- and is ready to be pushed to master.
@@ -652,6 +739,41 @@ main = hspec $ do
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
       actions `shouldBe`
         [ ATryPromote (Branch "results/rachael") (Sha "38d")
+        , ATryIntegrate "Merge #1: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "f35") False
+        , ALeaveComment (PullRequestId 1) "Rebased as 38e, waiting for CI \x2026"
+        ]
+
+    it "restarts the sequence after a rejected push with tag" $ do
+      -- Set up a pull request that has gone through the review and build cycle,
+      -- and is ready to be pushed to master.
+      let
+        pullRequest = PullRequest
+          { Project.branch              = Branch "results/rachael"
+          , Project.sha                 = Sha "f35"
+          , Project.title               = "Add my test results"
+          , Project.author              = "rachael"
+          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag)
+          , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
+          , Project.integrationAttempts = []
+          , Project.needsFeedback       = False
+          }
+        state = ProjectState
+          { Project.pullRequests         = IntMap.singleton 1 pullRequest
+          , Project.integrationCandidate = Just $ PullRequestId 1
+          }
+        -- Run 'proceedUntilFixedPoint', and pretend that pushes fail (because
+        -- something was pushed in the mean time, for instance).
+        results = defaultResults
+          { resultIntegrate = [Right (Sha "38e")]
+          , resultPush = [PushRejected]
+          }
+        (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
+        (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
+
+      Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") Project.BuildPending
+      Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
+      actions `shouldBe`
+        [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2")
         , ATryIntegrate "Merge #1: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "f35") False
         , ALeaveComment (PullRequestId 1) "Rebased as 38e, waiting for CI \x2026"
         ]

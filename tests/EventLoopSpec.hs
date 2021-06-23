@@ -53,7 +53,7 @@ callGit args = fmap (either undefined id) $ runNoLoggingT $ Git.callGit userConf
 --                 .-- c5 -- c6  <-- intro (pr 6)
 --                /
 --   c0 -- c1 -- c2 -- c3 -- c4  <-- ahead (pr 4)
---                \     ^----------- master
+--        <v1>    \     ^----------- master
 --                 `-- c3'       <-- alternative (pr 3)
 --
 --   c6 -- c7 -- c8 -- c7f <-------- fixup (pr 8)
@@ -83,6 +83,7 @@ populateRepository dir =
       writeFile "roy.txt" "It's not an easy thing to meet your maker."
       gitAdd "roy.txt"
       c1 <- gitCommit "c1: Add new quote"
+      void $ git ["tag", "-a", "v1", "-m", "v1", refSpec c1]
 
       appendFile "tyrell.txt" "What can he do for you?"
       gitAdd "tyrell.txt"
@@ -259,7 +260,7 @@ type GitRunner = [String] -> IO ()
 -- prefixes of the remote master branch log. The body function is provided with
 -- the shas of the test repository and a function to run the event loop.
 withTestEnv :: ([Sha] -> LoopRunner -> GitRunner -> IO ()) -> IO [Text]
-withTestEnv = fmap fst . withTestEnv'
+withTestEnv = fmap (\(history, _branches, _tags) -> history) . withTestEnv'
 
 -- Sets up a test environment with an actual Git repository on the file system,
 -- and a thread running the main event loop. Then invokes the body, and tears
@@ -269,7 +270,7 @@ withTestEnv = fmap fst . withTestEnv'
 -- to run the event loop.
 withTestEnv'
   :: ([Sha] -> LoopRunner -> GitRunner -> IO ())
-  -> IO ([Text], [Branch])
+  -> IO ([Text], [Branch], [Text])
 withTestEnv' body = do
   -- To run these tests, a real repository has to be made somewhere. Do that in
   -- /tmp because it can be mounted as a ramdisk, so it is fast and we don't
@@ -304,20 +305,26 @@ withTestEnv' body = do
   -- shas depending on the time of the rebase.)
   masterLog <- callGit ["-C", originDir, "log", "--format=%s", "--graph", "master"]
   branchesRaw <- callGit ["-C", originDir, "branch", "--format=%(refname:short)"]
+  -- Tags are sorted in no particular order and displayed as 'tagname commit_number: message'. We
+  -- filter out the messages so that only colon numbers remain
+  tagsRaw <- callGit ["-C", originDir, "log", "--tags", "--no-walk", "--format=%S %s"]
   let
-    commits = Text.strip . Text.takeWhile (/= ':') <$> Text.lines masterLog
+    commits = stripMessage <$> Text.lines masterLog
     branches = Branch <$> Text.lines branchesRaw
+    tags = stripMessage <$> Text.lines tagsRaw
 
   makeWritableRecursive testDir
   FileSystem.removeDirectoryRecursive testDir
-  pure (commits, branches)
+  pure (commits, branches, tags)
+  where
+    stripMessage = Text.strip . Text.takeWhile (/= ':')
 
 eventLoopSpec :: Spec
 eventLoopSpec = parallel $ do
   describe "The main event loop" $ do
 
     it "handles a fast-forwardable pull request" $ do
-      (history, branches) <- withTestEnv' $ \ shas runLoop _git -> do
+      (history, branches, _tags) <- withTestEnv' $ \ shas runLoop _git -> do
         let
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
           -- Note that at the remote, refs/pull/4/head points to c4.
@@ -346,9 +353,35 @@ eventLoopSpec = parallel $ do
       -- The other branches should be left untouched.
       branches `shouldMatchList`
         fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused", "integration"]
+    it "handles a fast-forwardable pull request with tag" $ do
+      (history, _branches, tags) <- withTestEnv' $ \ shas runLoop _git -> do
+        let
+          [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
+          pr4 = PullRequestId 4
+          branch = Branch "ahead"
+
+        -- Commit c4 is one commit ahead of master, so integrating it can be done
+        -- with a fast-forward merge. A new tag `v2` should appear
+        void $ runLoop Project.emptyProjectState
+          [
+            Logic.PullRequestOpened pr4 branch c4 "Deploy tests!" "deckard",
+            Logic.CommentAdded pr4 "rachael" "@bot merge and tag",
+            Logic.BuildStatusChanged c4 BuildSucceeded
+          ]
+      history `shouldBe`
+        [ "* c4"
+        , "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
+      tags `shouldMatchList`
+        [ "v1 c1"
+        , "v2 c4"
+        ]
 
     it "handles a non-conflicting non-fast-forwardable pull request" $ do
-      (history, branches) <- withTestEnv' $ \ shas runLoop _git -> do
+      (history, branches, _tags) <- withTestEnv' $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6, _c7, _c7f, _c8] = shas
             -- Note that at the remote, refs/pull/6/head points to c6.
             pr6 = PullRequestId 6
@@ -388,6 +421,42 @@ eventLoopSpec = parallel $ do
       -- The other branches should be left untouched.
       branches `shouldMatchList`
         fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused", "integration"]
+
+    it "handles a non-conflicting non-fast-forwardable pull request with tag" $ do
+      (history, _branches, tags) <- withTestEnv' $ \ shas runLoop _git -> do
+        let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6, _c7, _c7f, _c8] = shas
+            pr6 = PullRequestId 6
+            branch = Branch "intro"
+
+        -- Commit c6 is two commits ahead and one behind of master, so
+        -- integrating it produces new rebased commits.
+        state <- runLoop Project.emptyProjectState
+          [
+            Logic.PullRequestOpened pr6 branch c6 "Deploy it now!" "deckard",
+            Logic.CommentAdded pr6 "rachael" "@bot merge and tag"
+          ]
+
+        let
+          Just (_prId, pullRequest)       = Project.getIntegrationCandidate state
+          Project.Integrated rebasedSha _ = Project.integrationStatus pullRequest
+
+        void $ runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
+
+      history `shouldBe`
+        [ "*   Merge #6"
+        , "|\\"
+        , "| * c6"
+        , "| * c5"
+        , "|/"
+        , "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
+      tags `shouldMatchList`
+        [ "v2 Merge #6"
+        , "v1 c1"
+        ]
 
     it "handles multiple pull requests" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
@@ -437,7 +506,7 @@ eventLoopSpec = parallel $ do
         ]
 
     it "skips conflicted pull requests" $ do
-      (history, branches) <- withTestEnv' $ \ shas runLoop _git -> do
+      (history, branches, _tags) <- withTestEnv' $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
             pr3 = PullRequestId 3
             pr4 = PullRequestId 4
