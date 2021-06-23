@@ -16,6 +16,11 @@ blocks:
       jobs:
         - name: "Build, test, package, ship"
           commands:
+            # Change permissions of the shipping key to avoid SSH complaining
+            # about the default file permissions that Semaphore uses.
+            - "chmod 0600 ~/.ssh/id_ed25519"
+            - "ssh-add ~/.ssh/id_ed25519"
+
             - "checkout"
 
             # Restore `/nix` cache. Create the directory first, otherwise we encounter
@@ -61,11 +66,6 @@ blocks:
 
             # Store the dependencies that Stack compiled for us.
             - "cache store stack-cache-$(checksum stack.yaml.lock)-$(checksum hoff.cabal) $HOME/.stack"
-
-            # Change permissions of the shipping key to avoid SSH complaining
-            # about the default file permissions that Semaphore uses.
-            - "chmod 0600 ~/.ssh/id_ed25519"
-            - "ssh-add ~/.ssh/id_ed25519"
 
             # Configure SSH keys for our shipping destination.
             - "tee < package/known_hosts >> $HOME/.ssh/known_hosts"
