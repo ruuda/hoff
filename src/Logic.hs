@@ -33,11 +33,12 @@ module Logic
 where
 
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
-import Control.Concurrent.STM.TMVar (TMVar, newTMVar, readTMVar, swapTMVar)
+import Control.Concurrent.STM.TMVar (TMVar, newTMVarIO, readTMVar, swapTMVar)
 import Control.Exception (assert)
-import Control.Monad (foldM, when, void)
-import Control.Monad.Free (Free (..), foldFree, liftF, hoistFree)
+import Control.Monad (foldM, unless, void)
+import Control.Monad.Free (Free (..), foldFree, hoistFree, liftF)
 import Control.Monad.STM (atomically)
+import Data.Bifunctor (first)
 import Data.Functor.Sum (Sum (InL, InR))
 import Data.IntSet (IntSet)
 import Data.Maybe (fromJust, isJust)
@@ -52,27 +53,22 @@ import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Format (format)
 import Git (Branch (..), GitOperation, GitOperationFree, PushResult (..), Sha (..))
 import GithubApi (GithubOperation, GithubOperationFree)
-import Project (Approval (..))
-import Project (ApprovedFor (..))
-import Project (BuildStatus (..))
-import Project (IntegrationStatus (..))
-import Project (PullRequestStatus (..))
-import Project (ProjectState)
-import Project (PullRequest)
+import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
+                ProjectState, PullRequest, PullRequestStatus (..))
 import Types (PullRequestId (..), Username (..))
 
+import qualified Configuration as Config
 import qualified Git
 import qualified GithubApi
 import qualified Project as Pr
-import qualified Configuration as Config
 
 data ActionFree a
   = TryIntegrate
     -- This is a record type, but the names are currently only used for documentation.
-    { _mergeCommitMessage :: Text
+    { _mergeCommitMessage   :: Text
     , _integrationCandidate :: (Branch, Sha)
     , _alwaysAddMergeCommit :: Bool
-    , _cont :: Either IntegrationFailure Sha -> a
+    , _cont                 :: Either IntegrationFailure Sha -> a
     }
   | TryPromote Branch Sha (PushResult -> a)
   | LeaveComment PullRequestId Text a
@@ -87,7 +83,7 @@ type Operation = Free (Sum GitOperationFree GithubOperationFree)
 
 -- | Error returned when 'TryIntegrate' fails.
 -- It contains the name of the target branch that the PR was supposed to be integrated into.
-data IntegrationFailure = IntegrationFailure Branch
+newtype IntegrationFailure = IntegrationFailure Branch
 
 doGit :: GitOperation a -> Operation a
 doGit = hoistFree InL
@@ -155,7 +151,7 @@ runAction config = foldFree $ \case
     pure $ cont details
 
   GetOpenPullRequests cont -> do
-    openPrIds <- doGithub $ GithubApi.getOpenPullRequests
+    openPrIds <- doGithub GithubApi.getOpenPullRequests
     pure $ cont openPrIds
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
@@ -169,12 +165,11 @@ ensureCloned config =
     cloneWithRetry (triesLeft :: Int) = do
       result <- Git.clone (Git.RemoteUrl url)
       case result of
-        Git.CloneOk -> pure ()
+        Git.CloneOk     -> pure ()
         Git.CloneFailed -> cloneWithRetry (triesLeft - 1)
   in do
     exists <- Git.doesGitDirectoryExist
-    when (not exists) (cloneWithRetry 3)
-    pure ()
+    unless exists (cloneWithRetry 3)
 
 data Event
   -- GitHub events
@@ -213,7 +208,7 @@ dequeueEvent queue = atomically $ readTBQueue queue
 
 -- Creates a new project state variable.
 newStateVar :: ProjectState -> IO StateVar
-newStateVar initialState = atomically $ newTMVar initialState
+newStateVar = newTMVarIO
 
 -- Put a new value in the project state variable, discarding the previous one.
 updateStateVar :: StateVar -> ProjectState -> IO ()
@@ -266,12 +261,13 @@ handlePullRequestCommitChanged pr newSha state =
         closedState >>= handlePullRequestOpened pr branch newSha title author
   in
     case Pr.lookupPullRequest pr state of
-      -- If the change notification was a false positive, ignore it.
-      Just pullRequest | Pr.sha pullRequest == newSha -> pure state
-      -- If the new commit hash is one that we pushed ourselves, ignore the
-      -- change too, we don't want to lose the approval status.
-      Just pullRequest | newSha `Pr.wasIntegrationAttemptFor` pullRequest -> pure state
-      Just pullRequest -> update pullRequest
+      Just pullRequest
+        -- If the change notification was a false positive, ignore it.
+        | Pr.sha pullRequest == newSha -> pure state
+        -- If the new commit hash is one that we pushed ourselves, ignore the
+        -- change too, we don't want to lose the approval status.
+        | newSha `Pr.wasIntegrationAttemptFor` pullRequest -> pure state
+        | otherwise -> update pullRequest
       -- If the pull request was not present in the first place, do nothing.
       Nothing -> pure state
 
@@ -357,7 +353,7 @@ handleBuildStatusChanged buildSha newStatus state =
   in
     case Pr.integrationCandidate state of
       Just candidateId -> Pr.updatePullRequest candidateId setBuildStatus state
-      Nothing -> state
+      Nothing          -> state
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
 synchronizeState :: ProjectState -> Action ProjectState
@@ -390,8 +386,7 @@ synchronizeState stateInitial =
       stateClosed <- foldM (flip handlePullRequestClosed) stateInitial prsToClose
       -- Then get the details for all pull requests that are open on GitHub, but
       -- which are not yet in our state, and add them.
-      stateOpened <- foldM insertMissingPr stateClosed prsToOpen
-      pure stateOpened
+      foldM insertMissingPr stateClosed prsToOpen
 
 -- Determines if there is anything to do, and if there is, generates the right
 -- actions and updates the state accordingly. For example, if the current
@@ -453,9 +448,8 @@ tryIntegratePullRequest pr state =
       , format "Auto-deploy: {}" [if approvalType == MergeAndDeploy then "true" else "false" :: Text]
       ]
     mergeMessage = Text.unlines mergeMessageLines
-    alwaysAddMergeCommit = approvalType == MergeAndDeploy
   in do
-    result <- tryIntegrate mergeMessage candidate alwaysAddMergeCommit
+    result <- tryIntegrate mergeMessage candidate $ Pr.alwaysAddMergeCommit approvalType
     case result of
       Left (IntegrationFailure targetBranch) ->
         -- If integrating failed, perform no further actions but do set the
@@ -518,10 +512,8 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
   PrStatusAwaitingApproval -> "Pull request awaiting approval."
   PrStatusApproved ->
     let
-      Approval approvedBy approvalType = fromJust $ Pr.approval pr
-      approvalCommand = case approvalType of
-        Merge -> "merge"
-        MergeAndDeploy -> "merge and deploy"
+      Approval (Username approvedBy) approvalType = fromJust $ Pr.approval pr
+      approvalCommand = Pr.displayApproval approvalType
     in case Pr.getQueuePosition prId state of
       0 -> format "Pull request approved for {} by @{}, rebasing now." [approvalCommand, approvedBy]
       1 -> format "Pull request approved for {} by @{}, waiting for rebase at the front of the queue." [approvalCommand, approvedBy]
@@ -567,7 +559,7 @@ provideFeedback :: ProjectState -> Action ProjectState
 provideFeedback state
   = foldM (flip leaveFeedback) state
   $ filter (Pr.needsFeedback . snd)
-  $ fmap (\(key, pr) -> (PullRequestId key, pr))
+  $ fmap (first PullRequestId)
   $ IntMap.toList $ Pr.pullRequests state
 
 handleEvent

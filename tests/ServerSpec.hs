@@ -15,8 +15,7 @@
 
 module ServerSpec (serverSpec) where
 
-import Control.Concurrent.Async (async, asyncThreadId, waitCatch)
-import Control.Concurrent (killThread)
+import Control.Concurrent.Async (withAsync)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (tryReadTBQueue)
 import Control.Monad (replicateM_)
@@ -27,9 +26,8 @@ import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Network.HTTP.Simple (Response)
 import Network.HTTP.Types.Header (Header, HeaderName, hContentType)
-import Network.HTTP.Types.Status (badRequest400, internalServerError500)
-import Network.HTTP.Types.Status (notFound404, notImplemented501, ok200)
-import Network.HTTP.Types.Status (serviceUnavailable503)
+import Network.HTTP.Types.Status (badRequest400, notFound404, notImplemented501, ok200,
+                                  serviceUnavailable503)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
 import qualified Data.ByteString.Char8 as ByteString.Strict
@@ -81,7 +79,7 @@ testSecret = "N6MAC41717"
 computeSignature :: Text -> LazyByteString -> StrictByteString
 computeSignature secret message =
   let digest = hmac (encodeUtf8 secret) (ByteString.Lazy.toStrict message) :: HMAC SHA1
-  in  ByteString.Strict.pack $ "sha1=" ++ (show $ hmacGetDigest digest)
+  in  ByteString.Strict.pack $ "sha1=" ++ show (hmacGetDigest digest)
 
 -- Peforms an http post request for an event with the given body payload. The
 -- host is prepended to the url automatically. (Also, three different string
@@ -132,16 +130,9 @@ withServer body = do
   -- requests, and then run the body with access to the queue.
   (runServer, blockUntilReady) <-
     buildServer testPort Nothing [info] testSecret tryEnqueue getProjectState getOwnerState
-  serverAsync <- async runServer
-  blockUntilReady
-  body ghQueue
-
-  -- Stop the server by killing the thread. This will not immediately stop the
-  -- server, but we do need to ensure that the port is available after we exit
-  -- the function, so the next test can use it, so also wait for the thread to
-  -- finish after killing it.
-  killThread $ asyncThreadId serverAsync
-  _ <- waitCatch serverAsync
+  withAsync runServer $ \_ -> do
+    blockUntilReady
+    body ghQueue
   return ()
 
 serverSpec :: Spec
@@ -246,7 +237,7 @@ serverSpec = do
         -- First send an invalid webhook with a bad payload.
         let badPayload = "this is definitely not valid json"
         badResponse <- httpPostGithubEvent "/hook/github" "status" badPayload
-        Http.getResponseStatus badResponse `shouldBe` internalServerError500
+        Http.getResponseStatus badResponse `shouldBe` badRequest400
         -- Now sends a valid one, and verify that an event arrives.
         goodPayload  <- ByteString.Lazy.readFile "tests/data/status-payload.json"
         goodResponse <- httpPostGithubEvent "/hook/github" "status" goodPayload

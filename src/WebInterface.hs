@@ -12,24 +12,24 @@ module WebInterface (renderPage, viewIndex, viewProject, viewOwner, stylesheet, 
 
 import Control.Monad (forM_, unless, void)
 import Crypto.Hash (Digest, SHA256, hash)
-import Data.ByteArray.Encoding (Base(Base64, Base64URLUnpadded), convertToBase)
-import Data.FileEmbed (embedStringFile)
-import Data.Monoid ((<>))
 import Data.Bifunctor (second)
+import Data.ByteArray.Encoding (Base (Base64, Base64URLUnpadded), convertToBase)
+import Data.FileEmbed (embedStringFile)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
-import Prelude hiding (id, div, head, span)
-import Text.Blaze ((!), toValue)
-import Text.Blaze.Internal (Attribute, AttributeValue, attribute)
+import Prelude hiding (div, head, id, span)
+import Text.Blaze (toValue, (!))
 import Text.Blaze.Html.Renderer.Utf8
-import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, h3, head, link, meta, p, span, title, toHtml)
-import Text.Blaze.Html5.Attributes (class_, charset, content, href, id, name, rel)
+import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, h3, head, link, meta, p, span,
+                         title, toHtml)
+import Text.Blaze.Html5.Attributes (charset, class_, content, href, id, name, rel)
+import Text.Blaze.Internal (Attribute, AttributeValue, attribute)
 
 import qualified Data.ByteString.Lazy as LazyByteString
 import qualified Data.Text as Text
 
 import Format (format)
-import Project (Approval (..), ApprovedFor (..), ProjectInfo, ProjectState, PullRequest, Owner)
+import Project (Approval (..), Owner, ProjectInfo, ProjectState, PullRequest)
 import Types (PullRequestId (..), Username (..))
 
 import qualified Project
@@ -240,15 +240,13 @@ viewPullRequestWithApproval info prId pullRequest = do
   case Project.approval pullRequest of
     Just Approval { approver = Username username, approvedFor = approvalType } ->
       span ! class_ "review" $ do
-        let approvedAction = case approvalType of
-              Merge -> "merge"
-              MergeAndDeploy -> "merge and deploy"
-        toHtml $ format "Approved for {} by " [approvedAction :: String]
+        let approvedAction = Project.displayApproval approvalType
+        toHtml $ format "Approved for {} by " [approvedAction]
         -- TODO: Link to approval comment, not just username.
         let url = Text.append "https://github.com/" username
         a ! href (toValue url) $ toHtml username
     Nothing ->
-      fail $
+      error $
         "Tried to render approval link for pull request " ++ (show prId) ++
         " which was not approved. This is a programming error."
 

@@ -33,6 +33,8 @@ module Project
   loadProjectState,
   lookupPullRequest,
   saveProjectState,
+  alwaysAddMergeCommit,
+  displayApproval,
   setApproval,
   setIntegrationCandidate,
   setIntegrationStatus,
@@ -100,7 +102,7 @@ data ApprovedFor
 -- For a PR to be approved a specific user must give a specific approval
 -- command, i.e. either just "merge" or "merge and deploy".
 data Approval = Approval
-  { approver :: Username
+  { approver    :: Username
   , approvedFor :: ApprovedFor
   }
   deriving (Eq, Show, Generic)
@@ -249,8 +251,7 @@ setIntegrationCandidate pr state = state {
 }
 
 setNeedsFeedback :: PullRequestId -> Bool -> ProjectState -> ProjectState
-setNeedsFeedback pr value state =
-  updatePullRequest pr (\pullRequest -> pullRequest { needsFeedback = value }) state
+setNeedsFeedback pr value = updatePullRequest pr (\pullRequest -> pullRequest { needsFeedback = value })
 
 classifyPullRequest :: PullRequest -> PullRequestStatus
 classifyPullRequest pr = case approval pr of
@@ -338,3 +339,11 @@ candidatePullRequests state =
 
 getOwners :: [ProjectInfo] -> [Owner]
 getOwners = nub . map owner
+
+displayApproval :: ApprovedFor -> Text
+displayApproval Merge          = "merge"
+displayApproval MergeAndDeploy = "merge and deploy"
+
+alwaysAddMergeCommit :: ApprovedFor -> Bool
+alwaysAddMergeCommit Merge          = False
+alwaysAddMergeCommit MergeAndDeploy = True

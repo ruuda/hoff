@@ -5,22 +5,29 @@
 
 packages:
 - completed:
-    hackage: github-0.25@sha256:32e1ede86a04976e06740a5993fab5306c5dbfdd17e96d83b79e53b82195739e,7091
+    hackage: github-0.26@sha256:a9d4046325c3eb28cdc7bef2c3f5bb213328caeae0b7dce6f51de655f0bffaa1,7162
     pantry-tree:
-      size: 7412
-      sha256: 7cdaaf168051ed364ee9e2e565c63e2257755720fe5bfa287331e06581ea78f1
+      size: 7511
+      sha256: b71aab2984b268030c9e2617043575681134c1fe60dffbd5596e659c0a3e9aec
   original:
-    hackage: github-0.25@sha256:32e1ede86a04976e06740a5993fab5306c5dbfdd17e96d83b79e53b82195739e,7091
+    hackage: github-0.26@sha256:a9d4046325c3eb28cdc7bef2c3f5bb213328caeae0b7dce6f51de655f0bffaa1,7162
 - completed:
-    hackage: binary-instances-1@sha256:b17565598b8df3241f9b46fa8e3a3368ecc8e3f2eb175d7c28f319042a6f5c79,2613
+    hackage: binary-instances-1.0.1@sha256:974740042381555f9e3614d9fe37136daba155e1f92bc048894698590bcd82f7,2683
     pantry-tree:
       size: 1035
-      sha256: 938ffc6990cac12681c657f7afa93737eecf335e6f0212d8c0b7c1ea3e0f40f4
+      sha256: 0a9a584dafcdf5ba0d1fb3586d8061d3002161a5c76ee864025a3878f3139104
   original:
-    hackage: binary-instances-1@sha256:b17565598b8df3241f9b46fa8e3a3368ecc8e3f2eb175d7c28f319042a6f5c79,2613
+    hackage: binary-instances-1.0.1@sha256:974740042381555f9e3614d9fe37136daba155e1f92bc048894698590bcd82f7,2683
+- completed:
+    hackage: text-format-0.3.2@sha256:2a3fc17cf87120fcfdbca62a0da59759755549285841cdc1483081c35fb3d115,1814
+    pantry-tree:
+      size: 1029
+      sha256: 2db26ddb77184186e0d5b2b020bdfbeb044c168024767b1fa3691682ca618896
+  original:
+    hackage: text-format-0.3.2@sha256:2a3fc17cf87120fcfdbca62a0da59759755549285841cdc1483081c35fb3d115,1814
 snapshots:
 - completed:
-    size: 524162
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/14/21.yaml
-    sha256: 9a55dd75853718f2bbbe951872b36a3b7802fcd71796e0f25b8664f24e34c666
-  original: lts-14.21
+    size: 533252
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/16/27.yaml
+    sha256: c2aaae52beeacf6a5727c1010f50e89d03869abfab6d2c2658ade9da8ed50c73
+  original: lts-16.27
