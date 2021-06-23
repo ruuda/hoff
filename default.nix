@@ -1,9 +1,10 @@
 let
-  pkgs = import (import ./nixpkgs-pinned.nix) {};
+  pkgs = import ./nixpkgs-pinned.nix ;
 in
   pkgs.buildEnv {
     name = "hoff-devenv";
     paths = [
+      pkgs.niv
       pkgs.dpkg
       pkgs.git
       pkgs.shellcheck
