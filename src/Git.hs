@@ -26,15 +26,20 @@ module Git
   Sha (..),
   SomeRefSpec( .. ),
   TagName (..),
+  TagResult (..),
   callGit,
   clone,
   doesGitDirectoryExist,
   fetchBranch,
   forcePush,
+  lastTag,
   push,
+  pushAtomic,
   rebase,
   runGit,
   runGitReadOnly,
+  tag,
+  tag',
   tryIntegrate,
 )
 where
@@ -123,23 +128,31 @@ instance ToJSON RemoteUrl where
 data PushResult
   = PushOk
   | PushRejected
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data CloneResult
   = CloneOk
   | CloneFailed
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
+
+data TagResult
+  = TagOk TagName
+  | TagFailed Text
+  deriving stock (Eq, Show)
 
 data GitOperationFree a
   = FetchBranch Branch a
   | ForcePush Sha Branch a
   | Push Sha Branch (PushResult -> a)
+  | PushAtomic [SomeRefSpec] (PushResult -> a)
   | Rebase Sha RemoteBranch (Maybe Sha -> a)
   | Merge Sha Text (Maybe Sha -> a)
   | Checkout RemoteBranch (Maybe Sha -> a)
   | Clone RemoteUrl (CloneResult -> a)
   | GetParent Sha (Maybe Sha -> a)
   | DoesGitDirectoryExist (Bool -> a)
+  | LastTag Sha (Maybe Text -> a)
+  | Tag Sha TagName Text (TagResult -> a)
   deriving (Functor)
 
 type GitOperation = Free GitOperationFree
@@ -152,6 +165,9 @@ forcePush sha remoteBranch = liftF $ ForcePush sha remoteBranch ()
 
 push :: Sha -> Branch -> GitOperation PushResult
 push sha remoteBranch = liftF $ Push sha remoteBranch id
+
+pushAtomic :: [SomeRefSpec] -> GitOperation PushResult
+pushAtomic refs = liftF $ PushAtomic refs id
 
 rebase :: Sha -> RemoteBranch -> GitOperation (Maybe Sha)
 rebase sha ontoBranch = liftF $ Rebase sha ontoBranch id
@@ -173,6 +189,15 @@ clone url = liftF $ Clone url id
 
 doesGitDirectoryExist :: GitOperation Bool
 doesGitDirectoryExist = liftF $ DoesGitDirectoryExist id
+
+lastTag :: Sha -> GitOperation (Maybe TagName)
+lastTag sha = liftF $ LastTag sha (TagName . Text.strip <$>)
+
+tag :: Sha -> TagName -> Text -> GitOperation TagResult
+tag sha name message = liftF $ Tag sha name message id
+
+tag' :: Sha -> TagName -> GitOperation TagResult
+tag' sha t@(TagName name) = tag sha t name
 
 isLeft :: Either a b -> Bool
 isLeft (Left _)  = True
@@ -285,9 +310,7 @@ runGit userConfig repoDir operation =
           abortResult <- callGitInRepo ["rebase", "--abort"]
           when (isLeft abortResult) $ logWarnN "warning: git rebase --abort failed"
           pure $ cont Nothing
-        Right _ -> do
-          rev <- getHead
-          pure $ cont rev
+        Right _ -> cont <$> getHead
 
     Merge sha message cont -> do
       result <- callGitInRepo
@@ -353,6 +376,27 @@ runGit userConfig repoDir operation =
       exists <- liftIO $ doesDirectoryExist (repoDir </> ".git")
       pure $ cont exists
 
+    PushAtomic refs cont -> do
+      result <- callGitInRepo $ ["push", "--atomic", "origin"] ++ map refSpec refs
+      let pushResult = case result of
+            Left  _ -> PushRejected
+            Right _ -> PushOk
+      when (pushResult == PushRejected) $ logInfoN "atomic push was rejected"
+      pure $ cont pushResult
+    LastTag sha cont -> do
+      result <- callGitInRepo ["describe", "--abbrev=0", "--tags", refSpec sha]
+      pure $ cont $ either (const Nothing) Just result
+
+    Tag sha t m cont -> do
+      result <- callGitInRepo ["tag", "-a", refSpec t, "-m", Text.unpack m, refSpec sha]
+      case result of
+        Left (code, message) -> do
+          logWarnN $ format "git tag failed with code {}: {}" (show code, message)
+          pure $ cont $ TagFailed message
+        Right _ -> do
+          logInfoN $ format "tagged {} with {}" [show sha, show t]
+          pure $ cont $ TagOk t
+
 -- Interpreter that runs only Git operations that have no side effects on the
 -- remote; it does not push.
 runGitReadOnly
@@ -377,14 +421,21 @@ runGitReadOnly userConfig repoDir operation =
       Clone {} -> unsafeResult
       GetParent {} -> unsafeResult
       DoesGitDirectoryExist {} -> unsafeResult
+      LastTag {} -> unsafeResult
+      Tag {} -> unsafeResult
 
       -- These operations mutate the remote, so we don't execute them in
       -- read-only mode.
       ForcePush (Sha sha) (Branch branch) cont -> do
         logInfoN $ Text.concat ["Would have force-pushed ", sha, " to ", branch]
-        pure $ cont
+        pure cont
       Push (Sha sha) (Branch branch) cont -> do
         logInfoN $ Text.concat ["Would have pushed ", sha, " to ", branch]
+        pure $ cont PushRejected
+      PushAtomic refs cont -> do
+        logInfoN
+          $ "Would have pushed atomically the following refs: "
+          <> Text.intercalate "," (map (Text.pack . refSpec) refs)
         pure $ cont PushRejected
 
 -- Fetches the target branch, rebases the candidate on top of the target branch,
