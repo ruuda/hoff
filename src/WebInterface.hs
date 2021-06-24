@@ -12,6 +12,7 @@ module WebInterface (renderPage, viewIndex, viewProject, viewOwner, stylesheet, 
 
 import Control.Monad (forM_, unless, void)
 import Crypto.Hash (Digest, SHA256, hash)
+import Data.List (sortOn)
 import Data.Bifunctor (second)
 import Data.ByteArray.Encoding (Base (Base64, Base64URLUnpadded), convertToBase)
 import Data.FileEmbed (embedStringFile)
@@ -155,7 +156,8 @@ viewProjectQueues info state = do
   let approved = filterPrs (== Project.PrStatusApproved)
   unless (null approved) $ do
     h2 "Approved"
-    viewList viewPullRequestWithApproval info approved
+    let approvedSorted = sortOn (\(_, pr, _) -> approvalOrder <$> Project.approval pr) approved
+    viewList viewPullRequestWithApproval info approvedSorted
 
   let awaitingApproval = filterPrs (== Project.PrStatusAwaitingApproval)
   unless (null awaitingApproval) $ do

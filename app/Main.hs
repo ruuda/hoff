@@ -65,8 +65,8 @@ initializeProjectState :: FilePath -> IO ProjectState
 initializeProjectState fname = do
   exists <- FileSystem.doesFileExist fname
   if exists then do
-    maybeState <- loadProjectState fname
-    case maybeState of
+    eitherState <- loadProjectState fname
+    case eitherState of
       Right projectState -> do
         putStrLn $ "Loaded project state from '" ++ fname ++ "'."
         return projectState

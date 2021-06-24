@@ -51,7 +51,7 @@ import Data.Aeson (FromJSON, ToJSON)
 import Data.ByteString (readFile)
 import Data.ByteString.Lazy (writeFile)
 import Data.IntMap.Strict (IntMap)
-import Data.List (intersect, nub)
+import Data.List (intersect, nub, sortBy)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import GHC.Generics
@@ -282,10 +282,23 @@ classifyPullRequests state = IntMap.foldMapWithKey aux (pullRequests state)
     aux i pr = [(PullRequestId i, pr, classifyPullRequest pr)]
 
 -- Returns the ids of the pull requests that satisfy the predicate, in ascending
--- order.
+-- order. The ids are sorted by the approval order, with not yet approved PRs
+-- at the end of the list.
 filterPullRequestsBy :: (PullRequest -> Bool) -> ProjectState -> [PullRequestId]
 filterPullRequestsBy p =
-  fmap PullRequestId . IntMap.keys . IntMap.filter p . pullRequests
+  fmap PullRequestId
+  . map fst
+  . sortBy comp
+  . IntMap.toList
+  . IntMap.filter p
+  . pullRequests
+  where
+    -- Compare the approval orders, prefer a Just over a Nothing
+    comp x y = comp' (approvalOrder <$> approval (snd x)) (approvalOrder <$> approval (snd y))
+    comp' Nothing Nothing = EQ
+    comp' (Just _) Nothing = LT
+    comp' Nothing (Just _) = GT
+    comp' (Just n) (Just m) = compare n m
 
 -- Returns the pull requests that have been approved, in order of ascending id.
 approvedPullRequests :: ProjectState -> [PullRequestId]
@@ -295,9 +308,11 @@ approvedPullRequests = filterPullRequestsBy $ isJust . approval
 -- before the PR with the given id will be rebased, in case no other pull
 -- requests get approved in the mean time (PRs with a lower id may skip ahead).
 getQueuePosition :: PullRequestId -> ProjectState -> Int
-getQueuePosition pr state =
+getQueuePosition prIndex state =
   let
-    queue = filter (< pr) $ filterPullRequestsBy isQueued state
+    approvalNumber = maybe (maxBound) approvalOrder (lookupPullRequest prIndex state >>= approval)
+    isEarlier pr = isQueued pr && maybe maxBound approvalOrder (approval pr) < approvalNumber
+    queue = filterPullRequestsBy isEarlier state
     inProgress = filterPullRequestsBy isInProgress state
   in
     length (inProgress ++ queue)
