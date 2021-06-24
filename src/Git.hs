@@ -99,7 +99,7 @@ instance RefSpec (Sha, Branch) where
   refSpec (sha, remote) = refSpec sha ++ ":refs/heads/" ++ refSpec remote
 
 instance RefSpec TagName where
-  refSpec (TagName name) = Text.unpack $ Text.strip name
+  refSpec (TagName name) = Text.unpack name
 
 data SomeRefSpec = forall a . RefSpec a => AsRefSpec a
 
@@ -264,7 +264,7 @@ runGit userConfig repoDir operation =
           logWarnN "warning: git rev-parse failed"
           pure Nothing
         Right newSha ->
-          pure $ Just $ Sha newSha
+          pure $ Just $ Sha $ Text.stripEnd newSha
 
   in case operation of
     FetchBranch branch cont -> do
@@ -339,7 +339,7 @@ runGit userConfig repoDir operation =
           logWarnN "git rev-parse failed"
           pure $ cont Nothing
         Right parsed -> do
-          let sha = Sha parsed
+          let sha = Sha $ Text.stripEnd parsed
           result <- callGitInRepo ["checkout", refSpec sha]
           when (isLeft result) $ logWarnN "git checkout failed"
           pure $ cont $ Just sha
@@ -351,7 +351,7 @@ runGit userConfig repoDir operation =
           logWarnN "git rev-parse to get parent failed"
           pure $ cont Nothing
         Right parentSha ->
-          pure $ cont $ Just $ Sha parentSha
+          pure $ cont $ Just $ Sha $ Text.stripEnd parentSha
 
     Clone (RemoteUrl url) cont -> do
       result <- callGit userConfig

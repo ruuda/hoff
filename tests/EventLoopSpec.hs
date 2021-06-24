@@ -68,7 +68,7 @@ populateRepository dir =
       gitAdd file          = void $ git ["add", file]
       gitBranch name sha   = void $ git ["checkout", "-b", name, refSpec sha]
       gitSetRef name sha   = void $ git ["update-ref", name, refSpec sha]
-      getHeadSha           = Sha <$> git ["rev-parse", "@"]
+      getHeadSha           = Sha . Text.stripEnd <$> git ["rev-parse", "@"]
       -- Commits with the given message and returns the sha of the new commit.
       gitCommit message    = git ["commit", "-m", message] >> getHeadSha
   in  do
