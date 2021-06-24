@@ -34,6 +34,7 @@ module Project
   lookupPullRequest,
   saveProjectState,
   alwaysAddMergeCommit,
+  needsTag,
   displayApproval,
   setApproval,
   setIntegrationCandidate,
@@ -97,6 +98,7 @@ data PullRequestStatus
 data ApprovedFor
   = Merge
   | MergeAndDeploy
+  | MergeAndTag
   deriving (Eq, Show, Generic)
 
 -- For a PR to be approved a specific user must give a specific approval
@@ -343,7 +345,14 @@ getOwners = nub . map owner
 displayApproval :: ApprovedFor -> Text
 displayApproval Merge          = "merge"
 displayApproval MergeAndDeploy = "merge and deploy"
+displayApproval MergeAndTag    = "merge and tag"
 
 alwaysAddMergeCommit :: ApprovedFor -> Bool
 alwaysAddMergeCommit Merge          = False
 alwaysAddMergeCommit MergeAndDeploy = True
+alwaysAddMergeCommit MergeAndTag    = False
+
+needsTag :: ApprovedFor -> Bool
+needsTag Merge          = False
+needsTag MergeAndDeploy = False
+needsTag MergeAndTag    = True

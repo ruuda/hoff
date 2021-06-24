@@ -40,6 +40,7 @@ library
                , containers
                , cryptonite
                , directory
+               , extra
                , file-embed
                , filepath
                , free

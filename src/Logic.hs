@@ -9,6 +9,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 
 module Logic
 (
@@ -35,23 +36,29 @@ where
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Concurrent.STM.TMVar (TMVar, newTMVarIO, readTMVar, swapTMVar)
 import Control.Exception (assert)
-import Control.Monad (foldM, unless, void)
+import Control.Monad (foldM, unless, void, when)
 import Control.Monad.Free (Free (..), foldFree, hoistFree, liftF)
 import Control.Monad.STM (atomically)
 import Data.Bifunctor (first)
+import Data.Either.Extra (maybeToEither)
 import Data.Functor.Sum (Sum (InL, InR))
 import Data.IntSet (IntSet)
 import Data.Maybe (fromJust, isJust)
 import Data.Text (Text)
+import Data.Text.Lazy (toStrict)
 import GHC.Natural (Natural)
 
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.Text as Text
+import qualified Data.Text.Lazy.Builder as B
+import qualified Data.Text.Lazy.Builder.Int as B
+import qualified Data.Text.Read as Text
 
 import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Format (format)
-import Git (Branch (..), GitOperation, GitOperationFree, PushResult (..), Sha (..))
+import Git (Branch (..), GitOperation, GitOperationFree, PushResult (..), Sha (..),
+            SomeRefSpec (..), TagName (..), TagResult (..))
 import GithubApi (GithubOperation, GithubOperationFree)
 import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
                 ProjectState, PullRequest, PullRequestStatus (..))
@@ -71,15 +78,19 @@ data ActionFree a
     , _cont                 :: Either IntegrationFailure Sha -> a
     }
   | TryPromote Branch Sha (PushResult -> a)
+  | TryPromoteWithTag Branch Sha TagName (PushWithTagResult -> a)
   | LeaveComment PullRequestId Text a
   | IsReviewer Username (Bool -> a)
   | GetPullRequest PullRequestId (Maybe GithubApi.PullRequest -> a)
   | GetOpenPullRequests (Maybe IntSet -> a)
+  | GetLatestVersion Sha (Either TagName Integer -> a)
   deriving (Functor)
 
 type Action = Free ActionFree
 
 type Operation = Free (Sum GitOperationFree GithubOperationFree)
+
+type PushWithTagResult = (Either Text TagName, PushResult)
 
 -- | Error returned when 'TryIntegrate' fails.
 -- It contains the name of the target branch that the PR was supposed to be integrated into.
@@ -95,11 +106,15 @@ tryIntegrate :: Text -> (Branch, Sha) -> Bool -> Action (Either IntegrationFailu
 tryIntegrate mergeMessage candidate alwaysAddMergeCommit = liftF $ TryIntegrate mergeMessage candidate alwaysAddMergeCommit id
 
 -- Try to fast-forward the remote target branch (usually master) to the new sha.
--- Before doing so, force-push that thas to the pull request branch, and after
+-- Before doing so, force-push that SHA to the pull request branch, and after
 -- success, delete the pull request branch. These steps ensure that Github marks
 -- the pull request as merged, rather than closed.
 tryPromote :: Branch -> Sha -> Action PushResult
 tryPromote prBranch newHead = liftF $ TryPromote prBranch newHead id
+
+tryPromoteWithTag :: Branch -> Sha -> TagName -> Action PushWithTagResult
+tryPromoteWithTag prBranch newHead tagName =
+  liftF $ TryPromoteWithTag prBranch newHead tagName id
 
 -- Leave a comment on the given pull request.
 leaveComment :: PullRequestId -> Text -> Action ()
@@ -115,6 +130,9 @@ getPullRequest pr = liftF $ GetPullRequest pr id
 getOpenPullRequests :: Action (Maybe IntSet)
 getOpenPullRequests = liftF $ GetOpenPullRequests id
 
+getLatestVersion :: Sha -> Action (Either TagName Integer)
+getLatestVersion sha = liftF $ GetLatestVersion sha id
+
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
 runAction config = foldFree $ \case
@@ -124,7 +142,7 @@ runAction config = foldFree $ \case
       message
       ref
       sha
-      (Git.Branch $ Config.branch config)
+      (Git.RemoteBranch $ Config.branch config)
       (Git.Branch $ Config.testBranch config)
       alwaysAddMergeCommit
     pure $ cont $ maybe
@@ -137,6 +155,17 @@ runAction config = foldFree $ \case
     doGit $ Git.forcePush sha prBranch
     pushResult <- doGit $ Git.push sha (Git.Branch $ Config.branch config)
     pure $ cont pushResult
+
+  TryPromoteWithTag prBranch sha newTag cont -> doGit $
+    ensureCloned config >>
+    Git.forcePush sha prBranch >>
+    Git.tag' sha newTag >>=
+    \case TagFailed _ -> cont . (Left "Please check the logs",) <$> Git.push sha (Git.Branch $ Config.branch config)
+          TagOk tagName -> cont . (Right tagName,)
+            <$> Git.pushAtomic [AsRefSpec tagName, AsRefSpec (sha, Git.Branch $ Config.branch config)]
+            <*  Git.deleteTag tagName
+            -- Deleting tag after atomic pushg is important to maintain one "source of truth", namely
+            -- - the origin
 
   LeaveComment pr body cont -> do
     doGithub $ GithubApi.leaveComment pr body
@@ -153,6 +182,9 @@ runAction config = foldFree $ \case
   GetOpenPullRequests cont -> do
     openPrIds <- doGithub GithubApi.getOpenPullRequests
     pure $ cont openPrIds
+
+  GetLatestVersion sha cont -> doGit $
+    cont . maybe (Right 0) (\t -> maybeToEither t $ parseVersion t) <$> Git.lastTag sha
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
@@ -289,30 +321,31 @@ parseMergeCommand config message =
     messageCaseFold = Text.toCaseFold $ Text.strip message
     prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
   in
-    -- Check if the prefix followed by ` merge and deploy` occurs within the message.
+    -- Check if the prefix followed by ` merge and {deploy,tag}` occurs within the message.
     -- We opt to include the space here, instead of making it part of the
     -- prefix, because having the trailing space in config is something that is
     -- easy to get wrong.
-    -- Note that because "merge" is an infix of "merge and deploy" we need to
-    -- check for the "merge and deploy" command first: if this order were
-    -- reversed all "merge and deploy" commands would be detected as a Merge
+    -- Note that because "merge" is an infix of "merge and xxx" we need to
+    -- check for the "merge and xxx" commands first: if this order were
+    -- reversed all "merge and xxx" commands would be detected as a Merge
     -- command.
     if (prefixCaseFold <> " merge and deploy") `Text.isInfixOf` messageCaseFold
     then Just MergeAndDeploy
     else
-      if (prefixCaseFold <> " merge") `Text.isInfixOf` messageCaseFold
-      then Just Merge
-      else Nothing
+      if (prefixCaseFold <> " merge and tag") `Text.isInfixOf` messageCaseFold
+      then Just MergeAndTag
+      else
+        if (prefixCaseFold <> " merge") `Text.isInfixOf` messageCaseFold
+        then Just Merge
+        else Nothing
 
 -- Mark the pull request as approved, and leave a comment to acknowledge that.
 approvePullRequest :: PullRequestId -> Approval -> ProjectState -> Action ProjectState
-approvePullRequest pr approval state =
-  pure $ Pr.updatePullRequest pr
+approvePullRequest pr approval = pure . Pr.updatePullRequest pr
     (\pullRequest -> pullRequest
       { Pr.approval = Just approval
       , Pr.needsFeedback = True
       })
-    state
 
 handleCommentAdded
   :: TriggerConfiguration
@@ -416,9 +449,9 @@ proceedCandidate (pullRequestId, pullRequest) state =
       -- If it conflicted, it should no longer be the integration candidate.
       pure $ Pr.setIntegrationCandidate Nothing state
 
-    Integrated _sha buildStatus -> case buildStatus of
+    Integrated sha buildStatus -> case buildStatus of
       BuildPending   -> pure state
-      BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) state
+      BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) sha state
       BuildFailed    -> do
         -- If the build failed, this is no longer a candidate.
         pure $ Pr.setIntegrationCandidate Nothing $
@@ -470,31 +503,42 @@ tryIntegratePullRequest pr state =
 -- target branch. If the push fails, restarts the integration cycle for the
 -- candidate.
 -- TODO: Get rid of the tuple; just pass the ID and do the lookup with fromJust.
-pushCandidate :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
-pushCandidate (pullRequestId, pullRequest) state = do
+pushCandidate :: (PullRequestId, PullRequest) -> Sha -> ProjectState -> Action ProjectState
+pushCandidate (pullRequestId, pullRequest) newHead state =
   -- Look up the sha that will be pushed to the target branch. Also assert that
-  -- the pull request has really been approved and built successfully. If it was
+  -- the pull request has really been approved. If it was
   -- not, there is a bug in the program.
-  let approved  = isJust $ Pr.approval pullRequest
-      status    = Pr.integrationStatus pullRequest
-      prBranch  = Pr.branch pullRequest
-      newHead   = assert approved $ case status of
-        Integrated sha BuildSucceeded -> sha
-        Integrated _ _notSucceeded ->
-          error "Trying to push a candidate for which the build did not pass."
-        _notIntegrated ->
-          error "Trying to push a candidate that is not integrated."
-  pushResult <- tryPromote prBranch newHead
-  case pushResult of
-    -- If the push worked, then this was the final stage of the pull request.
-    -- GitHub will mark the pull request as closed, and when we receive that
-    -- event, we delete the pull request from the state. Until then, reset
-    -- the integration candidate, so we proceed with the next pull request.
-    PushOk -> pure $ Pr.setIntegrationCandidate Nothing state
-    -- If something was pushed to the target branch while the candidate was
-    -- being tested, try to integrate again and hope that next time the push
-    -- succeeds.
-    PushRejected -> tryIntegratePullRequest pullRequestId state
+  let prBranch  = Pr.branch pullRequest
+      approval = fromJust $ Pr.approval pullRequest
+      Username approvedBy = approver approval
+      commentToUser = leaveComment pullRequestId . (<>) ("@" <> approvedBy <> " ")
+  in assert (isJust $ Pr.approval pullRequest) $ do
+    pushResult <- if Pr.needsTag $ Pr.approvedFor approval
+      then do
+        versionOrBadTag <- getLatestVersion newHead
+        case versionOrBadTag of
+          Left (TagName bad) -> do
+            commentToUser ("Sorry, I could not tag your PR. The previous tag `" <> bad <> "` seems invalid")
+            tryPromote prBranch newHead
+          Right v -> do
+            (tagResult, pushResult) <- tryPromoteWithTag prBranch newHead (versionToTag $ v + 1)
+            when (pushResult == PushOk) $ commentToUser $
+              case tagResult of
+                Left err -> "Sorry, I could not tag your PR. " <> err
+                Right (TagName t) -> "I tagged your PR with `" <> t <> "`. Don't forget to deploy it!"
+            pure pushResult
+      else
+        tryPromote prBranch newHead
+    case pushResult of
+      -- If the push worked, then this was the final stage of the pull request.
+      -- GitHub will mark the pull request as closed, and when we receive that
+      -- event, we delete the pull request from the state. Until then, reset
+      -- the integration candidate, so we proceed with the next pull request.
+      PushOk -> pure $ Pr.setIntegrationCandidate Nothing state
+      -- If something was pushed to the target branch while the candidate was
+      -- being tested, try to integrate again and hope that next time the push
+      -- succeeds.
+      PushRejected -> tryIntegratePullRequest pullRequestId state
 
 -- Keep doing a proceed step until the state doesn't change any more. For this
 -- to work properly, it is essential that "proceed" does not have any side
@@ -569,3 +613,17 @@ handleEvent
   -> Action ProjectState
 handleEvent triggerConfig event state =
   handleEventInternal triggerConfig event state >>= proceedUntilFixedPoint
+
+
+-- TODO this is very Channable specific, perhaps it should be more generic
+parseVersion :: TagName -> Maybe Integer
+parseVersion (TagName t) = Text.uncons t >>= \case
+    ('v', num) -> parseNum num
+    _          -> Nothing
+  where
+    parseNum num = case Text.decimal num of
+      Right (v, remaining) | Text.null (Text.strip remaining) -> Just v
+      _                                                       -> Nothing
+
+versionToTag :: Integer -> TagName
+versionToTag v = TagName $ toStrict $ B.toLazyText $ B.singleton 'v' <> B.decimal v
