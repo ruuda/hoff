@@ -1,4 +1,16 @@
-fetchTarball {
-  url = "https://github.com/NixOS/nixpkgs/archive/b0bbacb52134a7e731e549f4c0a7a2a39ca6b481.tar.gz";
-  sha256 = "15ix4spjpdm6wni28camzjsmhz0gzk3cxhpsk035952plwdxhb67";
-}
+{ overlays ? [] # additional overlays
+, config ? {} # Imported configuration
+}:
+let
+  sources = import ./nix/sources.nix;
+  our_niv = _: pkgs: { niv = (import sources.niv {}).niv; }; # use niv from sources
+  nixpkgs = import sources.nixpkgs {
+    overlays = [ our_niv ] ++ overlays ;
+    config = {
+      imports = [
+        config
+      ];
+    };
+  };
+in
+nixpkgs

@@ -3,7 +3,7 @@
 # This script builds a .deb package from the binaries in the .stack-work
 # directory. It is intended to be run on a Debian-like system.
 #
-#   Usage: VERSION=0.0.0 fakeroot ./build-package.sh
+#   Usage: VERSION=0.0.0 ./build-package.sh
 
 # Fail early of any of the commands below fail.
 set -eo pipefail
@@ -26,12 +26,8 @@ cp hoff.service        "$PKGNAME/lib/systemd/system"
 cp example-config.json "$PKGNAME/etc/hoff/config.json"
 cp github-known-hosts  "$PKGNAME/etc/hoff/github-known-hosts"
 
-# All files are owned by root. The config file is world-readable, because the
+# All files will be owned by root (see 'dpkg-deb' call below). The config file is world-readable, because the
 # daemon user needs to be able to read it.
-chown root:root "$PKGNAME/usr/bin/hoff"
-chown root:root "$PKGNAME/lib/systemd/system/hoff.service"
-chown root:root "$PKGNAME/etc/hoff/github-known-hosts"
-chown root:root "$PKGNAME/etc/hoff/config.json"
 chmod o+r       "$PKGNAME/etc/hoff/config.json"
 
 # Hash the config file. The postinst script uses this to determine whether it
@@ -46,7 +42,7 @@ envsubst < deb-postinst > "$PKGNAME/DEBIAN/postinst"
 cp deb-conffiles "$PKGNAME/DEBIAN/conffiles"
 chmod +x "$PKGNAME/DEBIAN/postinst"
 
-dpkg-deb --build "$PKGNAME"
+dpkg-deb --root-owner-group --build "$PKGNAME"
 
 # Finally clean up the package directory.
 rm -fr "$PKGNAME"

@@ -19,7 +19,7 @@ export VERSION
 # execute `build-package.sh` from the right location. VERSION
 # has already been set by the logic above.
 cd "$(dirname "$0")"
-fakeroot ./build-package.sh
+./build-package.sh
 
 if [[ "$SEMAPHORE_GIT_REF_TYPE" != "tag" ]]; then
     echo "Not on a tagged build. Skipping ship step."

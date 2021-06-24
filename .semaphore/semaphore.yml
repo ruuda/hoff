@@ -16,6 +16,8 @@ blocks:
       jobs:
         - name: "Build, test, package, ship"
           commands:
+            # For some reason, Semaphore CI sets this variable, but it causes the nix installation to fail
+            - unset LD_LIBRARY_PATH
             # Change permissions of the shipping key to avoid SSH complaining
             # about the default file permissions that Semaphore uses.
             - "chmod 0600 ~/.ssh/id_ed25519"
