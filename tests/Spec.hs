@@ -61,7 +61,7 @@ candidateState pr prBranch prSha prAuthor approvedBy candidateSha =
   let
     state = Project.setIntegrationStatus pr
       (Project.Integrated candidateSha Project.BuildPending)
-      $ Project.setApproval pr (Just (Approval approvedBy Project.Merge))
+      $ Project.setApproval pr (Just (Approval approvedBy Project.Merge 0))
       $ singlePullRequestState pr prBranch prSha prAuthor
   in
     state { Project.integrationCandidate = Just pr }
@@ -245,17 +245,17 @@ main = hspec $ do
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
           state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "abc") "alice"
-          state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge)) state0
+          state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge 0)) state0
           state2 = fst $ runAction $ handleEventTest event state1
           pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
           pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
-      Project.approval pr1 `shouldBe` Just (Approval "hatter" Project.Merge)
+      Project.approval pr1 `shouldBe` Just (Approval "hatter" Project.Merge 0)
       Project.approval pr2 `shouldBe` Nothing
 
     it "does not lose approval after the PR commit has changed due to a push we caused" $ do
       let
         state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "abc") "alice"
-        state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge)) state0
+        state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge 0)) state0
         state2 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc0") Project.BuildPending) state1
         state3 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc1") Project.BuildPending) state2
         event  = PullRequestCommitChanged (PullRequestId 1) (Sha "dc0")
@@ -275,7 +275,7 @@ main = hspec $ do
         state2  = fst $ runAction $ handleEventTest newPush state1
         prAt1   = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
         prAt2   = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
-      Project.approval          prAt1 `shouldBe` Just (Approval "deckard" Project.Merge)
+      Project.approval          prAt1 `shouldBe` Just (Approval "deckard" Project.Merge 0)
       Project.integrationStatus prAt1 `shouldBe` Project.Integrated (Sha "bcd") Project.BuildPending
       Project.approval          prAt2 `shouldBe` Nothing
       Project.integrationStatus prAt2 `shouldBe` Project.NotIntegrated
@@ -286,13 +286,13 @@ main = hspec $ do
         -- lose the approval status.
         event  = PullRequestCommitChanged (PullRequestId 1) (Sha "000")
         state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "000") "cindy"
-        state1 = Project.setApproval (PullRequestId 1) (Just (Approval "daniel" Project.Merge)) state0
+        state1 = Project.setApproval (PullRequestId 1) (Just (Approval "daniel" Project.Merge 0)) state0
         (state2, _actions) = runAction $ Logic.proceedUntilFixedPoint state1
         (state3, actions)  = runAction $ handleEventTest event state2
         prAt3 = fromJust $ Project.lookupPullRequest (PullRequestId 1) state3
       state3 `shouldBe` state2
       actions `shouldBe` []
-      Project.approval prAt3 `shouldBe` Just (Approval "daniel" Project.Merge)
+      Project.approval prAt3 `shouldBe` Just (Approval "daniel" Project.Merge 0)
 
     it "sets approval after a stamp from a reviewer" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "toby"
@@ -300,7 +300,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot merge"
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge)
+      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
 
     it "does not set approval after a stamp from a non-reviewer" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "toby"
@@ -331,7 +331,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "@BoT MeRgE"
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge)
+      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
 
     it "accepts command at end of other comments" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
@@ -339,7 +339,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "looks good to me, @bot merge"
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge)
+      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
 
     it "accepts command at end of other comments if tagged multiple times" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
@@ -347,7 +347,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot looks good to me, @bot merge"
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge)
+      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
 
     it "accepts command before comments" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
@@ -355,7 +355,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot merge\nYou did some fine work here."
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge)
+      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
 
     it "does not accepts merge command with interleaved comments" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "6412ef5") "sacha"
@@ -430,6 +430,68 @@ main = hspec $ do
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 3) "Pull request approved for merge and deploy by @deckard, waiting for rebase behind 2 pull requests."
         ]
+    it "keeps the order position for the comments" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "p") (Sha "a38") "Add Nexus 7 experiment" (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "s") (Sha "dec") "Some PR" (Username "rachael")
+          $ Project.insertPullRequest (PullRequestId 3) (Branch "s") (Sha "f16") "Another PR" (Username "rachael")
+          $ Project.emptyProjectState
+        -- Approve pull request in order of ascending id, mark the last PR for deployment.
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          ]
+        -- For this test, we assume all integrations and pushes succeed.
+        results = defaultResults { resultIntegrate = [Right (Sha "b71")] }
+        run = runActionCustom results
+        (state', actions) = run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a38") False
+        , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 3) "Pull request approved for merge by @deckard, waiting for rebase at the front of the queue."
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase behind 2 pull requests."
+        ]
+      Project.pullRequestApprovalIndex state' `shouldBe` 3
+      Project.pullRequests state' `shouldBe`
+        IntMap.fromList
+          [ (1, PullRequest {
+            sha = Sha "a38",
+            branch = Branch "p",
+            title = "Add Nexus 7 experiment",
+            author = Username "tyrell",
+            approval = Just (Approval (Username "deckard") Project.Merge 0),
+            integrationStatus = Project.Integrated (Sha "b71") Project.BuildPending,
+            integrationAttempts = [],
+            needsFeedback = False
+            })
+          , (2, PullRequest {
+            sha = Sha "dec",
+            branch = Branch "s",
+            title = "Some PR",
+            author = Username "rachael",
+            approval = Just (Approval (Username "deckard") Project.Merge 2),
+            integrationStatus = Project.NotIntegrated,
+            integrationAttempts = [],
+            needsFeedback = False
+            })
+          , (3, PullRequest {
+            sha = Sha "f16",
+            branch = Branch "s",
+            title = "Another PR",
+            author = Username "rachael",
+            approval = Just (Approval (Username "deckard") Project.Merge 1),
+            integrationStatus = Project.NotIntegrated,
+            integrationAttempts = [],
+            needsFeedback = False
+            })
+          ]
+
 
       -- Approve pull requests, but not in order of ascending id.
       let
@@ -592,7 +654,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr== Just (Approval (Username "deckard") Project.MergeAndDeploy))
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") Project.MergeAndDeploy 0))
 
     it "recognizes 'merge and tag' command" $ do
       let
@@ -612,14 +674,14 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag))
+        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag 0))
 
   describe "Logic.proceedUntilFixedPoint" $ do
 
     it "finds a new candidate" $ do
       let
         state
-          = Project.setApproval (PullRequestId 1) (Just (Approval "fred" Project.Merge))
+          = Project.setApproval (PullRequestId 1) (Just (Approval "fred" Project.Merge 0))
           $ singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "f34") "sally"
         results = defaultResults
           { resultIntegrate = [Right (Sha "38c")]
@@ -633,6 +695,27 @@ main = hspec $ do
         [ ATryIntegrate "Merge #1: Untitled\n\nApproved-by: fred\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "f34") False
         , ALeaveComment (PullRequestId 1) "Rebased as 38c, waiting for CI \x2026"
         ]
+    it "finds a new candidate with multiple PRs" $ do
+      let
+        state
+          = Project.setApproval (PullRequestId 2) (Just (Approval "fred" Project.Merge 0))
+          $ Project.setApproval (PullRequestId 1) (Just (Approval "fred" Project.Merge 1))
+          $ fst $ runAction $ handleEventsTest
+            [ PullRequestOpened (PullRequestId 1) (Branch "p") (Sha "f34") "Untitled" "sally"
+            , PullRequestOpened (PullRequestId 2) (Branch "s") (Sha "g35") "Another untitled" "rachael"
+            ] Project.emptyProjectState
+        results = defaultResults
+          { resultIntegrate = [Right (Sha "38c")]
+          , resultPush = [PushRejected]
+          }
+        (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
+        (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
+      Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") Project.BuildPending
+      prId    `shouldBe` PullRequestId 2
+      actions `shouldBe`
+        [ ATryIntegrate "Merge #2: Another untitled\n\nApproved-by: fred\nAuto-deploy: false\n" (Branch "refs/pull/2/head", Sha "g35") False
+        , ALeaveComment (PullRequestId 2) "Rebased as 38c, waiting for CI \x2026"
+        ]
 
     it "pushes after a successful build" $ do
       let
@@ -641,7 +724,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approval            = Just (Approval "deckard" Project.Merge)
+          , Project.approval            = Just (Approval "deckard" Project.Merge 0)
           , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
@@ -649,6 +732,7 @@ main = hspec $ do
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
           , Project.integrationCandidate = Just $ PullRequestId 1
+          , Project.pullRequestApprovalIndex = 1
           }
         results = defaultResults { resultIntegrate = [Right (Sha "38e")] }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
@@ -664,7 +748,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag)
+          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag 0)
           , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
@@ -672,6 +756,7 @@ main = hspec $ do
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
           , Project.integrationCandidate = Just $ PullRequestId 1
+          , Project.pullRequestApprovalIndex = 1
           }
         results = defaultResults { resultIntegrate = [Right (Sha "38e")] }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
@@ -689,7 +774,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag)
+          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag 0)
           , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
@@ -697,6 +782,7 @@ main = hspec $ do
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
           , Project.integrationCandidate = Just $ PullRequestId 1
+          , Project.pullRequestApprovalIndex = 1
           }
         results = defaultResults { resultIntegrate = [Right (Sha "38e")]
                                  , resultGetLatestVersion = [Left (TagName "abcdef")] }
@@ -717,7 +803,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approval            = Just (Approval "deckard" Project.Merge)
+          , Project.approval            = Just (Approval "deckard" Project.Merge 0)
           , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
@@ -725,6 +811,7 @@ main = hspec $ do
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
           , Project.integrationCandidate = Just $ PullRequestId 1
+          , Project.pullRequestApprovalIndex = 1
           }
         -- Run 'proceedUntilFixedPoint', and pretend that pushes fail (because
         -- something was pushed in the mean time, for instance).
@@ -752,7 +839,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag)
+          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag 0)
           , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
@@ -760,6 +847,7 @@ main = hspec $ do
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
           , Project.integrationCandidate = Just $ PullRequestId 1
+          , Project.pullRequestApprovalIndex = 1
           }
         -- Run 'proceedUntilFixedPoint', and pretend that pushes fail (because
         -- something was pushed in the mean time, for instance).
@@ -832,7 +920,7 @@ main = hspec $ do
               Project.sha                 = Sha "f35",
               Project.title               = "Add Leon test results",
               Project.author              = "rachael",
-              Project.approval            = Just (Approval "deckard" Project.Merge),
+              Project.approval            = Just (Approval "deckard" Project.Merge 1),
               Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded,
               Project.integrationAttempts = [],
               Project.needsFeedback       = False
@@ -843,7 +931,7 @@ main = hspec $ do
               Project.sha                 = Sha "f37",
               Project.title               = "Add my test results",
               Project.author              = "rachael",
-              Project.approval            = Just (Approval "deckard" Project.Merge),
+              Project.approval            = Just (Approval "deckard" Project.Merge 0),
               Project.integrationStatus   = Project.NotIntegrated,
               Project.integrationAttempts = [],
               Project.needsFeedback       = False
@@ -854,7 +942,8 @@ main = hspec $ do
           state = ProjectState
             {
               Project.pullRequests         = prMap,
-              Project.integrationCandidate = Nothing
+              Project.integrationCandidate = Nothing,
+              Project.pullRequestApprovalIndex = 2
             }
           -- Proceeding should pick the next pull request as candidate.
           results = defaultResults { resultIntegrate = [Right (Sha "38e")] }
@@ -1173,6 +1262,6 @@ main = hspec $ do
       let fname = tmpBaseDir </> ("state-" ++ (show uuid) ++ ".json")
           state = singlePullRequestState (PullRequestId 1) (Branch "p") (Sha "071") "deckard"
       Project.saveProjectState fname state
-      Just state' <- Project.loadProjectState fname
+      Right state' <- Project.loadProjectState fname
       state `shouldBe` state'
       removeFile fname

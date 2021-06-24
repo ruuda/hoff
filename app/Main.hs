@@ -65,14 +65,14 @@ initializeProjectState :: FilePath -> IO ProjectState
 initializeProjectState fname = do
   exists <- FileSystem.doesFileExist fname
   if exists then do
-    maybeState <- loadProjectState fname
-    case maybeState of
-      Just projectState -> do
+    eitherState <- loadProjectState fname
+    case eitherState of
+      Right projectState -> do
         putStrLn $ "Loaded project state from '" ++ fname ++ "'."
         return projectState
-      Nothing -> do
+      Left msg -> do
         -- Fail loudly if something is wrong, and abort the program.
-        die $ "Failed to parse project state in '" ++ fname ++ "'.\n" ++
+        die $ "Failed to parse project state in '" ++ fname ++ "' with error " ++ msg ++ ".\n" ++
               "Please repair or remove the file."
   else do
     putStrLn $ "File '" ++ fname ++ "' not found, starting with an empty state."

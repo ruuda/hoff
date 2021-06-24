@@ -367,7 +367,9 @@ handleCommentAdded triggerConfig pr author body state =
         else pure False
       if isApproved
         -- The PR has now been approved by the author of the comment.
-        then approvePullRequest pr (Approval author (fromJust approvalType)) state
+        then
+          let (order, state') = Pr.newApprovalOrder state
+          in approvePullRequest pr (Approval author (fromJust approvalType) order) state'
         else pure state
 
     -- If the pull request is not in the state, ignore the comment.
@@ -470,7 +472,7 @@ tryIntegratePullRequest pr state =
     PullRequestId prNumber = pr
     pullRequest  = fromJust $ Pr.lookupPullRequest pr state
     title = Pr.title pullRequest
-    Approval (Username approvedBy) approvalType = fromJust $ Pr.approval pullRequest
+    Approval (Username approvedBy) approvalType _prOrder = fromJust $ Pr.approval pullRequest
     candidateSha = Pr.sha pullRequest
     candidateRef = getPullRequestRef pr
     candidate = (candidateRef, candidateSha)
@@ -556,7 +558,7 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
   PrStatusAwaitingApproval -> "Pull request awaiting approval."
   PrStatusApproved ->
     let
-      Approval (Username approvedBy) approvalType = fromJust $ Pr.approval pr
+      Approval (Username approvedBy) approvalType _position = fromJust $ Pr.approval pr
       approvalCommand = Pr.displayApproval approvalType
     in case Pr.getQueuePosition prId state of
       0 -> format "Pull request approved for {} by @{}, rebasing now." [approvalCommand, approvedBy]
