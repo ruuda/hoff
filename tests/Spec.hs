@@ -426,7 +426,7 @@ main = hspec $ do
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a38") False
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI …"
         , AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase at the front of the queue."
+        , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase behind one pull request."
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 3) "Pull request approved for merge and deploy by @deckard, waiting for rebase behind 2 pull requests."
         ]
@@ -453,7 +453,7 @@ main = hspec $ do
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a38") False
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI …"
         , AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 3) "Pull request approved for merge by @deckard, waiting for rebase at the front of the queue."
+        , ALeaveComment (PullRequestId 3) "Pull request approved for merge by @deckard, waiting for rebase behind one pull request."
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase behind 2 pull requests."
         ]
@@ -507,7 +507,7 @@ main = hspec $ do
         , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/2/head", Sha "dec") False
         , ALeaveComment (PullRequestId 2) "Rebased as b71, waiting for CI …"
         , AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, waiting for rebase at the front of the queue."
+        , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, waiting for rebase behind one pull request."
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 3) "Pull request approved for merge by @deckard, waiting for rebase behind 2 pull requests."
         ]
@@ -541,7 +541,7 @@ main = hspec $ do
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a38") False
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI …"
         , AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase at the front of the queue."
+        , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase behind one pull request."
         , ALeaveComment (PullRequestId 1) "Abandoning this pull request because it was closed."
         , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/2/head", Sha "dec") False
         , ALeaveComment (PullRequestId 2) "Rebased as b72, waiting for CI …"

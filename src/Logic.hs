@@ -562,7 +562,7 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
       approvalCommand = Pr.displayApproval approvalType
     in case Pr.getQueuePosition prId state of
       0 -> format "Pull request approved for {} by @{}, rebasing now." [approvalCommand, approvedBy]
-      1 -> format "Pull request approved for {} by @{}, waiting for rebase at the front of the queue." [approvalCommand, approvedBy]
+      1 -> format "Pull request approved for {} by @{}, waiting for rebase behind one pull request." [approvalCommand, approvedBy]
       n -> format "Pull request approved for {} by @{}, waiting for rebase behind {} pull requests." (approvalCommand, approvedBy, n)
   PrStatusBuildPending ->
     let Sha sha = fromJust $ getIntegrationSha pr
