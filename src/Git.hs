@@ -32,6 +32,7 @@ module Git
   deleteTag,
   doesGitDirectoryExist,
   fetchBranch,
+  fetchBranchWithTags,
   forcePush,
   lastTag,
   push,
@@ -142,8 +143,11 @@ data TagResult
   | TagFailed Text
   deriving stock (Eq, Show)
 
+data FetchWithTags = WithTags | NoTags
+  deriving stock (Eq, Show)
+
 data GitOperationFree a
-  = FetchBranch Branch a
+  = FetchBranch Branch FetchWithTags a
   | ForcePush Sha Branch a
   | Push Sha Branch (PushResult -> a)
   | PushAtomic [SomeRefSpec] (PushResult -> a)
@@ -161,7 +165,10 @@ data GitOperationFree a
 type GitOperation = Free GitOperationFree
 
 fetchBranch :: Branch -> GitOperation ()
-fetchBranch remoteBranch = liftF $ FetchBranch remoteBranch ()
+fetchBranch remoteBranch = liftF $ FetchBranch remoteBranch NoTags ()
+
+fetchBranchWithTags :: Branch -> GitOperation ()
+fetchBranchWithTags remoteBranch = liftF $ FetchBranch remoteBranch WithTags ()
 
 forcePush :: Sha -> Branch -> GitOperation ()
 forcePush sha remoteBranch = liftF $ ForcePush sha remoteBranch ()
@@ -267,8 +274,10 @@ runGit userConfig repoDir operation =
           pure $ Just $ Sha $ Text.stripEnd newSha
 
   in case operation of
-    FetchBranch branch cont -> do
-      result <- callGitInRepo ["fetch", "--tags", "origin", refSpec branch]
+    FetchBranch branch withTags cont -> do
+      result <- callGitInRepo $ case withTags of
+        WithTags -> ["fetch", "--tags", "origin", refSpec branch]
+        NoTags   -> ["fetch", "origin", refSpec branch]
       case result of
         Left  _ -> logWarnN "warning: git fetch failed"
         Right _ -> return ()
@@ -456,7 +465,7 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
   -- Make sure the target branch is up to date. (If later -- after the test
   -- results come in, and we want to push -- it turns out that the target branch
   -- has new commits, then we just restart the cycle.)
-  fetchBranch $ localBranch targetBranch
+  fetchBranchWithTags $ localBranch targetBranch
   -- Rebase the candidate commits onto the target branch.
   rebaseResult <- rebase candidateSha targetBranch
   case rebaseResult of
