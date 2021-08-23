@@ -164,8 +164,8 @@ viewProjectQueues info state = do
     h2 "Awaiting approval"
     viewList viewPullRequest info awaitingApproval
 
-  let failed = filterPrs $ \ st ->
-        (st == Project.PrStatusFailedConflict) || (st == Project.PrStatusFailedBuild)
+  let failed = filterPrs prFailed
+
   unless (null failed) $ do
     h2 "Failed"
     -- TODO: Also render failure reason: conflicted or build failed.
@@ -203,8 +203,8 @@ viewGroupedProjectQueues projects = do
     h2 "Awaiting approval"
     mapM_ (uncurry $ viewList' viewPullRequest) awaitingApproval
 
-  let failed = filterPrs $ \ st ->
-        (st == Project.PrStatusFailedConflict) || (st == Project.PrStatusFailedBuild)
+  let failed = filterPrs prFailed
+
   unless (null failed) $ do
     h2 "Failed"
     -- TODO: Also render failure reason: conflicted or build failed.
@@ -258,3 +258,8 @@ viewList  :: (ProjectInfo -> PullRequestId -> PullRequest -> Html)
           -> [(PullRequestId, PullRequest, status)]
           -> Html
 viewList view info prs = forM_  prs $ \(prId, pr, _) -> p $ view info prId pr
+
+prFailed :: Project.PullRequestStatus -> Bool
+prFailed Project.PrStatusFailedConflict  = True
+prFailed (Project.PrStatusFailedBuild _) = True
+prFailed _                               = False

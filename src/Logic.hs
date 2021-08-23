@@ -454,7 +454,7 @@ proceedCandidate (pullRequestId, pullRequest) state =
     Integrated sha buildStatus -> case buildStatus of
       BuildPending   -> pure state
       BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) sha state
-      BuildFailed    -> do
+      BuildFailed _  -> do
         -- If the build failed, this is no longer a candidate.
         pure $ Pr.setIntegrationCandidate Nothing $
           Pr.setNeedsFeedback pullRequestId True state
@@ -579,7 +579,9 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
       , " "
       , prBranchName
       ]
-  PrStatusFailedBuild -> "The build failed."
+  PrStatusFailedBuild url -> case url of
+                              Just url' -> format "The build failed: {}" [url']
+                              Nothing   -> "The build failed, but GitHub did not provide an URL to the build failure. This is bad"
   where
     getIntegrationSha :: PullRequest -> Maybe Sha
     getIntegrationSha pullRequest =
