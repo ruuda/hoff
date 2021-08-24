@@ -980,11 +980,11 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a39") False
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI \x2026"
-        , ALeaveComment (PullRequestId 1) "The build failed: https://example.com/build-status"
+        , ALeaveComment (PullRequestId 1) "The build failed: https://example.com/build-status\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.\nOtherwise, push a new commit and tag me again."
         , AIsReviewer "deckard"
           -- Nothing has changed for the bot because b71 has already failed, so
           -- it doesn't retry, but reports the correct state.
-        , ALeaveComment (PullRequestId 1) "The build failed: https://example.com/build-status"
+        , ALeaveComment (PullRequestId 1) "The build failed: https://example.com/build-status\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.\nOtherwise, push a new commit and tag me again."
         ]
 
   describe "Github._Payload" $ do

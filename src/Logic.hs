@@ -580,8 +580,9 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
       , prBranchName
       ]
   PrStatusFailedBuild url -> case url of
-                              Just url' -> format "The build failed: {}" [url']
-                              Nothing   -> "The build failed, but GitHub did not provide an URL to the build failure. This is bad"
+                              Just url' -> format "The build failed: {}\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.\nOtherwise, push a new commit and tag me again." [url']
+                              -- This should probably never happen
+                              Nothing   -> "The build failed, but GitHub did not provide an URL to the build failure."
   where
     getIntegrationSha :: PullRequest -> Maybe Sha
     getIntegrationSha pullRequest =
