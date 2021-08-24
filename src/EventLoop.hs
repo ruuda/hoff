@@ -70,18 +70,19 @@ eventFromCommentPayload payload =
     -- separate magic comment, rather than editing the approval comment.
     _ -> Nothing
 
-mapCommitStatus :: Github.CommitStatus -> Project.BuildStatus
-mapCommitStatus status = case status of
+mapCommitStatus :: Github.CommitStatus -> Maybe Text.Text -> Project.BuildStatus
+mapCommitStatus status url = case status of
   Github.Pending -> Project.BuildPending
   Github.Success -> Project.BuildSucceeded
-  Github.Failure -> Project.BuildFailed
-  Github.Error   -> Project.BuildFailed
+  Github.Failure -> Project.BuildFailed url
+  Github.Error   -> Project.BuildFailed url
 
 eventFromCommitStatusPayload :: CommitStatusPayload -> Logic.Event
 eventFromCommitStatusPayload payload =
   let sha    = Github.sha    (payload :: CommitStatusPayload)
       status = Github.status (payload :: CommitStatusPayload)
-  in  Logic.BuildStatusChanged sha (mapCommitStatus status)
+      url    = Github.url    (payload :: CommitStatusPayload)
+  in  Logic.BuildStatusChanged sha (mapCommitStatus status url)
 
 convertGithubEvent :: Github.WebhookEvent -> Maybe Logic.Event
 convertGithubEvent event = case event of

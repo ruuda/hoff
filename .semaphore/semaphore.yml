@@ -7,6 +7,12 @@ agent:
     type: "e1-standard-2"
     os_image: "ubuntu1804"
 
+# If we push a new build to some branch that isn't master, and another build is
+# already running, we cancel it.
+auto_cancel:
+  running:
+    when: "branch != 'master'"
+
 blocks:
   - name: "Build"
     task:

@@ -71,7 +71,7 @@ import Types (PullRequestId (..), Username)
 data BuildStatus
   = BuildPending
   | BuildSucceeded
-  | BuildFailed
+  | BuildFailed (Maybe Text)
   deriving (Eq, Show, Generic)
 
 -- When attempting to integrated changes, there can be three states: no attempt
@@ -85,12 +85,12 @@ data IntegrationStatus
   deriving (Eq, Show, Generic)
 
 data PullRequestStatus
-  = PrStatusAwaitingApproval -- New, awaiting review.
-  | PrStatusApproved         -- Approved, but not yet integrated or built.
-  | PrStatusBuildPending     -- Integrated, and build pending or in progress.
-  | PrStatusIntegrated       -- Integrated, build passed, merged into target branch.
-  | PrStatusFailedConflict   -- Failed to integrate due to merge conflict.
-  | PrStatusFailedBuild      -- Integrated, but the build failed.
+  = PrStatusAwaitingApproval          -- New, awaiting review.
+  | PrStatusApproved                  -- Approved, but not yet integrated or built.
+  | PrStatusBuildPending              -- Integrated, and build pending or in progress.
+  | PrStatusIntegrated                -- Integrated, build passed, merged into target branch.
+  | PrStatusFailedConflict            -- Failed to integrate due to merge conflict.
+  | PrStatusFailedBuild (Maybe Text)  -- Integrated, but the build failed. Field should contain the URL to a page explaining the build failure.
   deriving (Eq)
 
 -- A PR can be approved to be merged with "<prefix> merge", or it can be
@@ -270,9 +270,9 @@ classifyPullRequest pr = case approval pr of
     NotIntegrated -> PrStatusApproved
     Conflicted _  -> PrStatusFailedConflict
     Integrated _ buildStatus -> case buildStatus of
-      BuildPending   -> PrStatusBuildPending
-      BuildSucceeded -> PrStatusIntegrated
-      BuildFailed    -> PrStatusFailedBuild
+      BuildPending    -> PrStatusBuildPending
+      BuildSucceeded  -> PrStatusIntegrated
+      BuildFailed url -> PrStatusFailedBuild url
 
 -- Classify every pull request into one status. Orders pull requests by id in
 -- ascending order.
@@ -338,7 +338,7 @@ isInProgress pr = case approval pr of
     Integrated _ buildStatus -> case buildStatus of
       BuildPending   -> True
       BuildSucceeded -> False
-      BuildFailed    -> False
+      BuildFailed _  -> False
 
 -- Return whether the given commit is, or in this approval cycle ever was, an
 -- integration candidate of this pull request.

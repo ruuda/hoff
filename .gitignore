@@ -1,6 +1,7 @@
 # Build output
 /.stack-work
 /dist
+/dist-newstyle
 /package/*.deb
 
 # Cabal sandbox
