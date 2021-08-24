@@ -35,7 +35,7 @@ scp "$PKGFILE" "$FREIGHT_HOST:/tmp/$PKGFILE"
 # of these variables, not the server side versions.
 # shellcheck disable=SC2087
 ssh -T "$FREIGHT_HOST" <<END
-freight add "/tmp/${PKGFILE}" apt/xenial apt/bionic
+freight add "/tmp/${PKGFILE}" apt/bionic apt/focal
 freight-cache
 rm /tmp/${PKGFILE}
 END
