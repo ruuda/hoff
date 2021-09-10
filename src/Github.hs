@@ -66,14 +66,15 @@ data CommitStatus
   deriving (Eq, Show)
 
 data PullRequestPayload = PullRequestPayload {
-  action     :: PullRequestAction, -- Corresponds to "action".
-  owner      :: Text,     -- Corresponds to "pull_request.base.repo.owner.login".
-  repository :: Text,     -- Corresponds to "pull_request.base.repo.name".
-  number     :: Int,      -- Corresponds to "pull_request.number".
-  branch     :: Branch,   -- Corresponds to "pull_request.head.ref".
-  sha        :: Sha,      -- Corresponds to "pull_request.head.sha".
-  title      :: Text,     -- Corresponds to "pull_request.title".
-  author     :: Username  -- Corresponds to "pull_request.user.login".
+  action      :: PullRequestAction, -- Corresponds to "action".
+  owner       :: Text,     -- Corresponds to "pull_request.base.repo.owner.login".
+  repository  :: Text,     -- Corresponds to "pull_request.base.repo.name".
+  baseBranch  :: Branch,   -- Corresponds to "pull_request.base.ref"
+  number      :: Int,      -- Corresponds to "pull_request.number".
+  branch      :: Branch,   -- Corresponds to "pull_request.head.ref".
+  sha         :: Sha,      -- Corresponds to "pull_request.head.sha".
+  title       :: Text,     -- Corresponds to "pull_request.title".
+  author      :: Username  -- Corresponds to "pull_request.user.login".
 } deriving (Eq, Show)
 
 data CommentPayload = CommentPayload {
@@ -135,6 +136,7 @@ instance FromJSON PullRequestPayload where
     <$> (v .: "action")
     <*> getNested v ["pull_request", "base", "repo", "owner", "login"]
     <*> getNested v ["pull_request", "base", "repo", "name"]
+    <*> getNested v ["pull_request", "base", "ref"]
     <*> getNested v ["pull_request", "number"]
     <*> getNested v ["pull_request", "head", "ref"]
     <*> getNested v ["pull_request", "head", "sha"]

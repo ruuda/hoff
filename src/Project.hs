@@ -74,14 +74,17 @@ data BuildStatus
   | BuildFailed (Maybe Text)
   deriving (Eq, Show, Generic)
 
--- When attempting to integrated changes, there can be three states: no attempt
--- has been made to integrate; integration (e.g. merge or rebase) was successful
--- and the new commit has the given sha; and an attempt to integrate was made,
--- but it resulted in merge conflicts.
+-- When attempting to integrated changes, there can be four states: no attempt
+-- has been made to integrate; unable to integrate due to base branch not being master;
+-- integration (e.g. merge or rebase) was successful
+-- and the new commit has the given sha; an attempt to integrate was made,
+-- but it resulted in merge conflicts; and the integration is forbidden due to the target branch
+-- not being valid
 data IntegrationStatus
   = NotIntegrated
   | Integrated Sha BuildStatus
   | Conflicted Branch
+  | IncorrectBaseBranch
   deriving (Eq, Show, Generic)
 
 data PullRequestStatus
@@ -89,6 +92,7 @@ data PullRequestStatus
   | PrStatusApproved                  -- Approved, but not yet integrated or built.
   | PrStatusBuildPending              -- Integrated, and build pending or in progress.
   | PrStatusIntegrated                -- Integrated, build passed, merged into target branch.
+  | PrStatusIncorrectBaseBranch       -- Integration branch not being valid.
   | PrStatusFailedConflict            -- Failed to integrate due to merge conflict.
   | PrStatusFailedBuild (Maybe Text)  -- Integrated, but the build failed. Field should contain the URL to a page explaining the build failure.
   deriving (Eq)
@@ -114,6 +118,7 @@ data Approval = Approval
 data PullRequest = PullRequest
   { sha                 :: Sha
   , branch              :: Branch
+  , baseBranch          :: Branch
   , title               :: Text
   , author              :: Username
   , approval            :: Maybe Approval
@@ -188,15 +193,18 @@ emptyProjectState = ProjectState {
 insertPullRequest
   :: PullRequestId
   -> Branch
+  -> Branch
   -> Sha
   -> Text
   -> Username
   -> ProjectState
   -> ProjectState
-insertPullRequest (PullRequestId n) prBranch prSha prTitle prAuthor state =
-  let pullRequest = PullRequest {
+insertPullRequest (PullRequestId n) prBranch bsBranch prSha prTitle prAuthor state =
+  let 
+    pullRequest = PullRequest {
         sha                 = prSha,
         branch              = prBranch,
+        baseBranch          = bsBranch,
         title               = prTitle,
         author              = prAuthor,
         approval            = Nothing,
@@ -269,6 +277,7 @@ classifyPullRequest pr = case approval pr of
   Just _  -> case integrationStatus pr of
     NotIntegrated -> PrStatusApproved
     Conflicted _  -> PrStatusFailedConflict
+    IncorrectBaseBranch -> PrStatusIncorrectBaseBranch
     Integrated _ buildStatus -> case buildStatus of
       BuildPending    -> PrStatusBuildPending
       BuildSucceeded  -> PrStatusIntegrated
@@ -324,6 +333,7 @@ isQueued pr = case approval pr of
   Nothing -> False
   Just _  -> case integrationStatus pr of
     NotIntegrated  -> True
+    IncorrectBaseBranch      -> False
     Conflicted _   -> False
     Integrated _ _ -> False
 
@@ -334,6 +344,7 @@ isInProgress pr = case approval pr of
   Nothing -> False
   Just _  -> case integrationStatus pr of
     NotIntegrated -> False
+    IncorrectBaseBranch     -> False
     Conflicted _  -> False
     Integrated _ buildStatus -> case buildStatus of
       BuildPending   -> True

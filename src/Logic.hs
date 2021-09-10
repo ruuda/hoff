@@ -205,7 +205,7 @@ ensureCloned config =
 
 data Event
   -- GitHub events
-  = PullRequestOpened PullRequestId Branch Sha Text Username -- PR, branch, sha, title, author.
+  = PullRequestOpened PullRequestId Branch Branch Sha Text Username -- PR, branch, sha, title, author.
   -- The commit changed event may contain false positives: it may be received
   -- even if the commit did not really change. This is because GitHub just
   -- sends a "something changed" event along with the new state.
@@ -260,7 +260,7 @@ handleEventInternal
   -> ProjectState
   -> Action ProjectState
 handleEventInternal triggerConfig event = case event of
-  PullRequestOpened pr branch sha title author -> handlePullRequestOpened pr branch sha title author
+  PullRequestOpened pr branch baseBranch sha title author -> handlePullRequestOpened pr branch baseBranch sha title author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosed pr
   PullRequestEdited pr title      -> handlePullRequestEdited pr title
@@ -271,13 +271,14 @@ handleEventInternal triggerConfig event = case event of
 handlePullRequestOpened
   :: PullRequestId
   -> Branch
+  -> Branch
   -> Sha
   -> Text
   -> Username
   -> ProjectState
   -> Action ProjectState
-handlePullRequestOpened pr branch sha title author =
-  return . Pr.insertPullRequest pr branch sha title author
+handlePullRequestOpened pr branch baseBranch sha title author =
+  return . Pr.insertPullRequest pr branch baseBranch sha title author
 
 handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> Action ProjectState
 handlePullRequestCommitChanged pr newSha state =
@@ -291,8 +292,9 @@ handlePullRequestCommitChanged pr newSha state =
         branch = Pr.branch pullRequest
         title  = Pr.title pullRequest
         author = Pr.author pullRequest
+        baseBranch = Pr.baseBranch pullRequest
       in
-        closedState >>= handlePullRequestOpened pr branch newSha title author
+        closedState >>= handlePullRequestOpened pr branch baseBranch newSha title author
   in
     case Pr.lookupPullRequest pr state of
       Just pullRequest
@@ -375,7 +377,11 @@ handleCommentAdded triggerConfig pr author body state =
         -- The PR has now been approved by the author of the comment.
         then
           let (order, state') = Pr.newApprovalOrder state
-          in approvePullRequest pr (Approval author (fromJust approvalType) order) state'
+          state'' <- approvePullRequest prId (Approval author (fromJust approvalType) order) state'
+          -- Check whether the integration branch is valid, if not, mark the integration as forbidden
+          if Pr.baseBranch pr /= Branch (Config.branch projectConfig)
+             then pure $ Pr.setIntegrationStatus prId IncorrectBaseBranch state''
+             else pure state''
         else pure state
 
     -- If the pull request is not in the state, ignore the comment.
@@ -417,6 +423,7 @@ synchronizeState stateInitial =
           Just details -> pure $ Pr.insertPullRequest
             pr
             (GithubApi.branch details)
+            (GithubApi.baseBranch details)
             (GithubApi.sha details)
             (GithubApi.title details)
             (GithubApi.author details)
@@ -453,8 +460,11 @@ proceedCandidate (pullRequestId, pullRequest) state =
     NotIntegrated ->
       tryIntegratePullRequest pullRequestId state
 
+    IncorrectBaseBranch ->
+      -- It shouldn't come to this point; a PR with an incorrent base branch is never considered as a candidate.
+      pure $ Pr.setIntegrationCandidate Nothing state
+
     Conflicted _branch ->
-      -- If it conflicted, it should no longer be the integration candidate.
       pure $ Pr.setIntegrationCandidate Nothing state
 
     Integrated sha buildStatus -> case buildStatus of
@@ -477,6 +487,7 @@ tryIntegratePullRequest pr state =
   let
     PullRequestId prNumber = pr
     pullRequest  = fromJust $ Pr.lookupPullRequest pr state
+    Branch baseBranch = Pr.baseBranch pullRequest
     title = Pr.title pullRequest
     Approval (Username approvedBy) approvalType _prOrder = fromJust $ Pr.approval pullRequest
     candidateSha = Pr.sha pullRequest
@@ -489,23 +500,28 @@ tryIntegratePullRequest pr state =
       , format "Auto-deploy: {}" [if approvalType == MergeAndDeploy then "true" else "false" :: Text]
       ]
     mergeMessage = Text.unlines mergeMessageLines
-  in do
-    result <- tryIntegrate mergeMessage candidate $ Pr.alwaysAddMergeCommit approvalType
-    case result of
-      Left (IntegrationFailure targetBranch) ->
-        -- If integrating failed, perform no further actions but do set the
-        -- state to conflicted.
-        pure $ Pr.setIntegrationStatus pr (Conflicted targetBranch) $
-          Pr.setNeedsFeedback pr True state
+  in
+    -- Check whether the integration branch is master, if not, mark the integration as forbidden
+    -- NOTE: Maybe the integration branch should be configurable per project?
+    if baseBranch /= "master"
+       then pure $ Pr.setIntegrationStatus pr Forbidden $ Pr.setNeedsFeedback pr True state
+       else do
+          result <- tryIntegrate mergeMessage candidate $ Pr.alwaysAddMergeCommit approvalType
+          case result of
+            Left (IntegrationFailure targetBranch) ->
+              -- If integrating failed, perform no further actions but do set the
+              -- state to conflicted.
+              pure $ Pr.setIntegrationStatus pr (Conflicted targetBranch) $
+                Pr.setNeedsFeedback pr True state
 
-      Right (Sha sha) -> do
-        -- If it succeeded, update the integration candidate, and set the build
-        -- to pending, as pushing should have triggered a build.
-        pure
-          $ Pr.setIntegrationStatus pr (Integrated (Sha sha) BuildPending)
-          $ Pr.setIntegrationCandidate (Just pr)
-          $ Pr.setNeedsFeedback pr True
-          $ state
+            Right (Sha sha) -> do
+              -- If it succeeded, update the integration candidate, and set the build
+              -- to pending, as pushing should have triggered a build.
+              pure
+                $ Pr.setIntegrationStatus pr (Integrated (Sha sha) BuildPending)
+                $ Pr.setIntegrationCandidate (Just pr)
+                $ Pr.setNeedsFeedback pr True
+                $ state
 
 -- Pushes the integrated commits of the given candidate pull request to the
 -- target branch. If the push fails, restarts the integration cycle for the
@@ -574,6 +590,7 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
     let Sha sha = fromJust $ getIntegrationSha pr
     in Text.concat ["Rebased as ", sha, ", waiting for CI …"]
   PrStatusIntegrated -> "The build succeeded."
+  PrStatusIncorrectBaseBranch  -> "Pull request refused: the target branch must be the integration branch."
   PrStatusFailedConflict ->
     let
       Branch targetBranchName = fromJust $ getIntegrationTargetBranch pr
