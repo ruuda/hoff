@@ -465,6 +465,7 @@ proceedCandidate (pullRequestId, pullRequest) state =
       pure $ Pr.setIntegrationCandidate Nothing state
 
     Conflicted _branch ->
+      -- If it conflicted, it should no longer be the integration candidate.
       pure $ Pr.setIntegrationCandidate Nothing state
 
     Integrated sha buildStatus -> case buildStatus of
@@ -501,8 +502,8 @@ tryIntegratePullRequest pr state =
       ]
     mergeMessage = Text.unlines mergeMessageLines
   in
-    -- Check whether the integration branch is master, if not, mark the integration as forbidden
-    -- NOTE: Maybe the integration branch should be configurable per project?
+    -- check whether the integration branch is master, if not -- mark the integration as forbidden
+    -- NOTE: Maybe the target branch should be configurable per project?
     if baseBranch /= "master"
        then pure $ Pr.setIntegrationStatus pr Forbidden $ Pr.setNeedsFeedback pr True state
        else do

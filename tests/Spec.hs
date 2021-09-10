@@ -1040,14 +1040,17 @@ main = hspec $ do
           title      = Github.title      (payload :: PullRequestPayload)
           prAuthor   = Github.author     (payload :: PullRequestPayload)
           prBranch   = Github.branch     (payload :: PullRequestPayload)
+          baseBranch = Github.baseBranch (payload :: PullRequestPayload)
       action     `shouldBe` Github.Opened
       owner      `shouldBe` "baxterthehacker"
       repository `shouldBe` "public-repo"
       number     `shouldBe` 1
       headSha    `shouldBe` (Sha "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c")
       prBranch   `shouldBe` (Branch "changes")
+      baseBranch `shouldBe` (Branch "master")
       title      `shouldBe` "Update the README with new information"
       prAuthor   `shouldBe` "baxterthehacker2"
+
 
     it "parses a CommentPayload from a created issue_comment correctly" $ do
       examplePayload <- readFile "tests/data/issue-comment-created-payload.json"
