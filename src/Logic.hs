@@ -503,7 +503,7 @@ tryIntegratePullRequest pr state =
     mergeMessage = Text.unlines mergeMessageLines
   in
     -- check whether the integration branch is master, if not -- mark the integration as forbidden
-    -- NOTE: Maybe the target branch should be configurable per project?
+    -- NOTE: Maybe the integration branch should be configurable per project?
     if baseBranch /= "master"
        then pure $ Pr.setIntegrationStatus pr Forbidden $ Pr.setNeedsFeedback pr True state
        else do

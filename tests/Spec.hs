@@ -745,6 +745,26 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "Rebased as 38c, waiting for CI \x2026"
         ]
 
+    it "doesn't find a candidate if all PRs are forbidden" $ do
+      let
+        state
+          = Project.setApproval (PullRequestId 2) (Just (Approval "fred" Project.Merge 0))
+          $ Project.setApproval (PullRequestId 1) (Just (Approval "fred" Project.Merge 1))
+          $ fst $ runAction $ handleEventsTest
+            [ PullRequestOpened (PullRequestId 1) (Branch "p") (Branch "m") (Sha "f34") "Untitled" "sally"
+            , PullRequestOpened (PullRequestId 2) (Branch "s") (Branch "m") (Sha "g35") "Another untitled" "rachael"
+            ] Project.emptyProjectState
+        (state', actions) = runAction $ Logic.proceedUntilFixedPoint state
+        candidate = Project.getIntegrationCandidate state'
+        candidates = Project.candidatePullRequests state'
+
+      candidate `shouldBe` Nothing
+      candidates `shouldBe` []
+      actions `shouldBe`
+        [ ALeaveComment (PullRequestId 2) "Pull request refused: the target branch must be the integration branch (master)."
+        , ALeaveComment (PullRequestId 1) "Pull request refused: the target branch must be the integration branch (master)."
+        ]
+
     it "pushes after a successful build" $ do
       let
         pullRequest = PullRequest
