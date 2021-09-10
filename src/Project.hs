@@ -75,11 +75,10 @@ data BuildStatus
   deriving (Eq, Show, Generic)
 
 -- When attempting to integrated changes, there can be four states: no attempt
--- has been made to integrate; unable to integrate due to base branch not being master;
--- integration (e.g. merge or rebase) was successful
+-- has been made to integrate; integration (e.g. merge or rebase) was successful
 -- and the new commit has the given sha; an attempt to integrate was made,
--- but it resulted in merge conflicts; and the integration is forbidden due to the target branch
--- not being valid
+-- but it resulted in merge conflicts; and the integration is rejected due to the target branch
+-- not being valid.
 data IntegrationStatus
   = NotIntegrated
   | Integrated Sha BuildStatus

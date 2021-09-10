@@ -362,30 +362,31 @@ handleCommentAdded
   -> Text
   -> ProjectState
   -> Action ProjectState
-handleCommentAdded triggerConfig pr author body state =
-  if Pr.existsPullRequest pr state
+handleCommentAdded triggerConfig prId author body state =
+  let maybePR = Pr.lookupPullRequest prId state in
+  case maybePR of
     -- Check if the commment is a merge command, and if it is, check if the
     -- author is allowed to approve. Comments by users with push access happen
     -- frequently, but most comments are not merge commands, and checking that
     -- a user has push access requires an API call.
-    then do
+    Just pr -> do
       let approvalType = parseMergeCommand triggerConfig body
       isApproved <- if isJust approvalType
         then isReviewer author
         else pure False
       if isApproved
         -- The PR has now been approved by the author of the comment.
-        then
+        then do
           let (order, state') = Pr.newApprovalOrder state
           state'' <- approvePullRequest prId (Approval author (fromJust approvalType) order) state'
-          -- Check whether the integration branch is valid, if not, mark the integration as forbidden
+          -- Check whether the integration branch is valid, if not, mark the integration as invalid.
           if Pr.baseBranch pr /= Branch (Config.branch projectConfig)
              then pure $ Pr.setIntegrationStatus prId IncorrectBaseBranch state''
              else pure state''
         else pure state
 
     -- If the pull request is not in the state, ignore the comment.
-    else pure state
+    Nothing -> pure state
 
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> ProjectState
 handleBuildStatusChanged buildSha newStatus state =
@@ -488,7 +489,6 @@ tryIntegratePullRequest pr state =
   let
     PullRequestId prNumber = pr
     pullRequest  = fromJust $ Pr.lookupPullRequest pr state
-    Branch baseBranch = Pr.baseBranch pullRequest
     title = Pr.title pullRequest
     Approval (Username approvedBy) approvalType _prOrder = fromJust $ Pr.approval pullRequest
     candidateSha = Pr.sha pullRequest
@@ -501,28 +501,23 @@ tryIntegratePullRequest pr state =
       , format "Auto-deploy: {}" [if approvalType == MergeAndDeploy then "true" else "false" :: Text]
       ]
     mergeMessage = Text.unlines mergeMessageLines
-  in
-    -- check whether the integration branch is master, if not -- mark the integration as forbidden
-    -- NOTE: Maybe the integration branch should be configurable per project?
-    if baseBranch /= "master"
-       then pure $ Pr.setIntegrationStatus pr Forbidden $ Pr.setNeedsFeedback pr True state
-       else do
-          result <- tryIntegrate mergeMessage candidate $ Pr.alwaysAddMergeCommit approvalType
-          case result of
-            Left (IntegrationFailure targetBranch) ->
-              -- If integrating failed, perform no further actions but do set the
-              -- state to conflicted.
-              pure $ Pr.setIntegrationStatus pr (Conflicted targetBranch) $
-                Pr.setNeedsFeedback pr True state
+  in do
+    result <- tryIntegrate mergeMessage candidate $ Pr.alwaysAddMergeCommit approvalType
+    case result of
+      Left (IntegrationFailure targetBranch) ->
+        -- If integrating failed, perform no further actions but do set the
+        -- state to conflicted.
+        pure $ Pr.setIntegrationStatus pr (Conflicted targetBranch) $
+          Pr.setNeedsFeedback pr True state
 
-            Right (Sha sha) -> do
-              -- If it succeeded, update the integration candidate, and set the build
-              -- to pending, as pushing should have triggered a build.
-              pure
-                $ Pr.setIntegrationStatus pr (Integrated (Sha sha) BuildPending)
-                $ Pr.setIntegrationCandidate (Just pr)
-                $ Pr.setNeedsFeedback pr True
-                $ state
+      Right (Sha sha) -> do
+        -- If it succeeded, update the integration candidate, and set the build
+        -- to pending, as pushing should have triggered a build.
+        pure
+          $ Pr.setIntegrationStatus pr (Integrated (Sha sha) BuildPending)
+          $ Pr.setIntegrationCandidate (Just pr)
+          $ Pr.setNeedsFeedback pr True
+          $ state
 
 -- Pushes the integrated commits of the given candidate pull request to the
 -- target branch. If the push fails, restarts the integration cycle for the
