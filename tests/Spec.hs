@@ -715,6 +715,32 @@ main = hspec $ do
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.integrationStatus pr == Project.IncorrectBaseBranch)
 
+    it "doesn't reject 'merge' after a base branch change" $ do
+      let 
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") (BaseBranch "m") (Sha "abc1234") "tyrell"
+        
+        events = 
+          [ CommentAdded prId "deckard" "@bot merge"
+          , PullRequestEdited prId "Untitled" (BaseBranch "master")
+          , CommentAdded prId "deckard" "@bot merge"] 
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (state', actions) = runActionCustom results $ handleEventsTest events state
+
+      actions `shouldBe` 
+        [ AIsReviewer (Username "deckard")
+        , ALeaveComment (PullRequestId 1) "Merge rejected: the target branch must be the integration branch."
+        , AIsReviewer (Username "deckard")
+        , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
+        , ALeaveComment (PullRequestId 1) "Rebased as def2345, waiting for CI \8230"
+        ]
+      
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.integrationStatus pr == Project.Integrated (Sha "def2345") Project.BuildPending)
+
+
   describe "Logic.proceedUntilFixedPoint" $ do
 
     it "finds a new candidate" $ do
