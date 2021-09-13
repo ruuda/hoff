@@ -177,6 +177,7 @@ data GitOperationFree a
   | LastTag Sha (Maybe Text -> a)
   | Tag Sha TagName Text (TagResult -> a)
   | DeleteTag TagName a
+  | CheckOrphanFixups RemoteBranch (Bool -> a)
   deriving (Functor)
 
 type GitOperation = Free GitOperationFree
@@ -228,6 +229,9 @@ tag' sha t@(TagName name) = tag sha t name
 
 deleteTag :: TagName -> GitOperation ()
 deleteTag t = liftF $ DeleteTag t ()
+
+checkOrphanFixups :: RemoteBranch -> GitOperation Bool
+checkOrphanFixups branch = liftF $ CheckOrphanFixups branch id
 
 -- Invokes Git with the given arguments. Returns its output on success, or the
 -- exit code and stderr on error.
@@ -427,6 +431,14 @@ runGit userConfig repoDir operation =
 
     DeleteTag t cont -> cont <$ callGitInRepo ["tag", "-d", refSpec t]
 
+    CheckOrphanFixups branch cont -> do --pure $ cont True
+      result <- callGitInRepo ["log", refSpec branch] --let remoteBranch' = refSpec remoteBranch 
+                --in callGitInRepo ["log", Text.unpack $ format "{}..master" [remoteBranch',remoteBranch']]
+      _ <- error $ show result
+      case result of
+        Left (_,_) -> pure $ cont False
+        Right _ -> pure $ cont True
+
 -- Interpreter that runs only Git operations that have no side effects on the
 -- remote; it does not push.
 runGitReadOnly
@@ -454,6 +466,7 @@ runGitReadOnly userConfig repoDir operation =
       LastTag {} -> unsafeResult
       Tag {} -> unsafeResult
       DeleteTag {} -> unsafeResult
+      CheckOrphanFixups {} -> unsafeResult
 
       -- These operations mutate the remote, so we don't execute them in
       -- read-only mode.
@@ -500,6 +513,7 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
       -- If not (i.e. the current master is the parent of the proposed commit
       -- and the approval type is not MergeAndDeploy) then we just take that
       -- commit as-is.
+      _ <- checkOrphanFixups targetBranch
       targetBranchSha <- checkout targetBranch
       parentSha       <- getParent sha
       newTip <- case parentSha of
