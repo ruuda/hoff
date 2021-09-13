@@ -256,15 +256,16 @@ readStateVar var = atomically $ readTMVar var
 -- point. This is handled by `handleEvent`.
 handleEventInternal
   :: TriggerConfiguration
+  -> ProjectConfiguration
   -> Event
   -> ProjectState
   -> Action ProjectState
-handleEventInternal triggerConfig event = case event of
+handleEventInternal triggerConfig projectConfig event = case event of
   PullRequestOpened pr branch baseBranch sha title author -> handlePullRequestOpened pr branch baseBranch sha title author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosed pr
   PullRequestEdited pr title      -> handlePullRequestEdited pr title
-  CommentAdded pr author body     -> handleCommentAdded triggerConfig pr author body
+  CommentAdded pr author body     -> handleCommentAdded triggerConfig projectConfig pr author body
   BuildStatusChanged sha status   -> pure . handleBuildStatusChanged sha status
   Synchronize                     -> synchronizeState
 
@@ -357,12 +358,13 @@ approvePullRequest pr approval = pure . Pr.updatePullRequest pr
 
 handleCommentAdded
   :: TriggerConfiguration
+  -> ProjectConfiguration
   -> PullRequestId
   -> Username
   -> Text
   -> ProjectState
   -> Action ProjectState
-handleCommentAdded triggerConfig prId author body state =
+handleCommentAdded triggerConfig projectConfig prId author body state =
   let maybePR = Pr.lookupPullRequest prId state in
   case maybePR of
     -- Check if the commment is a merge command, and if it is, check if the
@@ -632,11 +634,12 @@ provideFeedback state
 
 handleEvent
   :: TriggerConfiguration
+  -> ProjectConfiguration
   -> Event
   -> ProjectState
   -> Action ProjectState
-handleEvent triggerConfig event state =
-  handleEventInternal triggerConfig event state >>= proceedUntilFixedPoint
+handleEvent triggerConfig projectConfig event state =
+  handleEventInternal triggerConfig projectConfig event state >>= proceedUntilFixedPoint
 
 
 -- TODO this is very Channable specific, perhaps it should be more generic

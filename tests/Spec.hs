@@ -47,6 +47,16 @@ testTriggerConfig = Config.TriggerConfiguration {
   Config.commentPrefix = "@bot"
 }
 
+testProjectConfig :: Config.ProjectConfiguration
+testProjectConfig = Config.ProjectConfiguration {
+  Config.owner = "peter",
+  Config.repository = "rep",
+  Config.branch = "master",
+  Config.testBranch = "testing",
+  Config.checkout = "/var/lib/hoff/checkouts/peter/rep",
+  Config.stateFile = "/var/lib/hoff/state/peter/rep.json"
+}
+
 -- Functions to prepare certain test states.
 
 singlePullRequestState :: PullRequestId -> Branch -> Branch -> Sha -> Username -> ProjectState
@@ -201,12 +211,12 @@ runAction = runActionCustom defaultResults
 -- Handle an event, then advance the state until a fixed point,
 -- and simulate its side effects.
 handleEventTest :: Event -> ProjectState -> Action ProjectState
-handleEventTest = Logic.handleEvent testTriggerConfig
+handleEventTest = Logic.handleEvent testTriggerConfig testProjectConfig
 
 -- Handle events (advancing the state until a fixed point in between) and
 -- simulate their side effects.
 handleEventsTest :: [Event] -> ProjectState -> Action ProjectState
-handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig) state events
+handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig testProjectConfig) state events
 
 main :: IO ()
 main = hspec $ do
@@ -231,7 +241,7 @@ main = hspec $ do
       state `shouldSatisfy` Project.existsPullRequest (PullRequestId 2)
 
     it "handles PullRequestEdited" $ do
-      let event1 = PullRequestOpened (PullRequestId 1) (Branch "p") (Sha "abc") "title" "peter"
+      let event1 = PullRequestOpened (PullRequestId 1) (Branch "p") (Branch "master") (Sha "abc") "title" "peter"
           event2 = PullRequestEdited (PullRequestId 1) "newTitle"
           state = fst $ runAction $ handleEventsTest [event1, event2] Project.emptyProjectState
           pr = fromJust $ Project.lookupPullRequest (PullRequestId 1) state
