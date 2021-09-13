@@ -230,6 +230,13 @@ main = hspec $ do
       state `shouldSatisfy` not . Project.existsPullRequest (PullRequestId 1)
       state `shouldSatisfy` Project.existsPullRequest (PullRequestId 2)
 
+    it "handles PullRequestEdited" $ do
+      let event1 = PullRequestOpened (PullRequestId 1) (Branch "p") (Sha "abc") "title" "peter"
+          event2 = PullRequestEdited (PullRequestId 1) "newTitle"
+          state = fst $ runAction $ handleEventsTest [event1, event2] Project.emptyProjectState
+          pr = fromJust $ Project.lookupPullRequest (PullRequestId 1) state
+      Project.title pr `shouldBe` "newTitle"
+
     it "handles closing the integration candidate PR" $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 1) (Branch "p") (Sha "ea0") "frank" "deckard" (Sha "cf4")
