@@ -33,7 +33,7 @@ import Data.Aeson.Types (Parser, typeMismatch)
 import Data.Text (Text)
 import GHC.Natural (Natural)
 
-import Git (Sha (..), Branch (..))
+import Git (Sha (..), Branch (..), BaseBranch (..))
 import Project (ProjectInfo (..))
 import Types (Username)
 import Data.Maybe (fromMaybe)
@@ -69,7 +69,7 @@ data PullRequestPayload = PullRequestPayload {
   action      :: PullRequestAction, -- Corresponds to "action".
   owner       :: Text,     -- Corresponds to "pull_request.base.repo.owner.login".
   repository  :: Text,     -- Corresponds to "pull_request.base.repo.name".
-  baseBranch  :: Branch,   -- Corresponds to "pull_request.base.ref"
+  baseBranch  :: BaseBranch,   -- Corresponds to "pull_request.base.ref"
   number      :: Int,      -- Corresponds to "pull_request.number".
   branch      :: Branch,   -- Corresponds to "pull_request.head.ref".
   sha         :: Sha,      -- Corresponds to "pull_request.head.sha".

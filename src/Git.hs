@@ -16,6 +16,7 @@
 module Git
 (
   Branch (..),
+  BaseBranch (..),
   CloneResult (..),
   GitOperation,
   GitOperationFree,
@@ -71,6 +72,9 @@ import qualified Configuration as Config
 -- A branch is identified by its name.
 newtype Branch = Branch Text deriving newtype (Show, Eq)
 
+-- A type to represent the base branch of a PR.
+newtype BaseBranch = BaseBranch Text deriving newtype (Show, Eq)
+
 -- A branch identified by its name, pointing at origin.
 newtype RemoteBranch = RemoteBranch Text deriving newtype (Show, Eq)
 
@@ -90,6 +94,9 @@ class RefSpec a where
 instance RefSpec Branch where
   refSpec (Branch name) = Text.unpack name
 
+instance RefSpec BaseBranch where
+  refSpec (BaseBranch name) = Text.unpack name
+
 instance RefSpec RemoteBranch where
   refSpec (RemoteBranch name) = "origin/" ++ Text.unpack name
 
@@ -97,6 +104,9 @@ instance RefSpec Sha where
   refSpec (Sha sha) = Text.unpack $ Text.strip sha
 
 instance RefSpec (Sha, Branch) where
+  refSpec (sha, remote) = refSpec sha ++ ":refs/heads/" ++ refSpec remote
+
+instance RefSpec (Sha, BaseBranch) where
   refSpec (sha, remote) = refSpec sha ++ ":refs/heads/" ++ refSpec remote
 
 instance RefSpec TagName where
@@ -113,6 +123,13 @@ instance FromJSON Branch where
 
 instance ToJSON Branch where
   toJSON (Branch str) = String str
+
+instance FromJSON BaseBranch where
+  parseJSON (String str) = return (BaseBranch str)
+  parseJSON _            = mzero
+
+instance ToJSON BaseBranch where
+  toJSON (BaseBranch str) = String str
 
 instance FromJSON Sha where
   parseJSON (String str) = return (Sha str)

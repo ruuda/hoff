@@ -43,7 +43,7 @@ import qualified Network.HTTP.Client as Http
 import qualified Network.HTTP.Types.Status as Http
 
 import Format (format)
-import Git (Branch (..), Sha (..))
+import Git (BaseBranch (..), Branch (..), Sha (..))
 import Project (ProjectInfo)
 import Types (PullRequestId (..), Username (..))
 
@@ -54,7 +54,7 @@ import qualified Project
 data PullRequest = PullRequest
   { sha    :: Sha
   , branch :: Branch
-  , baseBranch :: Branch
+  , baseBranch :: BaseBranch
   , title  :: Text
   , author :: Username
   }
@@ -151,7 +151,7 @@ runGithub auth projectInfo operation =
         Right details -> pure $ cont $ Just $ PullRequest
           { sha    = Sha $ Github3.pullRequestCommitSha $ Github3.pullRequestHead details
           , branch = Branch $ Github3.pullRequestCommitRef $ Github3.pullRequestHead details
-          , baseBranch = Branch $ Github3.pullRequestCommitRef $ Github3.pullRequestBase details
+          , baseBranch = BaseBranch $ Github3.pullRequestCommitRef $ Github3.pullRequestBase details
           , title  = Github3.pullRequestTitle details
           , author = Username $ Github3.untagName $ Github3.simpleUserLogin $ Github3.pullRequestUser details
           }

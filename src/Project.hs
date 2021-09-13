@@ -55,7 +55,7 @@ import Data.List (intersect, nub, sortBy)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import GHC.Generics
-import Git (Branch (..), Sha (..))
+import Git (Branch (..), BaseBranch (..), Sha (..))
 import Prelude hiding (readFile, writeFile)
 import System.Directory (renameFile)
 
@@ -82,7 +82,7 @@ data BuildStatus
 data IntegrationStatus
   = NotIntegrated
   | Integrated Sha BuildStatus
-  | Conflicted Branch
+  | Conflicted BaseBranch
   | IncorrectBaseBranch
   deriving (Eq, Show, Generic)
 
@@ -117,7 +117,7 @@ data Approval = Approval
 data PullRequest = PullRequest
   { sha                 :: Sha
   , branch              :: Branch
-  , baseBranch          :: Branch
+  , baseBranch          :: BaseBranch
   , title               :: Text
   , author              :: Username
   , approval            :: Maybe Approval
@@ -192,7 +192,7 @@ emptyProjectState = ProjectState {
 insertPullRequest
   :: PullRequestId
   -> Branch
-  -> Branch
+  -> BaseBranch
   -> Sha
   -> Text
   -> Username
