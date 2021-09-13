@@ -205,14 +205,14 @@ ensureCloned config =
 
 data Event
   -- GitHub events
-  = PullRequestOpened PullRequestId Branch BaseBranch Sha Text Username -- PR, branch, sha, title, author.
+  = PullRequestOpened PullRequestId Branch BaseBranch Sha Text Username -- ^ PR, branch, base branch, sha, title, author.
   -- The commit changed event may contain false positives: it may be received
   -- even if the commit did not really change. This is because GitHub just
   -- sends a "something changed" event along with the new state.
-  | PullRequestCommitChanged PullRequestId Sha -- PR, new sha.
-  | PullRequestClosed PullRequestId            -- PR.
-  | PullRequestEdited PullRequestId Text BaseBranch -- PR, new title, new base branch.
-  | CommentAdded PullRequestId Username Text   -- PR, author and body.
+  | PullRequestCommitChanged PullRequestId Sha -- ^ PR, new sha.
+  | PullRequestClosed PullRequestId            -- ^ PR.
+  | PullRequestEdited PullRequestId Text BaseBranch -- ^ PR, new title, new base branch.
+  | CommentAdded PullRequestId Username Text   -- ^ PR, author and body.
   -- CI events
   | BuildStatusChanged Sha BuildStatus
   -- Internal events
@@ -251,8 +251,8 @@ updateStateVar var state = void $ atomically $ swapTMVar var state
 readStateVar :: StateVar -> IO ProjectState
 readStateVar var = atomically $ readTMVar var
 
+-- | Closes and opens a new PR with the same id. Useful for clearing approval and build status safely.
 clearPullRequest :: PullRequestId -> PullRequest -> ProjectState -> Action ProjectState
--- Closes and opens a new PR with the same id. Useful for clearing approval and build status safely.
 clearPullRequest prId pr state =
   let
     branch = Pr.branch pr
@@ -599,7 +599,7 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
     let Sha sha = fromJust $ getIntegrationSha pr
     in Text.concat ["Rebased as ", sha, ", waiting for CI …"]
   PrStatusIntegrated -> "The build succeeded."
-  PrStatusIncorrectBaseBranch  -> "Merge rejected: the target branch must be the integration branch."
+  PrStatusIncorrectBaseBranch -> "Merge rejected: the target branch must be the integration branch."
   PrStatusFailedConflict ->
     let
       BaseBranch targetBranchName = Pr.baseBranch pr

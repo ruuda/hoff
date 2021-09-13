@@ -69,19 +69,19 @@ import Format (format)
 
 import qualified Configuration as Config
 
--- A branch is identified by its name.
+-- | A branch is identified by its name.
 newtype Branch = Branch Text deriving newtype (Show, Eq)
 
--- A type to represent the base branch of a PR.
+-- | A type to represent the base branch of a PR.
 newtype BaseBranch = BaseBranch Text deriving newtype (Show, Eq)
 
--- A branch identified by its name, pointing at origin.
+-- | A branch identified by its name, pointing at origin.
 newtype RemoteBranch = RemoteBranch Text deriving newtype (Show, Eq)
 
 localBranch :: RemoteBranch -> Branch
 localBranch (RemoteBranch name) = Branch name
 
--- A commit hash is stored as its hexadecimal representation.
+-- | A commit hash is stored as its hexadecimal representation.
 newtype Sha = Sha Text deriving newtype (Show, Eq)
 
 newtype RemoteUrl = RemoteUrl Text deriving newtype (Show, Eq)

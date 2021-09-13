@@ -43,6 +43,9 @@ import qualified Logic
 import qualified Prelude
 import qualified Project
 
+masterBranch :: BaseBranch
+masterBranch = BaseBranch "master"
+
 -- Invokes Git with the given arguments, returns its stdout. Crashes if invoking
 -- Git failed. Discards all logging.
 callGit :: [String] -> IO Text
@@ -330,7 +333,7 @@ eventLoopSpec = parallel $ do
           -- Note that at the remote, refs/pull/4/head points to c4.
           pr4 = PullRequestId 4
           branch = Branch "ahead"
-          baseBranch = BaseBranch "master"
+          baseBranch = masterBranch
 
         -- Commit c4 is one commit ahead of master, so integrating it can be done
         -- with a fast-forward merge. Run the main event loop for these events
@@ -360,7 +363,7 @@ eventLoopSpec = parallel $ do
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
           pr4 = PullRequestId 4
           branch = Branch "ahead"
-          baseBranch = BaseBranch "master"
+          baseBranch = masterBranch
 
         -- Commit c4 is one commit ahead of master, so integrating it can be done
         -- with a fast-forward merge. A new tag `v2` should appear
@@ -388,7 +391,7 @@ eventLoopSpec = parallel $ do
             -- Note that at the remote, refs/pull/6/head points to c6.
             pr6 = PullRequestId 6
             branch = Branch "intro"
-            baseBranch = BaseBranch "master"
+            baseBranch = masterBranch
 
         -- Commit c6 is two commits ahead and one behind of master, so
         -- integrating it produces new rebased commits.
@@ -430,7 +433,7 @@ eventLoopSpec = parallel $ do
         let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6, _c7, _c7f, _c8] = shas
             pr6 = PullRequestId 6
             branch = Branch "intro"
-            baseBranch = BaseBranch "master"
+            baseBranch = masterBranch
 
         -- Commit c6 is two commits ahead and one behind of master, so
         -- integrating it produces new rebased commits.
@@ -469,7 +472,7 @@ eventLoopSpec = parallel $ do
             pr6 = PullRequestId 6
             br4 = Branch "ahead"
             br6 = Branch "intro"
-            baseBranch = BaseBranch "master"
+            baseBranch = masterBranch
 
         state <- runLoop Project.emptyProjectState
           [
@@ -517,7 +520,7 @@ eventLoopSpec = parallel $ do
             pr6 = PullRequestId 6
             br4 = Branch "ahead"
             br6 = Branch "intro"
-            baseBranch = BaseBranch "master"
+            baseBranch = masterBranch
 
         state <- runLoop Project.emptyProjectState
           [
@@ -564,7 +567,7 @@ eventLoopSpec = parallel $ do
             pr4 = PullRequestId 4
             br3 = Branch "alternative"
             br4 = Branch "ahead"
-            baseBranch = BaseBranch "master"
+            baseBranch = masterBranch
 
         -- Commit c3' conflicts with master, so a rebase should be attempted, but
         -- because it conflicts, the next pull request should be considered.
@@ -581,7 +584,7 @@ eventLoopSpec = parallel $ do
         -- the conflicted rebase, so that the next commit can be integrated
         -- properly.
         let Just pullRequest3 = Project.lookupPullRequest pr3 state
-        Project.integrationStatus pullRequest3 `shouldBe` Conflicted (BaseBranch "master")
+        Project.integrationStatus pullRequest3 `shouldBe` Conflicted (masterBranch)
 
         -- The second pull request should still be pending, awaiting the build
         -- result.
@@ -607,7 +610,7 @@ eventLoopSpec = parallel $ do
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
           pr6 = PullRequestId 6
           branch = Branch "intro"
-          baseBranch = BaseBranch "master"
+          baseBranch = masterBranch
 
         state <- runLoop Project.emptyProjectState
           [
@@ -620,7 +623,7 @@ eventLoopSpec = parallel $ do
         -- to the origin "master" branch, so that pushing the rebased c6 will
         -- fail later on.
         git ["fetch", "origin", "ahead"] -- The ref for commit c4.
-        git ["push", "origin", refSpec (c4, BaseBranch "master")]
+        git ["push", "origin", refSpec (c4, masterBranch)]
 
         -- Extract the sha of the rebased commit from the project state, and
         -- tell the loop that building the commit succeeded.
@@ -664,7 +667,7 @@ eventLoopSpec = parallel $ do
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
           pr6 = PullRequestId 6
           branch = Branch "intro"
-          baseBranch = BaseBranch "master"
+          baseBranch = masterBranch
 
         state <- runLoop Project.emptyProjectState
           [
@@ -677,7 +680,7 @@ eventLoopSpec = parallel $ do
         -- to the origin "master" branch, so that pushing the rebased c6 will
         -- fail later on.
         git ["fetch", "origin", "ahead"] -- The ref for commit c4.
-        git ["push", "origin", refSpec (c4, BaseBranch "master")]
+        git ["push", "origin", refSpec (c4, masterBranch)]
 
         let
           Just (_prId, pullRequest)       = Project.getIntegrationCandidate state
@@ -715,7 +718,7 @@ eventLoopSpec = parallel $ do
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
           pr6 = PullRequestId 6
           branch = Branch "intro"
-          baseBranch = BaseBranch "master"
+          baseBranch = masterBranch
 
         state <- runLoop Project.emptyProjectState
           [
@@ -727,7 +730,7 @@ eventLoopSpec = parallel $ do
         -- Before we notify build success, push commmit c4 and a new tag to the origin "master"
         -- branch, so that pushing the rebased c6 will fail later on.
         git ["fetch", "origin", "ahead"] -- The ref for commit c4.
-        git ["push", "origin", refSpec (c4, BaseBranch "master")]
+        git ["push", "origin", refSpec (c4, masterBranch)]
         git ["tag", "-a", "v2", "-m", "v2", refSpec c4]
         git ["push", "origin", refSpec (Git.TagName "v2")]
 
@@ -768,7 +771,7 @@ eventLoopSpec = parallel $ do
           [_c0, _c1, _c2, _c3, _c3', _c4, _c5, _c6, _c7, c7f, _c8] = shas
           pr8 = PullRequestId 8
           branch = Branch "fixup"
-          baseBranch = BaseBranch "master"
+          baseBranch = masterBranch
 
         state <- runLoop Project.emptyProjectState
           [
@@ -807,7 +810,7 @@ eventLoopSpec = parallel $ do
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, c7f, _c8] = shas
           pr8 = PullRequestId 8
           branch = Branch "fixup"
-          baseBranch = BaseBranch "master"
+          baseBranch = masterBranch
 
         state <- runLoop Project.emptyProjectState
           [
@@ -816,7 +819,7 @@ eventLoopSpec = parallel $ do
           ]
 
         git ["fetch", "origin", "ahead"] -- The ref for commit c4.
-        git ["push", "origin", refSpec (c4, BaseBranch "master")]
+        git ["push", "origin", refSpec (c4, masterBranch)]
 
         -- Extract the sha of the rebased commit from the project state, and
         -- tell the loop that building the commit succeeded.
@@ -855,7 +858,7 @@ eventLoopSpec = parallel $ do
           [_c0, _c1, _c2, _c3, _c3', _c4, _c5, _c6, _c7, c7f, c8] = shas
           pr8 = PullRequestId 8
           branch = Branch "fixup"
-          baseBranch = BaseBranch "master"
+          baseBranch = masterBranch
 
         -- The commit graph looks like "c7 -- c8 -- c7f", where c7 needs to be
         -- fixed up. We now already push c8 to master, so the only thing left in
@@ -863,7 +866,7 @@ eventLoopSpec = parallel $ do
         -- the bad commit c7 is already on master. Note that origin/master is
         -- not a parent of c8, so we force-push.
         git ["fetch", "origin", "fixup"] -- The ref for commit c7f.
-        git ["push", "--force", "origin", refSpec (c8, BaseBranch "master")]
+        git ["push", "--force", "origin", refSpec (c8, masterBranch)]
 
         state <- runLoop Project.emptyProjectState
           [

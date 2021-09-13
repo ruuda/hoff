@@ -41,6 +41,9 @@ import qualified GithubApi
 import qualified Logic
 import qualified Project
 
+masterBranch :: BaseBranch
+masterBranch = BaseBranch "master"
+
 -- Trigger config used throughout these tests.
 testTriggerConfig :: Config.TriggerConfiguration
 testTriggerConfig = Config.TriggerConfiguration {
@@ -223,7 +226,7 @@ main = hspec $ do
   describe "Logic.handleEvent" $ do
 
     it "handles PullRequestOpened" $ do
-      let event = PullRequestOpened (PullRequestId 3) (Branch "p") (BaseBranch "master") (Sha "e0f") "title" "lisa"
+      let event = PullRequestOpened (PullRequestId 3) (Branch "p") masterBranch (Sha "e0f") "title" "lisa"
           state = fst $ runAction $ handleEventTest event Project.emptyProjectState
       state `shouldSatisfy` Project.existsPullRequest (PullRequestId 3)
       let pr = fromJust $ Project.lookupPullRequest (PullRequestId 3) state
@@ -233,8 +236,8 @@ main = hspec $ do
       Project.integrationStatus pr `shouldBe` Project.NotIntegrated
 
     it "handles PullRequestClosed" $ do
-      let event1 = PullRequestOpened (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "abc") "title" "peter"
-          event2 = PullRequestOpened (PullRequestId 2) (Branch "q") (BaseBranch "master") (Sha "def") "title" "jack"
+      let event1 = PullRequestOpened (PullRequestId 1) (Branch "p") masterBranch (Sha "abc") "title" "peter"
+          event2 = PullRequestOpened (PullRequestId 2) (Branch "q") masterBranch (Sha "def") "title" "jack"
           event3 = PullRequestClosed (PullRequestId 1)
           state  = fst $ runAction $ handleEventsTest [event1, event2, event3] Project.emptyProjectState
       state `shouldSatisfy` not . Project.existsPullRequest (PullRequestId 1)
@@ -242,27 +245,27 @@ main = hspec $ do
 
     it "handles PullRequestEdited" $ do
       let event1 = PullRequestOpened (PullRequestId 1) (Branch "p") (BaseBranch "m") (Sha "abc") "title" "peter"
-          event2 = PullRequestEdited (PullRequestId 1) "newTitle" (BaseBranch "master")
+          event2 = PullRequestEdited (PullRequestId 1) "newTitle" masterBranch
           state = fst $ runAction $ handleEventsTest [event1, event2] Project.emptyProjectState
           pr = fromJust $ Project.lookupPullRequest (PullRequestId 1) state
       Project.title pr      `shouldBe` "newTitle"
-      Project.baseBranch pr `shouldBe` (BaseBranch "master")
+      Project.baseBranch pr `shouldBe` masterBranch
 
     it "handles closing the integration candidate PR" $ do
       let event  = PullRequestClosed (PullRequestId 1)
-          state  = candidateState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "ea0") "frank" "deckard" (Sha "cf4")
+          state  = candidateState (PullRequestId 1) (Branch "p") masterBranch (Sha "ea0") "frank" "deckard" (Sha "cf4")
           state' = fst $ runAction $ handleEventTest event state
       Project.integrationCandidate state' `shouldBe` Nothing
 
     it "does not modify the integration candidate if a different PR was closed" $ do
       let event  = PullRequestClosed (PullRequestId 1)
-          state  = candidateState (PullRequestId 2) (Branch "p") (BaseBranch "master") (Sha "a38") "franz" "deckard" (Sha "ed0")
+          state  = candidateState (PullRequestId 2) (Branch "p") masterBranch (Sha "a38") "franz" "deckard" (Sha "ed0")
           state' = fst $ runAction $ handleEventTest event state
       Project.integrationCandidate state' `shouldBe` (Just $ PullRequestId 2)
 
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
-          state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "abc") "alice"
+          state0 = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "abc") "alice"
           state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge 0)) state0
           state2 = fst $ runAction $ handleEventTest event state1
           pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
@@ -272,7 +275,7 @@ main = hspec $ do
 
     it "does not lose approval after the PR commit has changed due to a push we caused" $ do
       let
-        state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "abc") "alice"
+        state0 = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "abc") "alice"
         state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge 0)) state0
         state2 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc0") Project.BuildPending) state1
         state3 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc1") Project.BuildPending) state2
@@ -288,7 +291,7 @@ main = hspec $ do
 
     it "resets the approval, integration, and build status after the PR commit has changed" $ do
       let
-        state1  = candidateState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "abc") "thomas" "deckard" (Sha "bcd")
+        state1  = candidateState (PullRequestId 1) (Branch "p") masterBranch (Sha "abc") "thomas" "deckard" (Sha "bcd")
         newPush = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
         state2  = fst $ runAction $ handleEventTest newPush state1
         prAt1   = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
@@ -303,7 +306,7 @@ main = hspec $ do
         -- This commit change is not really a change, therefore we should not
         -- lose the approval status.
         event  = PullRequestCommitChanged (PullRequestId 1) (Sha "000")
-        state0 = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "000") "cindy"
+        state0 = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "000") "cindy"
         state1 = Project.setApproval (PullRequestId 1) (Just (Approval "daniel" Project.Merge 0)) state0
         (state2, _actions) = runAction $ Logic.proceedUntilFixedPoint state1
         (state3, actions)  = runAction $ handleEventTest event state2
@@ -313,7 +316,7 @@ main = hspec $ do
       Project.approval prAt3 `shouldBe` Just (Approval "daniel" Project.Merge 0)
 
     it "sets approval after a stamp from a reviewer" $ do
-      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "6412ef5") "toby"
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "toby"
           -- Note: "deckard" is marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot merge"
           state' = fst $ runAction $ handleEventTest event state
@@ -321,7 +324,7 @@ main = hspec $ do
       Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
 
     it "does not set approval after a stamp from a non-reviewer" $ do
-      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "6412ef5") "toby"
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "toby"
           -- Note: the comment is a valid approval command, but "rachael" is not
           -- marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "rachael" "@bot merge"
@@ -330,7 +333,7 @@ main = hspec $ do
       Project.approval pr `shouldBe` Nothing
 
     it "does not set approval after a comment with the wrong prefix" $ do
-      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "6412ef5") "patrick"
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "patrick"
           -- Note: "deckard" is marked as reviewer in the test config, but the
           -- prefix is "@bot ", so none of the comments below should trigger approval.
           event1 = CommentAdded (PullRequestId 1) "deckard" "@hoffbot merge"
@@ -344,7 +347,7 @@ main = hspec $ do
       Project.approval pr `shouldBe` Nothing
 
     it "accepts command comments case-insensitively" $ do
-      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "6412ef5") "sacha"
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "sacha"
           -- Note: "deckard" is marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "deckard" "@BoT MeRgE"
           state' = fst $ runAction $ handleEventTest event state
@@ -352,7 +355,7 @@ main = hspec $ do
       Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
 
     it "accepts command at end of other comments" $ do
-      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "6412ef5") "sacha"
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "sacha"
           -- Note: "deckard" is marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "deckard" "looks good to me, @bot merge"
           state' = fst $ runAction $ handleEventTest event state
@@ -360,7 +363,7 @@ main = hspec $ do
       Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
 
     it "accepts command at end of other comments if tagged multiple times" $ do
-      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "6412ef5") "sacha"
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "sacha"
           -- Note: "deckard" is marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot looks good to me, @bot merge"
           state' = fst $ runAction $ handleEventTest event state
@@ -368,7 +371,7 @@ main = hspec $ do
       Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
 
     it "accepts command before comments" $ do
-      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "6412ef5") "sacha"
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "sacha"
           -- Note: "deckard" is marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot merge\nYou did some fine work here."
           state' = fst $ runAction $ handleEventTest event state
@@ -376,7 +379,7 @@ main = hspec $ do
       Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
 
     it "does not accepts merge command with interleaved comments" $ do
-      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "6412ef5") "sacha"
+      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "sacha"
           -- Note: "deckard" is marked as reviewer in the test config.
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot foo merge"
           state' = fst $ runAction $ handleEventTest event state
@@ -386,16 +389,16 @@ main = hspec $ do
     it "handles a build status change of the integration candidate" $ do
       let
         event  = BuildStatusChanged (Sha "84c") Project.BuildSucceeded
-        state  = candidateState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "a38") "johanna" "deckard" (Sha "84c")
+        state  = candidateState (PullRequestId 1) (Branch "p") masterBranch (Sha "a38") "johanna" "deckard" (Sha "84c")
         state' = fst $ runAction $ handleEventTest event state
         pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.integrationStatus pr `shouldBe` Project.Integrated (Sha "84c") Project.BuildSucceeded
 
     it "ignores a build status change for commits that are not the integration candidate" $ do
       let
-        event0 = PullRequestOpened (PullRequestId 2) (Branch "p") (BaseBranch "master") (Sha "0ad") "title" "harry"
+        event0 = PullRequestOpened (PullRequestId 2) (Branch "p") masterBranch (Sha "0ad") "title" "harry"
         event1 = BuildStatusChanged (Sha "0ad") Project.BuildSucceeded
-        state  = candidateState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "a38") "harry" "deckard" (Sha "84c")
+        state  = candidateState (PullRequestId 1) (Branch "p") masterBranch (Sha "a38") "harry" "deckard" (Sha "84c")
         state' = fst $ runAction $ handleEventsTest [event0, event1] state
         pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
         pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 2) state'
@@ -406,7 +409,7 @@ main = hspec $ do
 
     it "only checks if a comment author is a reviewer for comment commands" $ do
       let
-        state = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "a38") "tyrell"
+        state = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "a38") "tyrell"
         event0 = CommentAdded (PullRequestId 1) "deckard" "I don't get it, Tyrell"
         event1 = CommentAdded (PullRequestId 1) "deckard" "@bot merge"
         actions0 = snd $ runAction $ handleEventTest event0 state
@@ -424,9 +427,9 @@ main = hspec $ do
     it "notifies approvers about queue position" $ do
       let
         state
-          = Project.insertPullRequest (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "a38") "Add Nexus 7 experiment" (Username "tyrell")
-          $ Project.insertPullRequest (PullRequestId 2) (Branch "s") (BaseBranch "master") (Sha "dec") "Some PR" (Username "rachael")
-          $ Project.insertPullRequest (PullRequestId 3) (Branch "s") (BaseBranch "master") (Sha "f16") "Another PR" (Username "rachael")
+          = Project.insertPullRequest (PullRequestId 1) (Branch "p") masterBranch (Sha "a38") "Add Nexus 7 experiment" (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "s") masterBranch (Sha "dec") "Some PR" (Username "rachael")
+          $ Project.insertPullRequest (PullRequestId 3) (Branch "s") masterBranch (Sha "f16") "Another PR" (Username "rachael")
           $ Project.emptyProjectState
         -- Approve pull request in order of ascending id, mark the last PR for deployment.
         events =
@@ -451,9 +454,9 @@ main = hspec $ do
     it "keeps the order position for the comments" $ do
       let
         state
-          = Project.insertPullRequest (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "a38") "Add Nexus 7 experiment" (Username "tyrell")
-          $ Project.insertPullRequest (PullRequestId 2) (Branch "s") (BaseBranch "master") (Sha "dec") "Some PR" (Username "rachael")
-          $ Project.insertPullRequest (PullRequestId 3) (Branch "s") (BaseBranch "master") (Sha "f16") "Another PR" (Username "rachael")
+          = Project.insertPullRequest (PullRequestId 1) (Branch "p") masterBranch (Sha "a38") "Add Nexus 7 experiment" (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "s") masterBranch (Sha "dec") "Some PR" (Username "rachael")
+          $ Project.insertPullRequest (PullRequestId 3) (Branch "s") masterBranch (Sha "f16") "Another PR" (Username "rachael")
           $ Project.emptyProjectState
         -- Approve pull request in order of ascending id, mark the last PR for deployment.
         events =
@@ -536,8 +539,8 @@ main = hspec $ do
     it "abandons integration when a pull request is closed" $ do
       let
         state
-          = Project.insertPullRequest (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "a38") "Add Nexus 7 experiment" (Username "tyrell")
-          $ Project.insertPullRequest (PullRequestId 2) (Branch "s") (BaseBranch "master") (Sha "dec") "Some PR" (Username "rachael")
+          = Project.insertPullRequest (PullRequestId 1) (Branch "p") masterBranch (Sha "a38") "Add Nexus 7 experiment" (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "s") masterBranch (Sha "dec") "Some PR" (Username "rachael")
           $ Project.emptyProjectState
         -- Approve both pull requests, then close the first.
         events =
@@ -580,7 +583,7 @@ main = hspec $ do
 
     it "checks whether pull requests are still open on synchronize" $ do
       let
-        state = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "b7332ba") "tyrell"
+        state = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "b7332ba") "tyrell"
         results = defaultResults
           { resultGetOpenPullRequests = [Just $ IntSet.singleton 1]
           }
@@ -592,7 +595,7 @@ main = hspec $ do
 
     it "closes pull requests that are no longer open on synchronize" $ do
       let
-        state = singlePullRequestState (PullRequestId 10) (Branch "p") (BaseBranch "master") (Sha "b7332ba") "tyrell"
+        state = singlePullRequestState (PullRequestId 10) (Branch "p") masterBranch (Sha "b7332ba") "tyrell"
         results = defaultResults
           { resultGetOpenPullRequests = [Just $ IntSet.empty]
           }
@@ -604,7 +607,7 @@ main = hspec $ do
 
     it "does not modify the state on an error during synchronize" $ do
       let
-        state = singlePullRequestState (PullRequestId 19) (Branch "p") (BaseBranch "master") (Sha "b7332ba") "tyrell"
+        state = singlePullRequestState (PullRequestId 19) (Branch "p") masterBranch (Sha "b7332ba") "tyrell"
         -- Set up some custom results where we simulate that the GitHub API fails.
         results = defaultResults
           { resultGetOpenPullRequests = [Nothing]
@@ -623,7 +626,7 @@ main = hspec $ do
             [ Just $ GithubApi.PullRequest
               { GithubApi.sha        = Sha "7faa52318"
               , GithubApi.branch     = Branch "nexus-7"
-              , GithubApi.baseBranch = BaseBranch "master"
+              , GithubApi.baseBranch = masterBranch
               , GithubApi.title      = "Add Nexus 7 experiment"
               , GithubApi.author     = Username "tyrell"
               }
@@ -647,7 +650,7 @@ main = hspec $ do
 
     it "does not query details of existing pull requests on synchronize" $ do
       let
-        state = singlePullRequestState (PullRequestId 19) (Branch "p") (BaseBranch "master") (Sha "b7332ba") "tyrell"
+        state = singlePullRequestState (PullRequestId 19) (Branch "p") masterBranch (Sha "b7332ba") "tyrell"
         results = defaultResults
           { resultGetOpenPullRequests = [Just $ IntSet.singleton 19]
           }
@@ -661,7 +664,7 @@ main = hspec $ do
     it "recognizes 'merge and deploy' commands as the proper ApprovedFor value" $ do
       let
         prId = PullRequestId 1
-        state = singlePullRequestState prId (Branch "p") (BaseBranch "master") (Sha "abc1234") "tyrell"
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
 
         event = CommentAdded prId "deckard" "@bot merge and deploy"
 
@@ -681,7 +684,7 @@ main = hspec $ do
     it "recognizes 'merge and tag' command" $ do
       let
         prId = PullRequestId 1
-        state = singlePullRequestState prId (Branch "p") (BaseBranch "master") (Sha "abc1234") "tyrell"
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
 
         event = CommentAdded prId "deckard" "@bot merge and tag"
 
@@ -722,7 +725,7 @@ main = hspec $ do
         
         events = 
           [ CommentAdded prId "deckard" "@bot merge"
-          , PullRequestEdited prId "Untitled" (BaseBranch "master")
+          , PullRequestEdited prId "Untitled" masterBranch
           , CommentAdded prId "deckard" "@bot merge"] 
 
         results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
@@ -740,6 +743,21 @@ main = hspec $ do
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.integrationStatus pr == Project.Integrated (Sha "def2345") Project.BuildPending)
 
+    it "loses approval after an invalid base branch change" $ do
+      let 
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+        
+        events = 
+          [ CommentAdded prId "deckard" "@bot merge"
+          , PullRequestEdited prId "Untitled" (BaseBranch "m")
+          ] 
+
+        (state', _) = runAction $ handleEventsTest events state
+        pr = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
+
+      Project.approval pr `shouldBe` Nothing
+      Project.integrationCandidate state' `shouldBe` Nothing
 
   describe "Logic.proceedUntilFixedPoint" $ do
 
@@ -747,7 +765,7 @@ main = hspec $ do
       let
         state
           = Project.setApproval (PullRequestId 1) (Just (Approval "fred" Project.Merge 0))
-          $ singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "f34") "sally"
+          $ singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "f34") "sally"
         results = defaultResults
           { resultIntegrate = [Right (Sha "38c")]
           , resultPush = [PushRejected]
@@ -766,8 +784,8 @@ main = hspec $ do
           = Project.setApproval (PullRequestId 2) (Just (Approval "fred" Project.Merge 0))
           $ Project.setApproval (PullRequestId 1) (Just (Approval "fred" Project.Merge 1))
           $ fst $ runAction $ handleEventsTest
-            [ PullRequestOpened (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "f34") "Untitled" "sally"
-            , PullRequestOpened (PullRequestId 2) (Branch "s") (BaseBranch "master") (Sha "g35") "Another untitled" "rachael"
+            [ PullRequestOpened (PullRequestId 1) (Branch "p") masterBranch (Sha "f34") "Untitled" "sally"
+            , PullRequestOpened (PullRequestId 2) (Branch "s") masterBranch (Sha "g35") "Another untitled" "rachael"
             ] Project.emptyProjectState
         results = defaultResults
           { resultIntegrate = [Right (Sha "38c")]
@@ -786,7 +804,7 @@ main = hspec $ do
       let
         pullRequest = PullRequest
           { Project.branch              = Branch "results/rachael"
-          , Project.baseBranch          = BaseBranch "master"
+          , Project.baseBranch          = masterBranch
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
@@ -811,7 +829,7 @@ main = hspec $ do
       let
         pullRequest = PullRequest
           { Project.branch              = Branch "results/rachael"
-          , Project.baseBranch          = BaseBranch "master"
+          , Project.baseBranch          = masterBranch
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
@@ -838,7 +856,7 @@ main = hspec $ do
       let
         pullRequest = PullRequest
           { Project.branch              = Branch "results/rachael"
-          , Project.baseBranch          = BaseBranch "master"
+          , Project.baseBranch          = masterBranch
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
@@ -868,7 +886,7 @@ main = hspec $ do
       let
         pullRequest = PullRequest
           { Project.branch              = Branch "results/rachael"
-          , Project.baseBranch          = BaseBranch "master"
+          , Project.baseBranch          = masterBranch
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
@@ -905,7 +923,7 @@ main = hspec $ do
       let
         pullRequest = PullRequest
           { Project.branch              = Branch "results/rachael"
-          , Project.baseBranch          = BaseBranch "master"
+          , Project.baseBranch          = masterBranch
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
@@ -948,7 +966,7 @@ main = hspec $ do
           = Project.insertPullRequest
               (PullRequestId 1)
               (Branch "n7")
-              (BaseBranch "master")
+              masterBranch
               (Sha "a39")
               "Add Nexus 7 experiment"
               (Username "tyrell")
@@ -963,7 +981,7 @@ main = hspec $ do
         results = defaultResults
           { resultIntegrate =
             [ Right $ Sha "b71"
-            , Left $ Logic.IntegrationFailure (BaseBranch "master")
+            , Left $ Logic.IntegrationFailure masterBranch
             ]
           , resultPush = [ PushRejected ]
           }
@@ -988,7 +1006,7 @@ main = hspec $ do
       let pullRequest1 = PullRequest
             {
               Project.branch              = Branch "results/leon",
-              Project.baseBranch          = BaseBranch "master",
+              Project.baseBranch          = masterBranch,
               Project.sha                 = Sha "f35",
               Project.title               = "Add Leon test results",
               Project.author              = "rachael",
@@ -1000,7 +1018,7 @@ main = hspec $ do
           pullRequest2 = PullRequest
             {
               Project.branch              = Branch "results/rachael",
-              Project.baseBranch          = BaseBranch "master",
+              Project.baseBranch          = masterBranch,
               Project.sha                 = Sha "f37",
               Project.title               = "Add my test results",
               Project.author              = "rachael",
@@ -1034,7 +1052,7 @@ main = hspec $ do
           = Project.insertPullRequest
               (PullRequestId 1)
               (Branch "n7")
-              (BaseBranch "master")
+              masterBranch
               (Sha "a39")
               "Add Nexus 7 experiment"
               (Username "tyrell")
@@ -1084,7 +1102,7 @@ main = hspec $ do
       number     `shouldBe` 1
       headSha    `shouldBe` (Sha "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c")
       prBranch   `shouldBe` (Branch "changes")
-      baseBranch `shouldBe` (BaseBranch "master")
+      baseBranch `shouldBe` masterBranch
       title      `shouldBe` "Update the README with new information"
       prAuthor   `shouldBe` "baxterthehacker2"
 
@@ -1221,7 +1239,7 @@ main = hspec $ do
           , repository = "repo"
           , number     = 1
           , branch     = Branch "results"
-          , baseBranch = BaseBranch "master"
+          , baseBranch = masterBranch
           , sha        = Sha "b26354"
           , title      = "Add test results"
           , author     = "rachael"
@@ -1231,14 +1249,14 @@ main = hspec $ do
       let payload = testPullRequestPayload Github.Opened
           Just event = convertGithubEvent $ Github.PullRequest payload
       event `shouldBe`
-        (PullRequestOpened (PullRequestId 1) (Branch "results") (BaseBranch "master") (Sha "b26354") "Add test results" "rachael")
+        (PullRequestOpened (PullRequestId 1) (Branch "results") masterBranch (Sha "b26354") "Add test results" "rachael")
 
     it "converts a pull request reopened event" $ do
       let payload = testPullRequestPayload Github.Reopened
           Just event = convertGithubEvent $ Github.PullRequest payload
       -- Reopened is treated just like opened, there is no memory in the system.
       event `shouldBe`
-        (PullRequestOpened (PullRequestId 1) (Branch "results") (BaseBranch "master") (Sha "b26354") "Add test results" "rachael")
+        (PullRequestOpened (PullRequestId 1) (Branch "results") masterBranch (Sha "b26354") "Add test results" "rachael")
 
     it "converts a pull request closed event" $ do
       let payload = testPullRequestPayload Github.Closed
@@ -1323,8 +1341,8 @@ main = hspec $ do
     it "can be restored exactly after roundtripping through json" $ do
       let
         emptyState  = Project.emptyProjectState
-        singleState = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "071") "deckard"
-        candState   = candidateState (PullRequestId 2) (Branch "p") (BaseBranch "master") (Sha "073") "rachael" "tyrell" (Sha "079")
+        singleState = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "071") "deckard"
+        candState   = candidateState (PullRequestId 2) (Branch "p") masterBranch (Sha "073") "rachael" "tyrell" (Sha "079")
         Just emptyState'  = decode $ encode emptyState
         Just singleState' = decode $ encode singleState
         Just candState'   = decode $ encode candState
@@ -1338,7 +1356,7 @@ main = hspec $ do
       uuid       <- Uuid.nextRandom
       tmpBaseDir <- getTemporaryDirectory
       let fname = tmpBaseDir </> ("state-" ++ (show uuid) ++ ".json")
-          state = singlePullRequestState (PullRequestId 1) (Branch "p") (BaseBranch "master") (Sha "071") "deckard"
+          state = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "071") "deckard"
       Project.saveProjectState fname state
       Right state' <- Project.loadProjectState fname
       state `shouldBe` state'

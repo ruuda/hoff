@@ -74,11 +74,11 @@ data BuildStatus
   | BuildFailed (Maybe Text)
   deriving (Eq, Show, Generic)
 
--- When attempting to integrated changes, there can be four states: no attempt
--- has been made to integrate; integration (e.g. merge or rebase) was successful
--- and the new commit has the given sha; an attempt to integrate was made,
--- but it resulted in merge conflicts; and the integration is rejected due to the target branch
--- not being valid.
+-- | When attempting to integrated changes, there can be four states: no attempt
+--   has been made to integrate; integration (e.g. merge or rebase) was successful
+--   and the new commit has the given sha; an attempt to integrate was made,
+--   but it resulted in merge conflicts; and the integration is rejected due to the target branch
+--   not being valid.
 data IntegrationStatus
   = NotIntegrated
   | Integrated Sha BuildStatus
@@ -87,13 +87,13 @@ data IntegrationStatus
   deriving (Eq, Show, Generic)
 
 data PullRequestStatus
-  = PrStatusAwaitingApproval          -- New, awaiting review.
-  | PrStatusApproved                  -- Approved, but not yet integrated or built.
-  | PrStatusBuildPending              -- Integrated, and build pending or in progress.
-  | PrStatusIntegrated                -- Integrated, build passed, merged into target branch.
-  | PrStatusIncorrectBaseBranch       -- Integration branch not being valid.
-  | PrStatusFailedConflict            -- Failed to integrate due to merge conflict.
-  | PrStatusFailedBuild (Maybe Text)  -- Integrated, but the build failed. Field should contain the URL to a page explaining the build failure.
+  = PrStatusAwaitingApproval          -- ^ New, awaiting review.
+  | PrStatusApproved                  -- ^ Approved, but not yet integrated or built.
+  | PrStatusBuildPending              -- ^ Integrated, and build pending or in progress.
+  | PrStatusIntegrated                -- ^ Integrated, build passed, merged into target branch.
+  | PrStatusIncorrectBaseBranch       -- ^ Integration branch not being valid.
+  | PrStatusFailedConflict            -- ^ Failed to integrate due to merge conflict.
+  | PrStatusFailedBuild (Maybe Text)  -- ^ Integrated, but the build failed. Field should contain the URL to a page explaining the build failure.
   deriving (Eq)
 
 -- A PR can be approved to be merged with "<prefix> merge", or it can be
@@ -332,7 +332,7 @@ isQueued pr = case approval pr of
   Nothing -> False
   Just _  -> case integrationStatus pr of
     NotIntegrated  -> True
-    IncorrectBaseBranch      -> False
+    IncorrectBaseBranch -> False
     Conflicted _   -> False
     Integrated _ _ -> False
 
@@ -343,7 +343,7 @@ isInProgress pr = case approval pr of
   Nothing -> False
   Just _  -> case integrationStatus pr of
     NotIntegrated -> False
-    IncorrectBaseBranch     -> False
+    IncorrectBaseBranch -> False
     Conflicted _  -> False
     Integrated _ buildStatus -> case buildStatus of
       BuildPending   -> True
