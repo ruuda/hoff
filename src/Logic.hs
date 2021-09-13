@@ -211,6 +211,7 @@ data Event
   -- sends a "something changed" event along with the new state.
   | PullRequestCommitChanged PullRequestId Sha -- PR, new sha.
   | PullRequestClosed PullRequestId            -- PR.
+  | PullRequestEdited PullRequestId Text       -- PR, new title.
   | CommentAdded PullRequestId Username Text   -- PR, author and body.
   -- CI events
   | BuildStatusChanged Sha BuildStatus
@@ -262,6 +263,7 @@ handleEventInternal triggerConfig event = case event of
   PullRequestOpened pr branch sha title author -> handlePullRequestOpened pr branch sha title author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosed pr
+  PullRequestEdited pr title      -> handlePullRequestEdited pr title
   CommentAdded pr author body     -> handleCommentAdded triggerConfig pr author body
   BuildStatusChanged sha status   -> pure . handleBuildStatusChanged sha status
   Synchronize                     -> synchronizeState
@@ -310,6 +312,10 @@ handlePullRequestClosed pr state = Pr.deletePullRequest pr <$>
         leaveComment pr "Abandoning this pull request because it was closed."
         pure state { Pr.integrationCandidate = Nothing }
       _notCandidatePr -> pure state
+
+handlePullRequestEdited :: PullRequestId -> Text -> ProjectState -> Action ProjectState
+handlePullRequestEdited prId newTitle = pure . Pr.updatePullRequest prId updatePr
+  where updatePr pr = pr { Pr.title = newTitle }
 
 -- Returns the approval type contained in the given text, if the message is a
 -- command that instructs us to merge the PR.
