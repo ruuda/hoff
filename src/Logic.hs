@@ -211,7 +211,7 @@ data Event
   -- sends a "something changed" event along with the new state.
   | PullRequestCommitChanged PullRequestId Sha -- PR, new sha.
   | PullRequestClosed PullRequestId            -- PR.
-  | PullRequestEdited PullRequestId Text       -- PR, new title.
+  | PullRequestEdited PullRequestId Text Branch -- PR, new title, new base branch.
   | CommentAdded PullRequestId Username Text   -- PR, author and body.
   -- CI events
   | BuildStatusChanged Sha BuildStatus
@@ -264,7 +264,7 @@ handleEventInternal triggerConfig projectConfig event = case event of
   PullRequestOpened pr branch baseBranch sha title author -> handlePullRequestOpened pr branch baseBranch sha title author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosed pr
-  PullRequestEdited pr title      -> handlePullRequestEdited pr title
+  PullRequestEdited pr title baseBranch -> handlePullRequestEdited pr title baseBranch
   CommentAdded pr author body     -> handleCommentAdded triggerConfig projectConfig pr author body
   BuildStatusChanged sha status   -> pure . handleBuildStatusChanged sha status
   Synchronize                     -> synchronizeState
@@ -316,9 +316,9 @@ handlePullRequestClosed pr state = Pr.deletePullRequest pr <$>
         pure state { Pr.integrationCandidate = Nothing }
       _notCandidatePr -> pure state
 
-handlePullRequestEdited :: PullRequestId -> Text -> ProjectState -> Action ProjectState
-handlePullRequestEdited prId newTitle = pure . Pr.updatePullRequest prId updatePr
-  where updatePr pr = pr { Pr.title = newTitle }
+handlePullRequestEdited :: PullRequestId -> Text -> Branch -> ProjectState -> Action ProjectState
+handlePullRequestEdited prId newTitle newBaseBranch = pure . Pr.updatePullRequest prId updatePr
+  where updatePr pr = pr { Pr.title = newTitle, Pr.baseBranch = newBaseBranch }
 
 -- Returns the approval type contained in the given text, if the message is a
 -- command that instructs us to merge the PR.

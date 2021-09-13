@@ -54,7 +54,7 @@ eventFromPullRequestPayload payload =
       Github.Reopened    -> Logic.PullRequestOpened (PullRequestId number) branch baseBranch sha title author
       Github.Closed      -> Logic.PullRequestClosed (PullRequestId number)
       Github.Synchronize -> Logic.PullRequestCommitChanged (PullRequestId number) sha
-      Github.Edited      -> Logic.PullRequestEdited (PullRequestId number) title
+      Github.Edited      -> Logic.PullRequestEdited (PullRequestId number) title baseBranch
 
 eventFromCommentPayload :: CommentPayload -> Maybe Logic.Event
 eventFromCommentPayload payload =
