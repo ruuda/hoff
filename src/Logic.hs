@@ -251,6 +251,19 @@ updateStateVar var state = void $ atomically $ swapTMVar var state
 readStateVar :: StateVar -> IO ProjectState
 readStateVar var = atomically $ readTMVar var
 
+clearPullRequest :: PullRequestId -> PullRequest -> ProjectState -> Action ProjectState
+-- Closes and opens a new PR with the same id. Useful for clearing approval and build status.
+clearPullRequest prId pr state =
+  let
+    branch = Pr.branch pr
+    title  = Pr.title pr
+    author = Pr.author pr
+    baseBranch = Pr.baseBranch pr
+    sha    = Pr.sha pr
+  in
+    handlePullRequestClosed prId state >>= 
+      handlePullRequestOpened prId branch baseBranch sha title author
+
 -- Handle a single event, but don't take any other actions. To complete handling
 -- of the event, we must also call `proceed` on the state until we reach a fixed
 -- point. This is handled by `handleEvent`.
@@ -282,29 +295,19 @@ handlePullRequestOpened pr branch baseBranch sha title author =
   return . Pr.insertPullRequest pr branch baseBranch sha title author
 
 handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> Action ProjectState
-handlePullRequestCommitChanged pr newSha state =
+handlePullRequestCommitChanged prId newSha state =
   -- If the commit changes, pretend that the PR was closed. This forgets about
   -- approval and build status. Then pretend a new PR was opened, with the same
   -- author as the original one, but with the new sha.
-  let
-    closedState = handlePullRequestClosed pr state
-    update pullRequest =
-      let
-        branch = Pr.branch pullRequest
-        title  = Pr.title pullRequest
-        author = Pr.author pullRequest
-        baseBranch = Pr.baseBranch pullRequest
-      in
-        closedState >>= handlePullRequestOpened pr branch baseBranch newSha title author
-  in
-    case Pr.lookupPullRequest pr state of
+    let updateSha pr = pr { Pr.sha = newSha } in
+    case Pr.lookupPullRequest prId state of
       Just pullRequest
         -- If the change notification was a false positive, ignore it.
         | Pr.sha pullRequest == newSha -> pure state
         -- If the new commit hash is one that we pushed ourselves, ignore the
         -- change too, we don't want to lose the approval status.
         | newSha `Pr.wasIntegrationAttemptFor` pullRequest -> pure state
-        | otherwise -> update pullRequest
+        | otherwise -> clearPullRequest prId (updateSha pullRequest) state
       -- If the pull request was not present in the first place, do nothing.
       Nothing -> pure state
 
@@ -317,8 +320,16 @@ handlePullRequestClosed pr state = Pr.deletePullRequest pr <$>
       _notCandidatePr -> pure state
 
 handlePullRequestEdited :: PullRequestId -> Text -> Branch -> ProjectState -> Action ProjectState
-handlePullRequestEdited prId newTitle newBaseBranch = pure . Pr.updatePullRequest prId updatePr
-  where updatePr pr = pr { Pr.title = newTitle, Pr.baseBranch = newBaseBranch }
+handlePullRequestEdited prId newTitle newBaseBranch state = 
+  let updatePr pr =  pr { Pr.title = newTitle, Pr.baseBranch = newBaseBranch } in
+  case Pr.lookupPullRequest prId state of
+    Just pullRequest
+      -- If the base branch hasn't changed, just update the pull request.
+      | Pr.baseBranch pullRequest == newBaseBranch -> pure $ Pr.updatePullRequest prId updatePr state
+      -- If the base branch has changed, update the PR and clear the approval and build status.
+      | otherwise -> clearPullRequest prId (updatePr pullRequest) state
+    -- Do nothing if the pull request is not present.
+    Nothing -> pure state
 
 -- Returns the approval type contained in the given text, if the message is a
 -- command that instructs us to merge the PR.
