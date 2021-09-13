@@ -177,7 +177,7 @@ data GitOperationFree a
   | LastTag Sha (Maybe Text -> a)
   | Tag Sha TagName Text (TagResult -> a)
   | DeleteTag TagName a
-  | CheckOrphanFixups RemoteBranch (Bool -> a)
+  | CheckOrphanFixups Sha RemoteBranch (Bool -> a)
   deriving (Functor)
 
 type GitOperation = Free GitOperationFree
@@ -230,8 +230,8 @@ tag' sha t@(TagName name) = tag sha t name
 deleteTag :: TagName -> GitOperation ()
 deleteTag t = liftF $ DeleteTag t ()
 
-checkOrphanFixups :: RemoteBranch -> GitOperation Bool
-checkOrphanFixups branch = liftF $ CheckOrphanFixups branch id
+checkOrphanFixups :: Sha -> RemoteBranch -> GitOperation Bool
+checkOrphanFixups sha branch = liftF $ CheckOrphanFixups sha branch id
 
 -- Invokes Git with the given arguments. Returns its output on success, or the
 -- exit code and stderr on error.
@@ -431,9 +431,10 @@ runGit userConfig repoDir operation =
 
     DeleteTag t cont -> cont <$ callGitInRepo ["tag", "-d", refSpec t]
 
-    CheckOrphanFixups branch cont -> do --pure $ cont True
-      result <- callGitInRepo ["log", refSpec branch] --let remoteBranch' = refSpec remoteBranch 
-                --in callGitInRepo ["log", Text.unpack $ format "{}..master" [remoteBranch',remoteBranch']]
+    CheckOrphanFixups sha branch cont -> do --pure $ cont True
+      result <- let branch' = refSpec branch
+                    sha' = refSpec sha 
+                in callGitInRepo ["log", Text.unpack $ format "{}..{}" [branch',sha']]
       _ <- error $ show result
       case result of
         Left (_,_) -> pure $ cont False
@@ -513,7 +514,7 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
       -- If not (i.e. the current master is the parent of the proposed commit
       -- and the approval type is not MergeAndDeploy) then we just take that
       -- commit as-is.
-      _ <- checkOrphanFixups targetBranch
+      _ <- checkOrphanFixups sha targetBranch
       targetBranchSha <- checkout targetBranch
       parentSha       <- getParent sha
       newTip <- case parentSha of
