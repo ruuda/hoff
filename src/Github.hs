@@ -43,6 +43,7 @@ data PullRequestAction
   | Closed
   | Reopened
   | Synchronize
+  | Edited
   deriving (Eq, Show)
 
 data CommentAction
@@ -97,6 +98,7 @@ instance FromJSON PullRequestAction where
   parseJSON (String "closed")      = return Closed
   parseJSON (String "reopened")    = return Opened
   parseJSON (String "synchronize") = return Synchronize
+  parseJSON (String "edited")      = return Edited
   parseJSON _                      = fail "unexpected pull_request action"
 
 instance FromJSON CommentAction where
