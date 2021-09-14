@@ -54,7 +54,7 @@ import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import Data.Aeson
 import Data.Either (isLeft)
 import Data.List (intersperse)
-import Data.Text (Text)
+import Data.Text (Text, isInfixOf)
 import System.Directory (doesDirectoryExist)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (ExitSuccess))
@@ -177,7 +177,7 @@ data GitOperationFree a
   | LastTag Sha (Maybe Text -> a)
   | Tag Sha TagName Text (TagResult -> a)
   | DeleteTag TagName a
-  | CheckOrphanFixups Sha RemoteBranch (Bool -> a)
+  | CheckOrphanFixups Sha RemoteBranch (Maybe Bool -> a)
   deriving (Functor)
 
 type GitOperation = Free GitOperationFree
@@ -230,7 +230,7 @@ tag' sha t@(TagName name) = tag sha t name
 deleteTag :: TagName -> GitOperation ()
 deleteTag t = liftF $ DeleteTag t ()
 
-checkOrphanFixups :: Sha -> RemoteBranch -> GitOperation Bool
+checkOrphanFixups :: Sha -> RemoteBranch -> GitOperation (Maybe Bool)
 checkOrphanFixups sha branch = liftF $ CheckOrphanFixups sha branch id
 
 -- Invokes Git with the given arguments. Returns its output on success, or the
@@ -431,14 +431,17 @@ runGit userConfig repoDir operation =
 
     DeleteTag t cont -> cont <$ callGitInRepo ["tag", "-d", refSpec t]
 
-    CheckOrphanFixups sha branch cont -> do --pure $ cont True
+    CheckOrphanFixups sha branch cont -> do
       result <- let branch' = refSpec branch
                     sha' = refSpec sha 
                 in callGitInRepo ["log", Text.unpack $ format "{}..{}" [branch',sha']]
-      _ <- error $ show result
       case result of
-        Left (_,_) -> pure $ cont False
-        Right _ -> pure $ cont True
+        Left (code, message) -> do
+          logWarnN $ format "git log failed with code {}: {}" (show code, message)
+          pure $ cont Nothing
+        Right logResponse -> do 
+          logWarnN "there is one ore more fixup commits not belonging to any other commit"
+          pure $ cont $ Just $ "fixup!" `isInfixOf` logResponse 
 
 -- Interpreter that runs only Git operations that have no side effects on the
 -- remote; it does not push.
@@ -504,6 +507,9 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
     -- Push it to the remote integration branch to trigger a build.
     Nothing  -> pure Nothing
     Just sha -> do
+      -- Before merging, we check if there exist fixup commits that do not 
+      -- belong to any other commits. If there are no such fixups, we proceed
+      -- with merging; otherwise we raise a warning and don't merge.
       -- After the rebase, we also do a (non-fast-forward) merge, to clarify
       -- that this is a single unit of change; a way to fake "chapters" in the
       -- history.
@@ -514,20 +520,22 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
       -- If not (i.e. the current master is the parent of the proposed commit
       -- and the approval type is not MergeAndDeploy) then we just take that
       -- commit as-is.
-      _ <- checkOrphanFixups sha targetBranch
-      targetBranchSha <- checkout targetBranch
-      parentSha       <- getParent sha
-      newTip <- case parentSha of
-        Nothing -> pure $ Just sha
-        parent
-          | alwaysAddMergeCommit      -> merge sha message
-          | parent == targetBranchSha -> pure $ Just sha
-        _moreThanOneCommitBehind      -> merge sha message
+      checkOrphansResult <- checkOrphanFixups sha targetBranch
+      case checkOrphansResult of
+        Just False -> do  targetBranchSha <- checkout targetBranch
+                          parentSha       <- getParent sha
+                          newTip <- case parentSha of
+                            Nothing -> pure $ Just sha
+                            parent
+                              | alwaysAddMergeCommit      -> merge sha message
+                              | parent == targetBranchSha -> pure $ Just sha
+                            _moreThanOneCommitBehind      -> merge sha message
 
-      -- If both the rebase, and the (potential) merge went well, push it to the
-      -- testing branch so CI will build it.
-      case newTip of
-        Just tipSha -> forcePush tipSha testBranch
-        Nothing     -> pure ()
+                          -- If both the rebase, and the (potential) merge went well, push it to the
+                          -- testing branch so CI will build it.
+                          case newTip of
+                            Just tipSha -> forcePush tipSha testBranch
+                            Nothing     -> pure ()
 
-      pure newTip
+                          pure newTip
+        _ -> pure Nothing

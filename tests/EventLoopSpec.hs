@@ -852,7 +852,7 @@ eventLoopSpec = parallel $ do
         , "* c0"
         ]
 
-    it "does not apply fixup commits if the commit to fix is not on the branch" $ do
+    it "do not merge if there exist fixup commits that do not belong to any other commits" $ do
       history <- withTestEnv $ \ shas runLoop git -> do
         let
           [_c0, _c1, _c2, _c3, _c3', _c4, _c5, _c6, _c7, c7f, c8] = shas
@@ -885,10 +885,9 @@ eventLoopSpec = parallel $ do
         -- should not be a new candidate.
         Project.getIntegrationCandidate state' `shouldBe` Nothing
 
-      -- Here we expect the fixup commit to linger behind.
+      -- Here we expect that the fixup commit is not present.
       history `shouldBe`
-        [ "* fixup! c7"
-        , "* c8"
+        [ "* c8"
         , "* c7"
         , "* c6"
         , "* c5"
