@@ -177,7 +177,7 @@ data GitOperationFree a
   | LastTag Sha (Maybe Text -> a)
   | Tag Sha TagName Text (TagResult -> a)
   | DeleteTag TagName a
-  | CheckOrphanFixups Sha RemoteBranch (Maybe Bool -> a)
+  | CheckOrphanFixups Sha RemoteBranch (Bool -> a)
   deriving (Functor)
 
 type GitOperation = Free GitOperationFree
@@ -230,7 +230,7 @@ tag' sha t@(TagName name) = tag sha t name
 deleteTag :: TagName -> GitOperation ()
 deleteTag t = liftF $ DeleteTag t ()
 
-checkOrphanFixups :: Sha -> RemoteBranch -> GitOperation (Maybe Bool)
+checkOrphanFixups :: Sha -> RemoteBranch -> GitOperation Bool
 checkOrphanFixups sha branch = liftF $ CheckOrphanFixups sha branch id
 
 -- Invokes Git with the given arguments. Returns its output on success, or the
@@ -438,10 +438,13 @@ runGit userConfig repoDir operation =
       case result of
         Left (code, message) -> do
           logWarnN $ format "git log failed with code {}: {}" (show code, message)
-          pure $ cont Nothing
-        Right logResponse -> do 
-          logWarnN "there is one ore more fixup commits not belonging to any other commit"
-          pure $ cont $ Just $ "fixup!" `isInfixOf` logResponse 
+          pure $ cont False
+        Right logResponse -> 
+          if "fixup!" `isInfixOf` logResponse
+            then do
+              logWarnN "there is one ore more fixup commits not belonging to any other commit" 
+              pure $ cont True
+            else pure $ cont False 
 
 -- Interpreter that runs only Git operations that have no side effects on the
 -- remote; it does not push.
