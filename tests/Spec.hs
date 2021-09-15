@@ -29,7 +29,7 @@ import qualified Data.IntSet as IntSet
 import qualified Data.UUID.V4 as Uuid
 
 import EventLoop (convertGithubEvent)
-import Git (BaseBranch (..), Branch (..), PushResult (..), Sha (..), TagName (TagName))
+import Git (BaseBranch (..), Branch (..), PushResult (..), Sha (..), TagName (TagName), ReasonToFail (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
 import Logic (Action, ActionFree (..), Event (..), IntegrationFailure (..))
 import Project (Approval (..), ProjectState (ProjectState), PullRequest (PullRequest))
@@ -108,7 +108,7 @@ data Results = Results
 defaultResults :: Results
 defaultResults = Results
     -- Pretend that integration always conflicts.
-  { resultIntegrate = repeat $ Left $ Logic.IntegrationFailure $ BaseBranch "master"
+  { resultIntegrate = repeat $ Left $ Logic.IntegrationFailure (BaseBranch "master", OtherReason)
     -- Pretend that pushing is always successful.
   , resultPush = repeat PushOk
     -- Pretend that these two calls to GitHub always fail.
@@ -1016,7 +1016,7 @@ main = hspec $ do
         results = defaultResults
           { resultIntegrate =
             [ Right $ Sha "b71"
-            , Left $ Logic.IntegrationFailure masterBranch
+            , Left $ Logic.IntegrationFailure (masterBranch, OtherReason)
             ]
           , resultPush = [ PushRejected ]
           }

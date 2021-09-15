@@ -21,6 +21,7 @@ module Git
   GitOperation,
   GitOperationFree,
   PushResult (..),
+  ReasonToFail (..),
   RefSpec(..),
   RemoteBranch(..),
   RemoteUrl (..),
@@ -162,6 +163,11 @@ data TagResult
 
 data FetchWithTags = WithTags | NoTags
   deriving stock (Eq, Show)
+
+data ReasonToFail 
+  = WrongFixups 
+  | OtherReason 
+  deriving (Show, Eq)
 
 data GitOperationFree a
   = FetchBranch Branch FetchWithTags a
@@ -494,7 +500,7 @@ runGitReadOnly userConfig repoDir operation =
 -- Fetches the target branch, rebases the candidate on top of the target branch,
 -- and if that was successful, force-pushes the resulting commits to the test
 -- branch.
-tryIntegrate :: Text -> Branch -> Sha -> RemoteBranch -> Branch -> Bool -> GitOperation (Maybe Sha)
+tryIntegrate :: Text -> Branch -> Sha -> RemoteBranch -> Branch -> Bool -> GitOperation (Either ReasonToFail Sha)
 tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAddMergeCommit = do
   -- Fetch the ref for the target commit that needs to be rebased, we might not
   -- have it yet. Although Git supports fetching single commits, GitHub does
@@ -510,7 +516,7 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
   case rebaseResult of
     -- If the rebase succeeded, then this is our new integration candidate.
     -- Push it to the remote integration branch to trigger a build.
-    Nothing  -> pure Nothing
+    Nothing  -> pure $ Left OtherReason
     Just sha -> do
       -- Before merging, we check if there exist fixup commits that do not 
       -- belong to any other commits. If there are no such fixups, we proceed
@@ -527,7 +533,7 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
       -- commit as-is.
       checkOrphansResult <- checkOrphanFixups sha targetBranch
       if checkOrphansResult 
-        then pure Nothing
+        then pure $ Left WrongFixups
         else do
           targetBranchSha <- checkout targetBranch
           parentSha       <- getParent sha
@@ -541,7 +547,8 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
           -- If both the rebase, and the (potential) merge went well, push it to the
           -- testing branch so CI will build it.
           case newTip of
-            Just tipSha -> forcePush tipSha testBranch
+            Just tipSha -> do
+              forcePush tipSha testBranch
             Nothing     -> pure ()
 
-          pure newTip
+          pure $ maybe (Left OtherReason) Right newTip
