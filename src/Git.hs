@@ -54,7 +54,7 @@ import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import Data.Aeson
 import Data.Either (isLeft)
 import Data.List (intersperse)
-import Data.Text (Text, isInfixOf)
+import Data.Text (Text, isPrefixOf, lines)
 import System.Directory (doesDirectoryExist)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (ExitSuccess))
@@ -434,17 +434,19 @@ runGit userConfig repoDir operation =
     CheckOrphanFixups sha branch cont -> do
       result <- let branch' = refSpec branch
                     sha' = refSpec sha 
-                in callGitInRepo ["log", Text.unpack $ format "{}..{}" [branch',sha']]
+                in callGitInRepo ["log", Text.unpack $ format "{}..{}" [branch',sha'], "--format='%s'"]
       case result of
         Left (code, message) -> do
           logWarnN $ format "git log failed with code {}: {}" (show code, message)
           pure $ cont False
         Right logResponse -> 
-          if "fixup!" `isInfixOf` logResponse
-            then do
-              logWarnN "there is one ore more fixup commits not belonging to any other commit" 
-              pure $ cont True
-            else pure $ cont False 
+          let checkPrefixes = map (\x -> "'fixup!" `isPrefixOf` x) $ Data.Text.lines logResponse
+              anyOrphanFixups = or checkPrefixes
+          in  if anyOrphanFixups
+                then do
+                  logWarnN "there is one ore more fixup commits not belonging to any other commit" 
+                  pure $ cont True
+                else pure $ cont False 
 
 -- Interpreter that runs only Git operations that have no side effects on the
 -- remote; it does not push.
@@ -524,21 +526,22 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
       -- and the approval type is not MergeAndDeploy) then we just take that
       -- commit as-is.
       checkOrphansResult <- checkOrphanFixups sha targetBranch
-      case checkOrphansResult of
-        Just False -> do  targetBranchSha <- checkout targetBranch
-                          parentSha       <- getParent sha
-                          newTip <- case parentSha of
-                            Nothing -> pure $ Just sha
-                            parent
-                              | alwaysAddMergeCommit      -> merge sha message
-                              | parent == targetBranchSha -> pure $ Just sha
-                            _moreThanOneCommitBehind      -> merge sha message
+      if checkOrphansResult 
+        then pure Nothing
+        else do
+          targetBranchSha <- checkout targetBranch
+          parentSha       <- getParent sha
+          newTip <- case parentSha of
+                      Nothing -> pure $ Just sha
+                      parent
+                        | alwaysAddMergeCommit      -> merge sha message
+                        | parent == targetBranchSha -> pure $ Just sha
+                      _moreThanOneCommitBehind      -> merge sha message
 
-                          -- If both the rebase, and the (potential) merge went well, push it to the
-                          -- testing branch so CI will build it.
-                          case newTip of
-                            Just tipSha -> forcePush tipSha testBranch
-                            Nothing     -> pure ()
+          -- If both the rebase, and the (potential) merge went well, push it to the
+          -- testing branch so CI will build it.
+          case newTip of
+            Just tipSha -> forcePush tipSha testBranch
+            Nothing     -> pure ()
 
-                          pure newTip
-        _ -> pure Nothing
+          pure newTip
