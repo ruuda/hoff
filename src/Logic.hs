@@ -57,7 +57,7 @@ import qualified Data.Text.Read as Text
 
 import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Format (format)
-import Git (Branch (..), GitOperation, GitOperationFree, PushResult (..), Sha (..),
+import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushResult (..), Sha (..),
             SomeRefSpec (..), TagName (..), TagResult (..))
 import GithubApi (GithubOperation, GithubOperationFree)
 import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
@@ -94,7 +94,7 @@ type PushWithTagResult = (Either Text TagName, PushResult)
 
 -- | Error returned when 'TryIntegrate' fails.
 -- It contains the name of the target branch that the PR was supposed to be integrated into.
-newtype IntegrationFailure = IntegrationFailure Branch
+newtype IntegrationFailure = IntegrationFailure BaseBranch
 
 doGit :: GitOperation a -> Operation a
 doGit = hoistFree InL
@@ -146,7 +146,7 @@ runAction config = foldFree $ \case
       (Git.Branch $ Config.testBranch config)
       alwaysAddMergeCommit
     pure $ cont $ maybe
-      (Left $ IntegrationFailure $ Branch $ Config.branch config)
+      (Left $ IntegrationFailure $ BaseBranch $ Config.branch config)
       Right
       maybeSha
 
@@ -205,14 +205,14 @@ ensureCloned config =
 
 data Event
   -- GitHub events
-  = PullRequestOpened PullRequestId Branch Sha Text Username -- PR, branch, sha, title, author.
+  = PullRequestOpened PullRequestId Branch BaseBranch Sha Text Username -- ^ PR, branch, base branch, sha, title, author.
   -- The commit changed event may contain false positives: it may be received
   -- even if the commit did not really change. This is because GitHub just
   -- sends a "something changed" event along with the new state.
-  | PullRequestCommitChanged PullRequestId Sha -- PR, new sha.
-  | PullRequestClosed PullRequestId            -- PR.
-  | PullRequestEdited PullRequestId Text       -- PR, new title.
-  | CommentAdded PullRequestId Username Text   -- PR, author and body.
+  | PullRequestCommitChanged PullRequestId Sha -- ^ PR, new sha.
+  | PullRequestClosed PullRequestId            -- ^ PR.
+  | PullRequestEdited PullRequestId Text BaseBranch -- ^ PR, new title, new base branch.
+  | CommentAdded PullRequestId Username Text   -- ^ PR, author and body.
   -- CI events
   | BuildStatusChanged Sha BuildStatus
   -- Internal events
@@ -251,57 +251,63 @@ updateStateVar var state = void $ atomically $ swapTMVar var state
 readStateVar :: StateVar -> IO ProjectState
 readStateVar var = atomically $ readTMVar var
 
+-- | Closes and opens a new PR with the same id. Useful for clearing approval and build status safely.
+clearPullRequest :: PullRequestId -> PullRequest -> ProjectState -> Action ProjectState
+clearPullRequest prId pr state =
+  let
+    branch = Pr.branch pr
+    title  = Pr.title pr
+    author = Pr.author pr
+    baseBranch = Pr.baseBranch pr
+    sha    = Pr.sha pr
+  in
+    handlePullRequestClosed prId state >>= 
+      handlePullRequestOpened prId branch baseBranch sha title author
+
 -- Handle a single event, but don't take any other actions. To complete handling
 -- of the event, we must also call `proceed` on the state until we reach a fixed
 -- point. This is handled by `handleEvent`.
 handleEventInternal
   :: TriggerConfiguration
+  -> ProjectConfiguration
   -> Event
   -> ProjectState
   -> Action ProjectState
-handleEventInternal triggerConfig event = case event of
-  PullRequestOpened pr branch sha title author -> handlePullRequestOpened pr branch sha title author
+handleEventInternal triggerConfig projectConfig event = case event of
+  PullRequestOpened pr branch baseBranch sha title author -> handlePullRequestOpened pr branch baseBranch sha title author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosed pr
-  PullRequestEdited pr title      -> handlePullRequestEdited pr title
-  CommentAdded pr author body     -> handleCommentAdded triggerConfig pr author body
+  PullRequestEdited pr title baseBranch -> handlePullRequestEdited pr title baseBranch
+  CommentAdded pr author body     -> handleCommentAdded triggerConfig projectConfig pr author body
   BuildStatusChanged sha status   -> pure . handleBuildStatusChanged sha status
   Synchronize                     -> synchronizeState
 
 handlePullRequestOpened
   :: PullRequestId
   -> Branch
+  -> BaseBranch
   -> Sha
   -> Text
   -> Username
   -> ProjectState
   -> Action ProjectState
-handlePullRequestOpened pr branch sha title author =
-  return . Pr.insertPullRequest pr branch sha title author
+handlePullRequestOpened pr branch baseBranch sha title author =
+  return . Pr.insertPullRequest pr branch baseBranch sha title author
 
 handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> Action ProjectState
-handlePullRequestCommitChanged pr newSha state =
+handlePullRequestCommitChanged prId newSha state =
   -- If the commit changes, pretend that the PR was closed. This forgets about
   -- approval and build status. Then pretend a new PR was opened, with the same
   -- author as the original one, but with the new sha.
-  let
-    closedState = handlePullRequestClosed pr state
-    update pullRequest =
-      let
-        branch = Pr.branch pullRequest
-        title  = Pr.title pullRequest
-        author = Pr.author pullRequest
-      in
-        closedState >>= handlePullRequestOpened pr branch newSha title author
-  in
-    case Pr.lookupPullRequest pr state of
+    let updateSha pr = pr { Pr.sha = newSha } in
+    case Pr.lookupPullRequest prId state of
       Just pullRequest
         -- If the change notification was a false positive, ignore it.
         | Pr.sha pullRequest == newSha -> pure state
         -- If the new commit hash is one that we pushed ourselves, ignore the
         -- change too, we don't want to lose the approval status.
         | newSha `Pr.wasIntegrationAttemptFor` pullRequest -> pure state
-        | otherwise -> update pullRequest
+        | otherwise -> clearPullRequest prId (updateSha pullRequest) state
       -- If the pull request was not present in the first place, do nothing.
       Nothing -> pure state
 
@@ -313,9 +319,17 @@ handlePullRequestClosed pr state = Pr.deletePullRequest pr <$>
         pure state { Pr.integrationCandidate = Nothing }
       _notCandidatePr -> pure state
 
-handlePullRequestEdited :: PullRequestId -> Text -> ProjectState -> Action ProjectState
-handlePullRequestEdited prId newTitle = pure . Pr.updatePullRequest prId updatePr
-  where updatePr pr = pr { Pr.title = newTitle }
+handlePullRequestEdited :: PullRequestId -> Text -> BaseBranch -> ProjectState -> Action ProjectState
+handlePullRequestEdited prId newTitle newBaseBranch state = 
+  let updatePr pr =  pr { Pr.title = newTitle, Pr.baseBranch = newBaseBranch } in
+  case Pr.lookupPullRequest prId state of
+    Just pullRequest
+      -- If the base branch hasn't changed, just update the pull request.
+      | Pr.baseBranch pullRequest == newBaseBranch -> pure $ Pr.updatePullRequest prId updatePr state
+      -- If the base branch has changed, update the PR and clear the approval and build status.
+      | otherwise -> clearPullRequest prId (updatePr pullRequest) state
+    -- Do nothing if the pull request is not present.
+    Nothing -> pure state
 
 -- Returns the approval type contained in the given text, if the message is a
 -- command that instructs us to merge the PR.
@@ -355,31 +369,37 @@ approvePullRequest pr approval = pure . Pr.updatePullRequest pr
 
 handleCommentAdded
   :: TriggerConfiguration
+  -> ProjectConfiguration
   -> PullRequestId
   -> Username
   -> Text
   -> ProjectState
   -> Action ProjectState
-handleCommentAdded triggerConfig pr author body state =
-  if Pr.existsPullRequest pr state
+handleCommentAdded triggerConfig projectConfig prId author body state =
+  let maybePR = Pr.lookupPullRequest prId state in
+  case maybePR of
     -- Check if the commment is a merge command, and if it is, check if the
     -- author is allowed to approve. Comments by users with push access happen
     -- frequently, but most comments are not merge commands, and checking that
     -- a user has push access requires an API call.
-    then do
+    Just pr -> do
       let approvalType = parseMergeCommand triggerConfig body
       isApproved <- if isJust approvalType
         then isReviewer author
         else pure False
       if isApproved
         -- The PR has now been approved by the author of the comment.
-        then
+        then do
           let (order, state') = Pr.newApprovalOrder state
-          in approvePullRequest pr (Approval author (fromJust approvalType) order) state'
+          state'' <- approvePullRequest prId (Approval author (fromJust approvalType) order) state'
+          -- Check whether the integration branch is valid, if not, mark the integration as invalid.
+          if Pr.baseBranch pr /= BaseBranch (Config.branch projectConfig)
+             then pure $ Pr.setIntegrationStatus prId IncorrectBaseBranch state''
+             else pure state''
         else pure state
 
     -- If the pull request is not in the state, ignore the comment.
-    else pure state
+    Nothing -> pure state
 
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> ProjectState
 handleBuildStatusChanged buildSha newStatus state =
@@ -417,6 +437,7 @@ synchronizeState stateInitial =
           Just details -> pure $ Pr.insertPullRequest
             pr
             (GithubApi.branch details)
+            (GithubApi.baseBranch details)
             (GithubApi.sha details)
             (GithubApi.title details)
             (GithubApi.author details)
@@ -452,6 +473,10 @@ proceedCandidate (pullRequestId, pullRequest) state =
   case Pr.integrationStatus pullRequest of
     NotIntegrated ->
       tryIntegratePullRequest pullRequestId state
+
+    IncorrectBaseBranch ->
+      -- It shouldn't come to this point; a PR with an incorrent base branch is never considered as a candidate.
+      pure $ Pr.setIntegrationCandidate Nothing state
 
     Conflicted _branch ->
       -- If it conflicted, it should no longer be the integration candidate.
@@ -574,9 +599,10 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
     let Sha sha = fromJust $ getIntegrationSha pr
     in Text.concat ["Rebased as ", sha, ", waiting for CI …"]
   PrStatusIntegrated -> "The build succeeded."
+  PrStatusIncorrectBaseBranch -> "Merge rejected: the target branch must be the integration branch."
   PrStatusFailedConflict ->
     let
-      Branch targetBranchName = fromJust $ getIntegrationTargetBranch pr
+      BaseBranch targetBranchName = Pr.baseBranch pr
       Branch prBranchName = Pr.branch pr
     in Text.concat
       [ "Failed to rebase, please rebase manually using\n\n"
@@ -596,12 +622,6 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
         Integrated sha _ -> Just sha
         _                -> Nothing
 
-    getIntegrationTargetBranch :: PullRequest -> Maybe Branch
-    getIntegrationTargetBranch pullRequest =
-      case Pr.integrationStatus pullRequest of
-        Conflicted targetBranch -> Just targetBranch
-        _                       -> Nothing
-
 -- Leave a comment with the feedback from 'describeStatus' and set the
 -- 'needsFeedback' flag to 'False'.
 leaveFeedback :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
@@ -619,11 +639,12 @@ provideFeedback state
 
 handleEvent
   :: TriggerConfiguration
+  -> ProjectConfiguration
   -> Event
   -> ProjectState
   -> Action ProjectState
-handleEvent triggerConfig event state =
-  handleEventInternal triggerConfig event state >>= proceedUntilFixedPoint
+handleEvent triggerConfig projectConfig event state =
+  handleEventInternal triggerConfig projectConfig event state >>= proceedUntilFixedPoint
 
 
 -- TODO this is very Channable specific, perhaps it should be more generic

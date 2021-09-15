@@ -47,13 +47,14 @@ eventFromPullRequestPayload payload =
     author = Github.author (payload :: PullRequestPayload)
     branch = Github.branch (payload :: PullRequestPayload)
     sha    = Github.sha    (payload :: PullRequestPayload)
+    baseBranch = Github.baseBranch (payload :: PullRequestPayload)
   in
     case Github.action (payload :: PullRequestPayload) of
-      Github.Opened      -> Logic.PullRequestOpened (PullRequestId number) branch sha title author
-      Github.Reopened    -> Logic.PullRequestOpened (PullRequestId number) branch sha title author
+      Github.Opened      -> Logic.PullRequestOpened (PullRequestId number) branch baseBranch sha title author
+      Github.Reopened    -> Logic.PullRequestOpened (PullRequestId number) branch baseBranch sha title author
       Github.Closed      -> Logic.PullRequestClosed (PullRequestId number)
       Github.Synchronize -> Logic.PullRequestCommitChanged (PullRequestId number) sha
-      Github.Edited      -> Logic.PullRequestEdited (PullRequestId number) title
+      Github.Edited      -> Logic.PullRequestEdited (PullRequestId number) title baseBranch
 
 eventFromCommentPayload :: CommentPayload -> Maybe Logic.Event
 eventFromCommentPayload payload =
@@ -148,7 +149,7 @@ runLogicEventLoop triggerConfig projectConfig runGit runGithub getNextEvent publ
       -- perform).
       logInfoN  $ Text.append "logic loop received event: " (Text.pack $ show event)
       logDebugN $ Text.append "state before: " (Text.pack $ show state0)
-      state1 <- runAll $ runAction $ Logic.handleEvent triggerConfig event state0
+      state1 <- runAll $ runAction $ Logic.handleEvent triggerConfig projectConfig event state0
       publish state1
       logDebugN $ Text.append "state after: " (Text.pack $ show state1)
       runLoop state1
