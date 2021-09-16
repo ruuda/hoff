@@ -57,8 +57,7 @@ import qualified Data.Text.Read as Text
 
 import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Format (format)
-
-import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushResult (..), ReasonToFail (..), 
+import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushResult (..), GitIntegrationFailure (..), 
             Sha (..), SomeRefSpec (..), TagName (..), TagResult (..))
 
 import GithubApi (GithubOperation, GithubOperationFree)
@@ -101,7 +100,7 @@ type PushWithTagResult = (Either Text TagName, PushResult)
 -- | Error returned when 'TryIntegrate' fails.
 -- It contains the name of the target branch that the PR was supposed to be integrated into.
 
-newtype IntegrationFailure = IntegrationFailure (BaseBranch, ReasonToFail)
+data IntegrationFailure = IntegrationFailure BaseBranch GitIntegrationFailure
 
 doGit :: GitOperation a -> Operation a
 doGit = hoistFree InL
@@ -154,7 +153,7 @@ runAction config = foldFree $ \case
       alwaysAddMergeCommit
 
     case shaOrFailed of
-      Left failure -> pure $ cont $ Left $ IntegrationFailure (BaseBranch $ Config.branch config, failure)
+      Left failure -> pure $ cont $ Left $ IntegrationFailure (BaseBranch $ Config.branch config) failure
       Right integratedSha -> pure $ cont $ Right integratedSha
 
   TryPromote prBranch sha cont -> do
@@ -533,7 +532,7 @@ tryIntegratePullRequest pr state =
   in do
     result <- tryIntegrate mergeMessage candidate $ Pr.alwaysAddMergeCommit approvalType
     case result of
-      Left (IntegrationFailure (targetBranch, reason)) -> do
+      Left (IntegrationFailure targetBranch reason) -> do
         -- If integrating failed, perform no further actions but do set the
         -- state to conflicted.
         when (reason == WrongFixups) $ leaveComment pr "PR cannot be merged since it contains fixup commits that do not belong to any other commits."

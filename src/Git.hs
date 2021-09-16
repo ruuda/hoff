@@ -20,8 +20,8 @@ module Git
   CloneResult (..),
   GitOperation,
   GitOperationFree,
+  GitIntegrationFailure (..),
   PushResult (..),
-  ReasonToFail (..),
   RefSpec(..),
   RemoteBranch(..),
   RemoteUrl (..),
@@ -55,7 +55,7 @@ import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import Data.Aeson
 import Data.Either (isLeft)
 import Data.List (intersperse)
-import Data.Text (Text, isPrefixOf, lines)
+import Data.Text (Text)
 import System.Directory (doesDirectoryExist)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (ExitSuccess))
@@ -164,9 +164,10 @@ data TagResult
 data FetchWithTags = WithTags | NoTags
   deriving stock (Eq, Show)
 
-data ReasonToFail 
-  = WrongFixups 
-  | OtherReason 
+data GitIntegrationFailure 
+  = MergeFailed
+  | RebaseFailed
+  | WrongFixups 
   deriving (Show, Eq)
 
 data GitOperationFree a
@@ -446,8 +447,7 @@ runGit userConfig repoDir operation =
           logWarnN $ format "git log failed with code {}: {}" (show code, message)
           pure $ cont False
         Right logResponse -> 
-          let checkPrefixes = map (\x -> "'fixup!" `isPrefixOf` x) $ Data.Text.lines logResponse
-              anyOrphanFixups = or checkPrefixes
+          let anyOrphanFixups = any (\x -> "'fixup!" `Text.isPrefixOf` x) $ Text.lines logResponse 
           in  if anyOrphanFixups
                 then do
                   logWarnN "there is one ore more fixup commits not belonging to any other commit" 
@@ -500,7 +500,7 @@ runGitReadOnly userConfig repoDir operation =
 -- Fetches the target branch, rebases the candidate on top of the target branch,
 -- and if that was successful, force-pushes the resulting commits to the test
 -- branch.
-tryIntegrate :: Text -> Branch -> Sha -> RemoteBranch -> Branch -> Bool -> GitOperation (Either ReasonToFail Sha)
+tryIntegrate :: Text -> Branch -> Sha -> RemoteBranch -> Branch -> Bool -> GitOperation (Either GitIntegrationFailure Sha)
 tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAddMergeCommit = do
   -- Fetch the ref for the target commit that needs to be rebased, we might not
   -- have it yet. Although Git supports fetching single commits, GitHub does
@@ -516,7 +516,7 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
   case rebaseResult of
     -- If the rebase succeeded, then this is our new integration candidate.
     -- Push it to the remote integration branch to trigger a build.
-    Nothing  -> pure $ Left OtherReason
+    Nothing  -> pure $ Left RebaseFailed
     Just sha -> do
       -- Before merging, we check if there exist fixup commits that do not 
       -- belong to any other commits. If there are no such fixups, we proceed
@@ -551,4 +551,4 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
               forcePush tipSha testBranch
             Nothing     -> pure ()
 
-          pure $ maybe (Left OtherReason) Right newTip
+          pure $ maybe (Left MergeFailed) Right newTip
