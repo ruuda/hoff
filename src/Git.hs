@@ -5,6 +5,7 @@
 -- you may not use this file except in compliance with the License.
 -- A copy of the License has been included in the root of the repository.
 
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -63,12 +64,14 @@ import System.FilePath ((</>))
 import System.Process.Text (readCreateProcessWithExitCode)
 
 import qualified Data.Text as Text
+import qualified Data.Aeson as Aeson
 import qualified System.Process as Process
 
 import Configuration (UserConfiguration)
 import Format (format)
 
 import qualified Configuration as Config
+import GitHub.Internal.Prelude (Generic)
 
 -- | A branch is identified by its name.
 newtype Branch = Branch Text deriving newtype (Show, Eq)
@@ -168,18 +171,11 @@ data GitIntegrationFailure
   = MergeFailed
   | RebaseFailed
   | WrongFixups 
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
 
-instance FromJSON GitIntegrationFailure where
-  parseJSON (String "MergeFailed")  = return MergeFailed
-  parseJSON (String "RebaseFailed") = return RebaseFailed
-  parseJSON (String "WrongFixups")  = return WrongFixups
-  parseJSON _                       = mzero       
+instance FromJSON GitIntegrationFailure    
 
-instance ToJSON GitIntegrationFailure where
-  toJSON MergeFailed  = String "MergeFailed"
-  toJSON RebaseFailed = String "RebaseFailed"
-  toJSON WrongFixups  = String "WrongFixups"
+instance ToJSON GitIntegrationFailure where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 
 data GitOperationFree a
   = FetchBranch Branch FetchWithTags a
