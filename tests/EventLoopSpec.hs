@@ -584,7 +584,7 @@ eventLoopSpec = parallel $ do
         -- the conflicted rebase, so that the next commit can be integrated
         -- properly.
         let Just pullRequest3 = Project.lookupPullRequest pr3 state
-        Project.integrationStatus pullRequest3 `shouldBe` Conflicted (masterBranch)
+        Project.integrationStatus pullRequest3 `shouldBe` Conflicted masterBranch Git.RebaseFailed
 
         -- The second pull request should still be pending, awaiting the build
         -- result.
@@ -876,6 +876,7 @@ eventLoopSpec = parallel $ do
 
         -- Extract the sha of the rebased commit from the project state, and
         -- tell the loop that building the commit succeeded.
+        
         let
           Just (_prId, pullRequest)       = Project.getIntegrationCandidate state
           Project.Integrated rebasedSha _ = Project.integrationStatus pullRequest
@@ -883,7 +884,7 @@ eventLoopSpec = parallel $ do
 
         -- The pull request should have been integrated properly, so there
         -- should not be a new candidate.
-        Project.getIntegrationCandidate state' `shouldBe` Nothing
+        Project.candidatePullRequests state' `shouldBe` []
 
       -- Here we expect that the fixup commit is not present.
       history `shouldBe`

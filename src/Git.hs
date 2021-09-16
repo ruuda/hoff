@@ -170,6 +170,17 @@ data GitIntegrationFailure
   | WrongFixups 
   deriving (Show, Eq)
 
+instance FromJSON GitIntegrationFailure where
+  parseJSON (String "MergeFailed")  = return MergeFailed
+  parseJSON (String "RebaseFailed") = return RebaseFailed
+  parseJSON (String "WrongFixups")  = return WrongFixups
+  parseJSON _                       = mzero       
+
+instance ToJSON GitIntegrationFailure where
+  toJSON MergeFailed  = String "MergeFailed"
+  toJSON RebaseFailed = String "RebaseFailed"
+  toJSON WrongFixups  = String "WrongFixups"
+
 data GitOperationFree a
   = FetchBranch Branch FetchWithTags a
   | ForcePush Sha Branch a

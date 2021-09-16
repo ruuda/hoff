@@ -493,7 +493,7 @@ proceedCandidate (pullRequestId, pullRequest) state =
       -- It shouldn't come to this point; a PR with an incorrent base branch is never considered as a candidate.
       pure $ Pr.setIntegrationCandidate Nothing state
 
-    Conflicted _branch ->
+    Conflicted _branch _ ->
       -- If it conflicted, it should no longer be the integration candidate.
       pure $ Pr.setIntegrationCandidate Nothing state
 
@@ -532,11 +532,10 @@ tryIntegratePullRequest pr state =
   in do
     result <- tryIntegrate mergeMessage candidate $ Pr.alwaysAddMergeCommit approvalType
     case result of
-      Left (IntegrationFailure targetBranch reason) -> do
+      Left (IntegrationFailure targetBranch reason) -> 
         -- If integrating failed, perform no further actions but do set the
         -- state to conflicted.
-        when (reason == WrongFixups) $ leaveComment pr "PR cannot be merged since it contains fixup commits that do not belong to any other commits."
-        pure $ Pr.setIntegrationStatus pr (Conflicted targetBranch) $
+        pure $ Pr.setIntegrationStatus pr (Conflicted targetBranch reason) $
           Pr.setNeedsFeedback pr True state
 
       Right (Sha sha) -> do
@@ -616,6 +615,7 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
     in Text.concat ["Rebased as ", sha, ", waiting for CI …"]
   PrStatusIntegrated -> "The build succeeded."
   PrStatusIncorrectBaseBranch -> "Merge rejected: the target branch must be the integration branch."
+  PrStatusWrongFixups -> "Pull request cannot be integrated as it contains fixup commits that do not belong to any other commits."
   PrStatusFailedConflict ->
     let
       BaseBranch targetBranchName = Pr.baseBranch pr

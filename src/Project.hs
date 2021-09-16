@@ -55,7 +55,7 @@ import Data.List (intersect, nub, sortBy)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import GHC.Generics
-import Git (Branch (..), BaseBranch (..), Sha (..))
+import Git (Branch (..), BaseBranch (..), Sha (..), GitIntegrationFailure (..))
 import Prelude hiding (readFile, writeFile)
 import System.Directory (renameFile)
 
@@ -74,26 +74,26 @@ data BuildStatus
   | BuildFailed (Maybe Text)
   deriving (Eq, Show, Generic)
 
--- | When attempting to integrated changes, there can be four states: no attempt
---   has been made to integrate; integration (e.g. merge or rebase) was successful
---   and the new commit has the given sha; an attempt to integrate was made,
---   but it resulted in merge conflicts; and the integration is rejected due to the target branch
---   not being valid.
+-- When attempting to integrated changes, there can be three states: no attempt
+-- has been made to integrate; integration (e.g. merge or rebase) was successful
+-- and the new commit has the given sha; and an attempt to integrate was made,
+-- but it wasn't successful.
 data IntegrationStatus
   = NotIntegrated
   | Integrated Sha BuildStatus
-  | Conflicted BaseBranch
+  | Conflicted BaseBranch GitIntegrationFailure
   | IncorrectBaseBranch
   deriving (Eq, Show, Generic)
 
 data PullRequestStatus
-  = PrStatusAwaitingApproval          -- ^ New, awaiting review.
-  | PrStatusApproved                  -- ^ Approved, but not yet integrated or built.
-  | PrStatusBuildPending              -- ^ Integrated, and build pending or in progress.
-  | PrStatusIntegrated                -- ^ Integrated, build passed, merged into target branch.
+  = PrStatusAwaitingApproval          -- New, awaiting review.
+  | PrStatusApproved                  -- Approved, but not yet integrated or built.
+  | PrStatusBuildPending              -- Integrated, and build pending or in progress.
+  | PrStatusIntegrated                -- Integrated, build passed, merged into target branch.
   | PrStatusIncorrectBaseBranch       -- ^ Integration branch not being valid.
-  | PrStatusFailedConflict            -- ^ Failed to integrate due to merge conflict.
-  | PrStatusFailedBuild (Maybe Text)  -- ^ Integrated, but the build failed. Field should contain the URL to a page explaining the build failure.
+  | PrStatusWrongFixups               -- Failed to integrate due to the presence of orphan fixup commits.
+  | PrStatusFailedConflict            -- Failed to integrate due to merge conflict.
+  | PrStatusFailedBuild (Maybe Text)  -- Integrated, but the build failed. Field should contain the URL to a page explaining the build failure.
   deriving (Eq)
 
 -- A PR can be approved to be merged with "<prefix> merge", or it can be
@@ -275,8 +275,9 @@ classifyPullRequest pr = case approval pr of
   Nothing -> PrStatusAwaitingApproval
   Just _  -> case integrationStatus pr of
     NotIntegrated -> PrStatusApproved
-    Conflicted _  -> PrStatusFailedConflict
     IncorrectBaseBranch -> PrStatusIncorrectBaseBranch
+    Conflicted _ WrongFixups -> PrStatusWrongFixups
+    Conflicted _ _  -> PrStatusFailedConflict
     Integrated _ buildStatus -> case buildStatus of
       BuildPending    -> PrStatusBuildPending
       BuildSucceeded  -> PrStatusIntegrated
@@ -318,7 +319,7 @@ approvedPullRequests = filterPullRequestsBy $ isJust . approval
 getQueuePosition :: PullRequestId -> ProjectState -> Int
 getQueuePosition prIndex state =
   let
-    approvalNumber = maybe (maxBound) approvalOrder (lookupPullRequest prIndex state >>= approval)
+    approvalNumber = maybe maxBound approvalOrder (lookupPullRequest prIndex state >>= approval)
     isEarlier pr = isQueued pr && maybe maxBound approvalOrder (approval pr) < approvalNumber
     queue = filterPullRequestsBy isEarlier state
     inProgress = filterPullRequestsBy isInProgress state
@@ -333,7 +334,7 @@ isQueued pr = case approval pr of
   Just _  -> case integrationStatus pr of
     NotIntegrated  -> True
     IncorrectBaseBranch -> False
-    Conflicted _   -> False
+    Conflicted _ _ -> False
     Integrated _ _ -> False
 
 -- Returns whether a pull request is in the process of being integrated (pending
@@ -344,7 +345,7 @@ isInProgress pr = case approval pr of
   Just _  -> case integrationStatus pr of
     NotIntegrated -> False
     IncorrectBaseBranch -> False
-    Conflicted _  -> False
+    Conflicted _ _ -> False
     Integrated _ buildStatus -> case buildStatus of
       BuildPending   -> True
       BuildSucceeded -> False
