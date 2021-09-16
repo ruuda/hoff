@@ -86,6 +86,10 @@ data ActionFree a
   | GetLatestVersion Sha (Either TagName Integer -> a)
   deriving (Functor)
 
+data PRCloseCause = 
+      User            -- ^ The user closed the PR.
+    | StopIntegration -- ^ We close and reopen the PR internally to stop its integration if it is approved.
+
 type Action = Free ActionFree
 
 type Operation = Free (Sum GitOperationFree GithubOperationFree)
@@ -261,7 +265,7 @@ clearPullRequest prId pr state =
     baseBranch = Pr.baseBranch pr
     sha    = Pr.sha pr
   in
-    handlePullRequestClosed prId state >>= 
+    handlePullRequestClosed StopIntegration prId state >>= 
       handlePullRequestOpened prId branch baseBranch sha title author
 
 -- Handle a single event, but don't take any other actions. To complete handling
@@ -276,7 +280,7 @@ handleEventInternal
 handleEventInternal triggerConfig projectConfig event = case event of
   PullRequestOpened pr branch baseBranch sha title author -> handlePullRequestOpened pr branch baseBranch sha title author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
-  PullRequestClosed pr            -> handlePullRequestClosed pr
+  PullRequestClosed pr            -> handlePullRequestClosedByUser pr
   PullRequestEdited pr title baseBranch -> handlePullRequestEdited pr title baseBranch
   CommentAdded pr author body     -> handleCommentAdded triggerConfig projectConfig pr author body
   BuildStatusChanged sha status   -> pure . handleBuildStatusChanged sha status
@@ -311,11 +315,20 @@ handlePullRequestCommitChanged prId newSha state =
       -- If the pull request was not present in the first place, do nothing.
       Nothing -> pure state
 
-handlePullRequestClosed :: PullRequestId -> ProjectState -> Action ProjectState
-handlePullRequestClosed pr state = Pr.deletePullRequest pr <$>
+-- | Describe what caused the PR to close.
+prClosingMessage :: PRCloseCause -> Text
+prClosingMessage User = "Abandoning this pull request because it was closed."
+prClosingMessage StopIntegration = "Stopping integration because the PR changed after approval."
+
+-- | Handle PR close when a user actually closes a PR.
+handlePullRequestClosedByUser :: PullRequestId -> ProjectState -> Action ProjectState
+handlePullRequestClosedByUser = handlePullRequestClosed User
+
+handlePullRequestClosed :: PRCloseCause -> PullRequestId -> ProjectState -> Action ProjectState
+handlePullRequestClosed closingReason pr state = Pr.deletePullRequest pr <$>
     case Pr.integrationCandidate state of
       Just candidatePr | candidatePr == pr -> do
-        leaveComment pr "Abandoning this pull request because it was closed."
+        leaveComment pr $ prClosingMessage closingReason
         pure state { Pr.integrationCandidate = Nothing }
       _notCandidatePr -> pure state
 
@@ -445,7 +458,7 @@ synchronizeState stateInitial =
 
       -- Close all pull requests that are still open internally (in our state),
       -- but which are not open externally (on GitHub).
-      stateClosed <- foldM (flip handlePullRequestClosed) stateInitial prsToClose
+      stateClosed <- foldM (flip handlePullRequestClosedByUser) stateInitial prsToClose
       -- Then get the details for all pull requests that are open on GitHub, but
       -- which are not yet in our state, and add them.
       foldM insertMissingPr stateClosed prsToOpen

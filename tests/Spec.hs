@@ -753,11 +753,46 @@ main = hspec $ do
           , PullRequestEdited prId "Untitled" (BaseBranch "m")
           ] 
 
-        (state', _) = runAction $ handleEventsTest events state
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (state', actions) = runActionCustom results $ handleEventsTest events state
         pr = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
+
+      actions `shouldBe` 
+        [ AIsReviewer (Username "deckard")
+        , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
+        , ALeaveComment (PullRequestId 1) "Rebased as def2345, waiting for CI \8230"
+        , ALeaveComment (PullRequestId 1) "Stopping integration because the PR changed after approval."
+        ]
 
       Project.approval pr `shouldBe` Nothing
       Project.integrationCandidate state' `shouldBe` Nothing
+
+    it "shows an appropriate message when the commit is changed on an approved PR" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+        
+        events = 
+          [ CommentAdded prId "deckard" "@bot merge"
+          , PullRequestCommitChanged prId (Sha "Untitled")
+          ] 
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (state', actions) = runActionCustom results $ handleEventsTest events state
+        pr = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
+
+      actions `shouldBe` 
+        [ AIsReviewer (Username "deckard")
+        , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
+        , ALeaveComment (PullRequestId 1) "Rebased as def2345, waiting for CI \8230"
+        , ALeaveComment (PullRequestId 1) "Stopping integration because the PR changed after approval."
+        ]
+
+      Project.approval pr `shouldBe` Nothing
+      Project.integrationCandidate state' `shouldBe` Nothing
+      
 
   describe "Logic.proceedUntilFixedPoint" $ do
 
