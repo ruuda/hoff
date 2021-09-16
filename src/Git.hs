@@ -448,13 +448,13 @@ runGit userConfig repoDir operation =
     CheckOrphanFixups sha branch cont -> do
       result <- let branch' = refSpec branch
                     sha' = refSpec sha 
-                in callGitInRepo ["log", Text.unpack $ format "{}..{}" [branch',sha'], "--format='%s'"]
+                in callGitInRepo ["log", Text.unpack $ format "{}..{}" [branch',sha'], "--format=%s"]
       case result of
         Left (code, message) -> do
           logWarnN $ format "git log failed with code {}: {}" (show code, message)
           pure $ cont False
         Right logResponse -> do
-          let anyOrphanFixups = any (\x -> "'fixup!" `Text.isPrefixOf` x) $ Text.lines logResponse 
+          let anyOrphanFixups = any (\x -> "fixup!" `Text.isPrefixOf` x) $ Text.lines logResponse 
           when anyOrphanFixups $
             logWarnN "there is one ore more fixup commits not belonging to any other commit" 
           pure $ cont anyOrphanFixups 
