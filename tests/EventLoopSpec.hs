@@ -882,9 +882,10 @@ eventLoopSpec = parallel $ do
           Project.Integrated rebasedSha _ = Project.integrationStatus pullRequest
         state' <- runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
 
-        -- The pull request should have been integrated properly, so there
-        -- should not be a new candidate.
-        Project.candidatePullRequests state' `shouldBe` []
+        --The pull request should not be integrated. Moreover, the presence of 
+        --otphan fixups should make the PR ineligible for being a candidate for integration.
+        --That is, we expect no candidates for integration.
+        Project.getIntegrationCandidate state' `shouldBe` Nothing
 
       -- Here we expect that the fixup commit is not present.
       history `shouldBe`

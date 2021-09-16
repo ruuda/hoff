@@ -457,13 +457,11 @@ runGit userConfig repoDir operation =
         Left (code, message) -> do
           logWarnN $ format "git log failed with code {}: {}" (show code, message)
           pure $ cont False
-        Right logResponse -> 
+        Right logResponse -> do
           let anyOrphanFixups = any (\x -> "'fixup!" `Text.isPrefixOf` x) $ Text.lines logResponse 
-          in  if anyOrphanFixups
-                then do
-                  logWarnN "there is one ore more fixup commits not belonging to any other commit" 
-                  pure $ cont True
-                else pure $ cont False 
+          when anyOrphanFixups $
+            logWarnN "there is one ore more fixup commits not belonging to any other commit" 
+          pure $ cont anyOrphanFixups 
 
 -- Interpreter that runs only Git operations that have no side effects on the
 -- remote; it does not push.
@@ -542,18 +540,18 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
       -- If not (i.e. the current master is the parent of the proposed commit
       -- and the approval type is not MergeAndDeploy) then we just take that
       -- commit as-is.
-      checkOrphansResult <- checkOrphanFixups sha targetBranch
-      if checkOrphansResult 
+      hasOrphanFixups <- checkOrphanFixups sha targetBranch
+      if hasOrphanFixups 
         then pure $ Left WrongFixups
         else do
           targetBranchSha <- checkout targetBranch
           parentSha       <- getParent sha
           newTip <- case parentSha of
-                      Nothing -> pure $ Just sha
-                      parent
-                        | alwaysAddMergeCommit      -> merge sha message
-                        | parent == targetBranchSha -> pure $ Just sha
-                      _moreThanOneCommitBehind      -> merge sha message
+            Nothing -> pure $ Just sha
+            parent
+              | alwaysAddMergeCommit      -> merge sha message
+              | parent == targetBranchSha -> pure $ Just sha
+            _moreThanOneCommitBehind      -> merge sha message
 
           -- If both the rebase, and the (potential) merge went well, push it to the
           -- testing branch so CI will build it.
