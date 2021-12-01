@@ -388,5 +388,5 @@ alwaysAddMergeCommit MergeAndTag    = False
 
 needsTag :: ApprovedFor -> Bool
 needsTag Merge          = False
-needsTag MergeAndDeploy = False
+needsTag MergeAndDeploy = True
 needsTag MergeAndTag    = True
