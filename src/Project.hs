@@ -199,7 +199,7 @@ insertPullRequest
   -> ProjectState
   -> ProjectState
 insertPullRequest (PullRequestId n) prBranch bsBranch prSha prTitle prAuthor state =
-  let 
+  let
     pullRequest = PullRequest {
         sha                 = prSha,
         branch              = prBranch,

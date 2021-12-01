@@ -700,7 +700,7 @@ main = hspec $ do
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag 0))
-    
+
     it "rejects 'merge' commands to a branch other than master" $ do
       let
         prId = PullRequestId 1
@@ -719,19 +719,19 @@ main = hspec $ do
         (\pr -> Project.integrationStatus pr == Project.IncorrectBaseBranch)
 
     it "doesn't reject 'merge' after a base branch change" $ do
-      let 
+      let
         prId = PullRequestId 1
         state = singlePullRequestState prId (Branch "p") (BaseBranch "m") (Sha "abc1234") "tyrell"
-        
-        events = 
+
+        events =
           [ CommentAdded prId "deckard" "@bot merge"
           , PullRequestEdited prId "Untitled" masterBranch
-          , CommentAdded prId "deckard" "@bot merge"] 
+          , CommentAdded prId "deckard" "@bot merge"]
 
         results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
         (state', actions) = runActionCustom results $ handleEventsTest events state
 
-      actions `shouldBe` 
+      actions `shouldBe`
         [ AIsReviewer (Username "deckard")
         , ALeaveComment (PullRequestId 1) "Merge rejected: the target branch must be the integration branch."
         , AIsReviewer (Username "deckard")
@@ -739,25 +739,25 @@ main = hspec $ do
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
         , ALeaveComment (PullRequestId 1) "Rebased as def2345, waiting for CI \8230"
         ]
-      
+
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.integrationStatus pr == Project.Integrated (Sha "def2345") Project.BuildPending)
 
     it "loses approval after an invalid base branch change" $ do
-      let 
+      let
         prId = PullRequestId 1
         state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
-        
-        events = 
+
+        events =
           [ CommentAdded prId "deckard" "@bot merge"
           , PullRequestEdited prId "Untitled" (BaseBranch "m")
-          ] 
+          ]
 
         results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
         (state', actions) = runActionCustom results $ handleEventsTest events state
         pr = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
 
-      actions `shouldBe` 
+      actions `shouldBe`
         [ AIsReviewer (Username "deckard")
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
@@ -772,17 +772,17 @@ main = hspec $ do
       let
         prId = PullRequestId 1
         state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
-        
-        events = 
+
+        events =
           [ CommentAdded prId "deckard" "@bot merge"
           , PullRequestCommitChanged prId (Sha "Untitled")
-          ] 
+          ]
 
         results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
         (state', actions) = runActionCustom results $ handleEventsTest events state
         pr = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
 
-      actions `shouldBe` 
+      actions `shouldBe`
         [ AIsReviewer (Username "deckard")
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
@@ -792,7 +792,7 @@ main = hspec $ do
 
       Project.approval pr `shouldBe` Nothing
       Project.integrationCandidate state' `shouldBe` Nothing
-      
+
 
   describe "Logic.proceedUntilFixedPoint" $ do
 

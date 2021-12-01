@@ -100,7 +100,7 @@ populateRepository dir =
       gitBranch "ahead" c3
       appendFile "tyrell.txt" "Would you like to be modified?"
       gitAdd "tyrell.txt"
-      c4 <- gitCommit "c4: Add Tyrell  response"
+      c4 <- gitCommit "c4: Add Tyrell response"
 
       -- Now make an alternative commit that conflicts with c3.
       gitBranch "alternative" c2
@@ -876,14 +876,14 @@ eventLoopSpec = parallel $ do
 
         -- Extract the sha of the rebased commit from the project state, and
         -- tell the loop that building the commit succeeded.
-        
+
         let
           Just (_prId, pullRequest)       = Project.getIntegrationCandidate state
           Project.Integrated rebasedSha _ = Project.integrationStatus pullRequest
         state' <- runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
 
-        --The pull request should not be integrated. Moreover, the presence of 
-        --otphan fixups should make the PR ineligible for being a candidate for integration.
+        --The pull request should not be integrated. Moreover, the presence of
+        --orphan fixups should make the PR ineligible for being a candidate for integration.
         --That is, we expect no candidates for integration.
         Project.getIntegrationCandidate state' `shouldBe` Nothing
 

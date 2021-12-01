@@ -167,13 +167,13 @@ data TagResult
 data FetchWithTags = WithTags | NoTags
   deriving stock (Eq, Show)
 
-data GitIntegrationFailure 
+data GitIntegrationFailure
   = MergeFailed
   | RebaseFailed
-  | WrongFixups 
+  | WrongFixups
   deriving (Show, Eq, Generic)
 
-instance FromJSON GitIntegrationFailure    
+instance FromJSON GitIntegrationFailure
 
 instance ToJSON GitIntegrationFailure where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 
@@ -415,7 +415,7 @@ runGit userConfig repoDir operation =
           logWarnN $ format "git clone failed with code {}: {}" (show code, message)
           pure $ cont CloneFailed
         Right _ -> do
-          logInfoN $ format "cloned {} succesfully" [url]
+          logInfoN $ format "cloned {} successfully" [url]
           pure $ cont CloneOk
 
     DoesGitDirectoryExist cont -> do
@@ -447,17 +447,17 @@ runGit userConfig repoDir operation =
 
     CheckOrphanFixups sha branch cont -> do
       result <- let branch' = refSpec branch
-                    sha' = refSpec sha 
+                    sha' = refSpec sha
                 in callGitInRepo ["log", Text.unpack $ format "{}..{}" [branch',sha'], "--format=%s"]
       case result of
         Left (code, message) -> do
           logWarnN $ format "git log failed with code {}: {}" (show code, message)
           pure $ cont False
         Right logResponse -> do
-          let anyOrphanFixups = any (\x -> "fixup!" `Text.isPrefixOf` x) $ Text.lines logResponse 
+          let anyOrphanFixups = any (\x -> "fixup!" `Text.isPrefixOf` x) $ Text.lines logResponse
           when anyOrphanFixups $
-            logWarnN "there is one ore more fixup commits not belonging to any other commit" 
-          pure $ cont anyOrphanFixups 
+            logWarnN "there is one ore more fixup commits not belonging to any other commit"
+          pure $ cont anyOrphanFixups
 
 -- Interpreter that runs only Git operations that have no side effects on the
 -- remote; it does not push.
@@ -523,7 +523,7 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
     -- Push it to the remote integration branch to trigger a build.
     Nothing  -> pure $ Left RebaseFailed
     Just sha -> do
-      -- Before merging, we check if there exist fixup commits that do not 
+      -- Before merging, we check if there exist fixup commits that do not
       -- belong to any other commits. If there are no such fixups, we proceed
       -- with merging; otherwise we raise a warning and don't merge.
       -- After the rebase, we also do a (non-fast-forward) merge, to clarify
@@ -537,7 +537,7 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
       -- and the approval type is not MergeAndDeploy) then we just take that
       -- commit as-is.
       hasOrphanFixups <- checkOrphanFixups sha targetBranch
-      if hasOrphanFixups 
+      if hasOrphanFixups
         then pure $ Left WrongFixups
         else do
           targetBranchSha <- checkout targetBranch

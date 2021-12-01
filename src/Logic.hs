@@ -57,8 +57,8 @@ import qualified Data.Text.Read as Text
 
 import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Format (format)
-import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushResult (..), GitIntegrationFailure (..), 
-            Sha (..), SomeRefSpec (..), TagName (..), TagResult (..))
+import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushResult (..),
+            GitIntegrationFailure (..), Sha (..), SomeRefSpec (..), TagName (..), TagResult (..))
 
 import GithubApi (GithubOperation, GithubOperationFree)
 import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
@@ -87,7 +87,7 @@ data ActionFree a
   | GetLatestVersion Sha (Either TagName Integer -> a)
   deriving (Functor)
 
-data PRCloseCause = 
+data PRCloseCause =
       User            -- ^ The user closed the PR.
     | StopIntegration -- ^ We close and reopen the PR internally to stop its integration if it is approved.
 
@@ -170,8 +170,8 @@ runAction config = foldFree $ \case
           TagOk tagName -> cont . (Right tagName,)
             <$> Git.pushAtomic [AsRefSpec tagName, AsRefSpec (sha, Git.Branch $ Config.branch config)]
             <*  Git.deleteTag tagName
-            -- Deleting tag after atomic pushg is important to maintain one "source of truth", namely
-            -- - the origin
+            -- Deleting tag after atomic push is important to maintain one "source of truth", namely
+            -- the origin
 
   LeaveComment pr body cont -> do
     doGithub $ GithubApi.leaveComment pr body
@@ -267,7 +267,7 @@ clearPullRequest prId pr state =
     baseBranch = Pr.baseBranch pr
     sha    = Pr.sha pr
   in
-    handlePullRequestClosed StopIntegration prId state >>= 
+    handlePullRequestClosed StopIntegration prId state >>=
       handlePullRequestOpened prId branch baseBranch sha title author
 
 -- Handle a single event, but don't take any other actions. To complete handling
@@ -335,7 +335,7 @@ handlePullRequestClosed closingReason pr state = Pr.deletePullRequest pr <$>
       _notCandidatePr -> pure state
 
 handlePullRequestEdited :: PullRequestId -> Text -> BaseBranch -> ProjectState -> Action ProjectState
-handlePullRequestEdited prId newTitle newBaseBranch state = 
+handlePullRequestEdited prId newTitle newBaseBranch state =
   let updatePr pr =  pr { Pr.title = newTitle, Pr.baseBranch = newBaseBranch } in
   case Pr.lookupPullRequest prId state of
     Just pullRequest
@@ -393,7 +393,7 @@ handleCommentAdded
 handleCommentAdded triggerConfig projectConfig prId author body state =
   let maybePR = Pr.lookupPullRequest prId state in
   case maybePR of
-    -- Check if the commment is a merge command, and if it is, check if the
+    -- Check if the comment is a merge command, and if it is, check if the
     -- author is allowed to approve. Comments by users with push access happen
     -- frequently, but most comments are not merge commands, and checking that
     -- a user has push access requires an API call.
@@ -490,7 +490,8 @@ proceedCandidate (pullRequestId, pullRequest) state =
       tryIntegratePullRequest pullRequestId state
 
     IncorrectBaseBranch ->
-      -- It shouldn't come to this point; a PR with an incorrent base branch is never considered as a candidate.
+      -- It shouldn't come to this point; a PR with an incorrect base branch is
+      -- never considered as a candidate.
       pure $ Pr.setIntegrationCandidate Nothing state
 
     Conflicted _branch _ ->
@@ -532,7 +533,7 @@ tryIntegratePullRequest pr state =
   in do
     result <- tryIntegrate mergeMessage candidate $ Pr.alwaysAddMergeCommit approvalType
     case result of
-      Left (IntegrationFailure targetBranch reason) -> 
+      Left (IntegrationFailure targetBranch reason) ->
         -- If integrating failed, perform no further actions but do set the
         -- state to conflicted.
         pure $ Pr.setIntegrationStatus pr (Conflicted targetBranch reason) $
