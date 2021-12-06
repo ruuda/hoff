@@ -34,6 +34,7 @@ module Project
   lookupPullRequest,
   saveProjectState,
   alwaysAddMergeCommit,
+  needsDeploy,
   needsTag,
   displayApproval,
   setApproval,
@@ -385,6 +386,11 @@ alwaysAddMergeCommit :: ApprovedFor -> Bool
 alwaysAddMergeCommit Merge          = False
 alwaysAddMergeCommit MergeAndDeploy = True
 alwaysAddMergeCommit MergeAndTag    = False
+
+needsDeploy :: ApprovedFor -> Bool
+needsDeploy Merge          = False
+needsDeploy MergeAndDeploy = True
+needsDeploy MergeAndTag    = False
 
 needsTag :: ApprovedFor -> Bool
 needsTag Merge          = False

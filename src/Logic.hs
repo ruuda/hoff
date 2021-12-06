@@ -58,7 +58,8 @@ import qualified Data.Text.Read as Text
 import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Format (format)
 import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushResult (..),
-            GitIntegrationFailure (..), Sha (..), SomeRefSpec (..), TagName (..), TagResult (..))
+            GitIntegrationFailure (..), Sha (..), SomeRefSpec (..), TagMessage (..), TagName (..),
+            TagResult (..))
 
 import GithubApi (GithubOperation, GithubOperationFree)
 import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
@@ -79,12 +80,13 @@ data ActionFree a
     , _cont                 :: Either IntegrationFailure Sha -> a
     }
   | TryPromote Branch Sha (PushResult -> a)
-  | TryPromoteWithTag Branch Sha TagName (PushWithTagResult -> a)
+  | TryPromoteWithTag Branch Sha TagName TagMessage (PushWithTagResult -> a)
   | LeaveComment PullRequestId Text a
   | IsReviewer Username (Bool -> a)
   | GetPullRequest PullRequestId (Maybe GithubApi.PullRequest -> a)
   | GetOpenPullRequests (Maybe IntSet -> a)
   | GetLatestVersion Sha (Either TagName Integer -> a)
+  | GetChangelog TagName Sha (Maybe Text -> a)
   deriving (Functor)
 
 data PRCloseCause =
@@ -118,9 +120,9 @@ tryIntegrate mergeMessage candidate alwaysAddMergeCommit = liftF $ TryIntegrate 
 tryPromote :: Branch -> Sha -> Action PushResult
 tryPromote prBranch newHead = liftF $ TryPromote prBranch newHead id
 
-tryPromoteWithTag :: Branch -> Sha -> TagName -> Action PushWithTagResult
-tryPromoteWithTag prBranch newHead tagName =
-  liftF $ TryPromoteWithTag prBranch newHead tagName id
+tryPromoteWithTag :: Branch -> Sha -> TagName -> TagMessage -> Action PushWithTagResult
+tryPromoteWithTag prBranch newHead tagName tagMessage =
+  liftF $ TryPromoteWithTag prBranch newHead tagName tagMessage id
 
 -- Leave a comment on the given pull request.
 leaveComment :: PullRequestId -> Text -> Action ()
@@ -138,6 +140,9 @@ getOpenPullRequests = liftF $ GetOpenPullRequests id
 
 getLatestVersion :: Sha -> Action (Either TagName Integer)
 getLatestVersion sha = liftF $ GetLatestVersion sha id
+
+getChangelog :: TagName -> Sha -> Action (Maybe Text)
+getChangelog prevTag curHead = liftF $ GetChangelog prevTag curHead id
 
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
@@ -162,10 +167,10 @@ runAction config = foldFree $ \case
     pushResult <- doGit $ Git.push sha (Git.Branch $ Config.branch config)
     pure $ cont pushResult
 
-  TryPromoteWithTag prBranch sha newTag cont -> doGit $
+  TryPromoteWithTag prBranch sha newTagName newTagMessage cont -> doGit $
     ensureCloned config >>
     Git.forcePush sha prBranch >>
-    Git.tag' sha newTag >>=
+    Git.tag sha newTagName newTagMessage >>=
     \case TagFailed _ -> cont . (Left "Please check the logs",) <$> Git.push sha (Git.Branch $ Config.branch config)
           TagOk tagName -> cont . (Right tagName,)
             <$> Git.pushAtomic [AsRefSpec tagName, AsRefSpec (sha, Git.Branch $ Config.branch config)]
@@ -191,6 +196,9 @@ runAction config = foldFree $ \case
 
   GetLatestVersion sha cont -> doGit $
     cont . maybe (Right 0) (\t -> maybeToEither t $ parseVersion t) <$> Git.lastTag sha
+
+  GetChangelog prevTag curHead cont -> doGit $
+    cont <$> Git.shortlog (AsRefSpec prevTag) (AsRefSpec curHead)
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
@@ -562,7 +570,8 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       Username approvedBy = approver approval
       commentToUser = leaveComment pullRequestId . (<>) ("@" <> approvedBy <> " ")
   in assert (isJust $ Pr.approval pullRequest) $ do
-    pushResult <- if Pr.needsTag $ Pr.approvedFor approval
+    let approvalKind = Pr.approvedFor approval
+    pushResult <- if Pr.needsTag $ approvalKind
       then do
         versionOrBadTag <- getLatestVersion newHead
         case versionOrBadTag of
@@ -570,11 +579,20 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
             commentToUser ("Sorry, I could not tag your PR. The previous tag `" <> bad <> "` seems invalid")
             tryPromote prBranch newHead
           Right v -> do
-            (tagResult, pushResult) <- tryPromoteWithTag prBranch newHead (versionToTag $ v + 1)
+            let previousTag = versionToTag v
+            mChangelog <- getChangelog previousTag newHead
+            let
+              tagName = versionToTag $ v + 1
+              changelog = maybe "Failed to get the changelog" id mChangelog
+              tagMessage = messageForTag tagName approvalKind changelog
+            (tagResult, pushResult) <- tryPromoteWithTag prBranch newHead tagName tagMessage
             when (pushResult == PushOk) $ commentToUser $
               case tagResult of
                 Left err -> "Sorry, I could not tag your PR. " <> err
-                Right (TagName t) -> "I tagged your PR with `" <> t <> "`. Don't forget to deploy it!"
+                Right (TagName t) -> "I tagged your PR with `" <> t <> "`. " <>
+                  if Pr.needsDeploy approvalKind
+                    then "It is scheduled for autodeploy!"
+                    else "Don't forget to deploy it!"
             pure pushResult
       else
         tryPromote prBranch newHead
@@ -676,3 +694,8 @@ parseVersion (TagName t) = Text.uncons t >>= \case
 
 versionToTag :: Integer -> TagName
 versionToTag v = TagName $ toStrict $ B.toLazyText $ B.singleton 'v' <> B.decimal v
+
+messageForTag :: TagName -> ApprovedFor -> Text -> TagMessage
+messageForTag (TagName tagName) tagOrDeploy changelog =
+  TagMessage $ tagName <> mark <> "\n\n" <> changelog
+  where mark = if Pr.needsDeploy tagOrDeploy then " (autodeploy)" else ""
