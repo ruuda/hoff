@@ -28,6 +28,7 @@ module Git
   RemoteUrl (..),
   Sha (..),
   SomeRefSpec( .. ),
+  TagMessage (..),
   TagName (..),
   TagResult (..),
   callGit,
@@ -38,6 +39,7 @@ module Git
   fetchBranchWithTags,
   forcePush,
   lastTag,
+  shortlog,
   push,
   pushAtomic,
   rebase,
@@ -89,6 +91,8 @@ localBranch (RemoteBranch name) = Branch name
 newtype Sha = Sha Text deriving newtype (Show, Eq)
 
 newtype RemoteUrl = RemoteUrl Text deriving newtype (Show, Eq)
+
+newtype TagMessage = TagMessage Text deriving newtype (Show, Eq)
 
 newtype TagName = TagName Text deriving newtype (Show, Eq)
 
@@ -167,13 +171,13 @@ data TagResult
 data FetchWithTags = WithTags | NoTags
   deriving stock (Eq, Show)
 
-data GitIntegrationFailure 
+data GitIntegrationFailure
   = MergeFailed
   | RebaseFailed
-  | WrongFixups 
+  | WrongFixups
   deriving (Show, Eq, Generic)
 
-instance FromJSON GitIntegrationFailure    
+instance FromJSON GitIntegrationFailure
 
 instance ToJSON GitIntegrationFailure where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 
@@ -189,7 +193,8 @@ data GitOperationFree a
   | GetParent Sha (Maybe Sha -> a)
   | DoesGitDirectoryExist (Bool -> a)
   | LastTag Sha (Maybe Text -> a)
-  | Tag Sha TagName Text (TagResult -> a)
+  | ShortLog SomeRefSpec SomeRefSpec (Maybe Text -> a)
+  | Tag Sha TagName TagMessage (TagResult -> a)
   | DeleteTag TagName a
   | CheckOrphanFixups Sha RemoteBranch (Bool -> a)
   deriving (Functor)
@@ -235,11 +240,14 @@ doesGitDirectoryExist = liftF $ DoesGitDirectoryExist id
 lastTag :: Sha -> GitOperation (Maybe TagName)
 lastTag sha = liftF $ LastTag sha (TagName . Text.strip <$>)
 
-tag :: Sha -> TagName -> Text -> GitOperation TagResult
+shortlog :: SomeRefSpec -> SomeRefSpec -> GitOperation (Maybe Text)
+shortlog refStart refEnd = liftF $ ShortLog refStart refEnd id
+
+tag :: Sha -> TagName -> TagMessage -> GitOperation TagResult
 tag sha name message = liftF $ Tag sha name message id
 
 tag' :: Sha -> TagName -> GitOperation TagResult
-tag' sha t@(TagName name) = tag sha t name
+tag' sha t@(TagName name) = tag sha t (TagMessage name)
 
 deleteTag :: TagName -> GitOperation ()
 deleteTag t = liftF $ DeleteTag t ()
@@ -415,7 +423,7 @@ runGit userConfig repoDir operation =
           logWarnN $ format "git clone failed with code {}: {}" (show code, message)
           pure $ cont CloneFailed
         Right _ -> do
-          logInfoN $ format "cloned {} succesfully" [url]
+          logInfoN $ format "cloned {} successfully" [url]
           pure $ cont CloneOk
 
     DoesGitDirectoryExist cont -> do
@@ -433,7 +441,16 @@ runGit userConfig repoDir operation =
       result <- callGitInRepo ["describe", "--abbrev=0", "--tags", refSpec sha]
       pure $ cont $ either (const Nothing) Just result
 
-    Tag sha t m cont -> do
+    ShortLog shaStart shaEnd cont -> do
+      result <- callGitInRepo ["shortlog", refSpec shaStart <> ".." <> refSpec shaEnd]
+      case result of
+        Left (code, message) -> do
+          logWarnN $ format "git shortlog failed with code {}: {}" (show code, message)
+          pure $ cont Nothing
+        Right changelog -> do
+          pure $ cont $ Just changelog
+
+    Tag sha t (TagMessage m) cont -> do
       result <- callGitInRepo ["tag", "-a", refSpec t, "-m", Text.unpack m, refSpec sha]
       case result of
         Left (code, message) -> do
@@ -447,17 +464,17 @@ runGit userConfig repoDir operation =
 
     CheckOrphanFixups sha branch cont -> do
       result <- let branch' = refSpec branch
-                    sha' = refSpec sha 
+                    sha' = refSpec sha
                 in callGitInRepo ["log", Text.unpack $ format "{}..{}" [branch',sha'], "--format=%s"]
       case result of
         Left (code, message) -> do
           logWarnN $ format "git log failed with code {}: {}" (show code, message)
           pure $ cont False
         Right logResponse -> do
-          let anyOrphanFixups = any (\x -> "fixup!" `Text.isPrefixOf` x) $ Text.lines logResponse 
+          let anyOrphanFixups = any (\x -> "fixup!" `Text.isPrefixOf` x) $ Text.lines logResponse
           when anyOrphanFixups $
-            logWarnN "there is one ore more fixup commits not belonging to any other commit" 
-          pure $ cont anyOrphanFixups 
+            logWarnN "there is one ore more fixup commits not belonging to any other commit"
+          pure $ cont anyOrphanFixups
 
 -- Interpreter that runs only Git operations that have no side effects on the
 -- remote; it does not push.
@@ -484,6 +501,7 @@ runGitReadOnly userConfig repoDir operation =
       GetParent {} -> unsafeResult
       DoesGitDirectoryExist {} -> unsafeResult
       LastTag {} -> unsafeResult
+      ShortLog {} -> unsafeResult
       Tag {} -> unsafeResult
       DeleteTag {} -> unsafeResult
       CheckOrphanFixups {} -> unsafeResult
@@ -523,7 +541,7 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
     -- Push it to the remote integration branch to trigger a build.
     Nothing  -> pure $ Left RebaseFailed
     Just sha -> do
-      -- Before merging, we check if there exist fixup commits that do not 
+      -- Before merging, we check if there exist fixup commits that do not
       -- belong to any other commits. If there are no such fixups, we proceed
       -- with merging; otherwise we raise a warning and don't merge.
       -- After the rebase, we also do a (non-fast-forward) merge, to clarify
@@ -537,7 +555,7 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
       -- and the approval type is not MergeAndDeploy) then we just take that
       -- commit as-is.
       hasOrphanFixups <- checkOrphanFixups sha targetBranch
-      if hasOrphanFixups 
+      if hasOrphanFixups
         then pure $ Left WrongFixups
         else do
           targetBranchSha <- checkout targetBranch

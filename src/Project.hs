@@ -34,6 +34,7 @@ module Project
   lookupPullRequest,
   saveProjectState,
   alwaysAddMergeCommit,
+  needsDeploy,
   needsTag,
   displayApproval,
   setApproval,
@@ -199,7 +200,7 @@ insertPullRequest
   -> ProjectState
   -> ProjectState
 insertPullRequest (PullRequestId n) prBranch bsBranch prSha prTitle prAuthor state =
-  let 
+  let
     pullRequest = PullRequest {
         sha                 = prSha,
         branch              = prBranch,
@@ -386,7 +387,12 @@ alwaysAddMergeCommit Merge          = False
 alwaysAddMergeCommit MergeAndDeploy = True
 alwaysAddMergeCommit MergeAndTag    = False
 
+needsDeploy :: ApprovedFor -> Bool
+needsDeploy Merge          = False
+needsDeploy MergeAndDeploy = True
+needsDeploy MergeAndTag    = False
+
 needsTag :: ApprovedFor -> Bool
 needsTag Merge          = False
-needsTag MergeAndDeploy = False
+needsTag MergeAndDeploy = True
 needsTag MergeAndTag    = True

@@ -57,8 +57,9 @@ import qualified Data.Text.Read as Text
 
 import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Format (format)
-import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushResult (..), GitIntegrationFailure (..), 
-            Sha (..), SomeRefSpec (..), TagName (..), TagResult (..))
+import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushResult (..),
+            GitIntegrationFailure (..), Sha (..), SomeRefSpec (..), TagMessage (..), TagName (..),
+            TagResult (..))
 
 import GithubApi (GithubOperation, GithubOperationFree)
 import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
@@ -79,15 +80,16 @@ data ActionFree a
     , _cont                 :: Either IntegrationFailure Sha -> a
     }
   | TryPromote Branch Sha (PushResult -> a)
-  | TryPromoteWithTag Branch Sha TagName (PushWithTagResult -> a)
+  | TryPromoteWithTag Branch Sha TagName TagMessage (PushWithTagResult -> a)
   | LeaveComment PullRequestId Text a
   | IsReviewer Username (Bool -> a)
   | GetPullRequest PullRequestId (Maybe GithubApi.PullRequest -> a)
   | GetOpenPullRequests (Maybe IntSet -> a)
   | GetLatestVersion Sha (Either TagName Integer -> a)
+  | GetChangelog TagName Sha (Maybe Text -> a)
   deriving (Functor)
 
-data PRCloseCause = 
+data PRCloseCause =
       User            -- ^ The user closed the PR.
     | StopIntegration -- ^ We close and reopen the PR internally to stop its integration if it is approved.
 
@@ -118,9 +120,9 @@ tryIntegrate mergeMessage candidate alwaysAddMergeCommit = liftF $ TryIntegrate 
 tryPromote :: Branch -> Sha -> Action PushResult
 tryPromote prBranch newHead = liftF $ TryPromote prBranch newHead id
 
-tryPromoteWithTag :: Branch -> Sha -> TagName -> Action PushWithTagResult
-tryPromoteWithTag prBranch newHead tagName =
-  liftF $ TryPromoteWithTag prBranch newHead tagName id
+tryPromoteWithTag :: Branch -> Sha -> TagName -> TagMessage -> Action PushWithTagResult
+tryPromoteWithTag prBranch newHead tagName tagMessage =
+  liftF $ TryPromoteWithTag prBranch newHead tagName tagMessage id
 
 -- Leave a comment on the given pull request.
 leaveComment :: PullRequestId -> Text -> Action ()
@@ -138,6 +140,9 @@ getOpenPullRequests = liftF $ GetOpenPullRequests id
 
 getLatestVersion :: Sha -> Action (Either TagName Integer)
 getLatestVersion sha = liftF $ GetLatestVersion sha id
+
+getChangelog :: TagName -> Sha -> Action (Maybe Text)
+getChangelog prevTag curHead = liftF $ GetChangelog prevTag curHead id
 
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
@@ -162,16 +167,16 @@ runAction config = foldFree $ \case
     pushResult <- doGit $ Git.push sha (Git.Branch $ Config.branch config)
     pure $ cont pushResult
 
-  TryPromoteWithTag prBranch sha newTag cont -> doGit $
+  TryPromoteWithTag prBranch sha newTagName newTagMessage cont -> doGit $
     ensureCloned config >>
     Git.forcePush sha prBranch >>
-    Git.tag' sha newTag >>=
+    Git.tag sha newTagName newTagMessage >>=
     \case TagFailed _ -> cont . (Left "Please check the logs",) <$> Git.push sha (Git.Branch $ Config.branch config)
           TagOk tagName -> cont . (Right tagName,)
             <$> Git.pushAtomic [AsRefSpec tagName, AsRefSpec (sha, Git.Branch $ Config.branch config)]
             <*  Git.deleteTag tagName
-            -- Deleting tag after atomic pushg is important to maintain one "source of truth", namely
-            -- - the origin
+            -- Deleting tag after atomic push is important to maintain one "source of truth", namely
+            -- the origin
 
   LeaveComment pr body cont -> do
     doGithub $ GithubApi.leaveComment pr body
@@ -191,6 +196,9 @@ runAction config = foldFree $ \case
 
   GetLatestVersion sha cont -> doGit $
     cont . maybe (Right 0) (\t -> maybeToEither t $ parseVersion t) <$> Git.lastTag sha
+
+  GetChangelog prevTag curHead cont -> doGit $
+    cont <$> Git.shortlog (AsRefSpec prevTag) (AsRefSpec curHead)
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
@@ -267,7 +275,7 @@ clearPullRequest prId pr state =
     baseBranch = Pr.baseBranch pr
     sha    = Pr.sha pr
   in
-    handlePullRequestClosed StopIntegration prId state >>= 
+    handlePullRequestClosed StopIntegration prId state >>=
       handlePullRequestOpened prId branch baseBranch sha title author
 
 -- Handle a single event, but don't take any other actions. To complete handling
@@ -335,7 +343,7 @@ handlePullRequestClosed closingReason pr state = Pr.deletePullRequest pr <$>
       _notCandidatePr -> pure state
 
 handlePullRequestEdited :: PullRequestId -> Text -> BaseBranch -> ProjectState -> Action ProjectState
-handlePullRequestEdited prId newTitle newBaseBranch state = 
+handlePullRequestEdited prId newTitle newBaseBranch state =
   let updatePr pr =  pr { Pr.title = newTitle, Pr.baseBranch = newBaseBranch } in
   case Pr.lookupPullRequest prId state of
     Just pullRequest
@@ -393,7 +401,7 @@ handleCommentAdded
 handleCommentAdded triggerConfig projectConfig prId author body state =
   let maybePR = Pr.lookupPullRequest prId state in
   case maybePR of
-    -- Check if the commment is a merge command, and if it is, check if the
+    -- Check if the comment is a merge command, and if it is, check if the
     -- author is allowed to approve. Comments by users with push access happen
     -- frequently, but most comments are not merge commands, and checking that
     -- a user has push access requires an API call.
@@ -490,7 +498,8 @@ proceedCandidate (pullRequestId, pullRequest) state =
       tryIntegratePullRequest pullRequestId state
 
     IncorrectBaseBranch ->
-      -- It shouldn't come to this point; a PR with an incorrent base branch is never considered as a candidate.
+      -- It shouldn't come to this point; a PR with an incorrect base branch is
+      -- never considered as a candidate.
       pure $ Pr.setIntegrationCandidate Nothing state
 
     Conflicted _branch _ ->
@@ -532,7 +541,7 @@ tryIntegratePullRequest pr state =
   in do
     result <- tryIntegrate mergeMessage candidate $ Pr.alwaysAddMergeCommit approvalType
     case result of
-      Left (IntegrationFailure targetBranch reason) -> 
+      Left (IntegrationFailure targetBranch reason) ->
         -- If integrating failed, perform no further actions but do set the
         -- state to conflicted.
         pure $ Pr.setIntegrationStatus pr (Conflicted targetBranch reason) $
@@ -561,7 +570,8 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       Username approvedBy = approver approval
       commentToUser = leaveComment pullRequestId . (<>) ("@" <> approvedBy <> " ")
   in assert (isJust $ Pr.approval pullRequest) $ do
-    pushResult <- if Pr.needsTag $ Pr.approvedFor approval
+    let approvalKind = Pr.approvedFor approval
+    pushResult <- if Pr.needsTag $ approvalKind
       then do
         versionOrBadTag <- getLatestVersion newHead
         case versionOrBadTag of
@@ -569,11 +579,20 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
             commentToUser ("Sorry, I could not tag your PR. The previous tag `" <> bad <> "` seems invalid")
             tryPromote prBranch newHead
           Right v -> do
-            (tagResult, pushResult) <- tryPromoteWithTag prBranch newHead (versionToTag $ v + 1)
+            let previousTag = versionToTag v
+            mChangelog <- getChangelog previousTag newHead
+            let
+              tagName = versionToTag $ v + 1
+              changelog = maybe "Failed to get the changelog" id mChangelog
+              tagMessage = messageForTag tagName approvalKind changelog
+            (tagResult, pushResult) <- tryPromoteWithTag prBranch newHead tagName tagMessage
             when (pushResult == PushOk) $ commentToUser $
               case tagResult of
                 Left err -> "Sorry, I could not tag your PR. " <> err
-                Right (TagName t) -> "I tagged your PR with `" <> t <> "`. Don't forget to deploy it!"
+                Right (TagName t) -> "I tagged your PR with `" <> t <> "`. " <>
+                  if Pr.needsDeploy approvalKind
+                    then "It is scheduled for autodeploy!"
+                    else "Don't forget to deploy it!"
             pure pushResult
       else
         tryPromote prBranch newHead
@@ -675,3 +694,8 @@ parseVersion (TagName t) = Text.uncons t >>= \case
 
 versionToTag :: Integer -> TagName
 versionToTag v = TagName $ toStrict $ B.toLazyText $ B.singleton 'v' <> B.decimal v
+
+messageForTag :: TagName -> ApprovedFor -> Text -> TagMessage
+messageForTag (TagName tagName) tagOrDeploy changelog =
+  TagMessage $ tagName <> mark <> "\n\n" <> changelog
+  where mark = if Pr.needsDeploy tagOrDeploy then " (autodeploy)" else ""

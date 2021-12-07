@@ -49,11 +49,11 @@ testPort = 5273
 testHost :: String
 testHost = "http://localhost:" ++ (show testPort)
 
--- Peforms an http get request. The host is prepended to the url automatically.
+-- Performs an http get request. The host is prepended to the url automatically.
 httpGet :: String -> IO (Response LazyByteString)
 httpGet url = Http.httpLBS (Http.parseRequest_ (testHost ++ url))
 
--- Peforms an http post request. The host is prepended to the url automatically.
+-- Performs an http post request. The host is prepended to the url automatically.
 httpPost :: String -> [Header] -> LazyByteString -> IO (Response LazyByteString)
 httpPost url headers body = Http.httpLBS r
   where

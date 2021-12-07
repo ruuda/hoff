@@ -19,3 +19,6 @@
 
 # Configuration file
 /config.json
+
+# Test output
+.hspec-failures

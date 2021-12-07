@@ -29,7 +29,8 @@ import qualified Data.IntSet as IntSet
 import qualified Data.UUID.V4 as Uuid
 
 import EventLoop (convertGithubEvent)
-import Git (BaseBranch (..), Branch (..), PushResult (..), Sha (..), TagName (TagName), GitIntegrationFailure (..))
+import Git (BaseBranch (..), Branch (..), PushResult (..), Sha (..), TagMessage (..), TagName (..),
+            GitIntegrationFailure (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
 import Logic (Action, ActionFree (..), Event (..), IntegrationFailure (..))
 import Project (Approval (..), ProjectState (ProjectState), PullRequest (PullRequest))
@@ -88,7 +89,7 @@ data ActionFlat
     , alwaysAddMergeCommit :: Bool
     }
   | ATryPromote Branch Sha
-  | ATryPromoteWithTag Branch Sha TagName
+  | ATryPromoteWithTag Branch Sha TagName TagMessage
   | ALeaveComment PullRequestId Text
   | AIsReviewer Username
   | AGetPullRequest PullRequestId
@@ -103,6 +104,7 @@ data Results = Results
   , resultGetPullRequest      :: [Maybe GithubApi.PullRequest]
   , resultGetOpenPullRequests :: [Maybe IntSet]
   , resultGetLatestVersion    :: [Either TagName Integer]
+  , resultGetChangelog        :: [Maybe Text]
   }
 
 defaultResults :: Results
@@ -116,6 +118,7 @@ defaultResults = Results
   , resultGetOpenPullRequests = repeat Nothing
     -- And pretend that latest version just grows incrementally
   , resultGetLatestVersion = Right <$> [1 ..]
+  , resultGetChangelog = repeat Nothing
   }
 
 -- Consume the head of the field with given getter and setter in the Results.
@@ -168,6 +171,13 @@ takeResultGetLatestVersion =
     resultGetLatestVersion
     (\v res -> res { resultGetLatestVersion = v })
 
+takeResultGetChangelog :: (HasCallStack, Monoid w) => RWS r w Results (Maybe Text)
+takeResultGetChangelog =
+  takeFromList
+    "resultGetChangelog"
+    resultGetChangelog
+    (\v res -> res { resultGetChangelog = v })
+
 -- This function simulates running the actions, and returns the final state,
 -- together with a list of all actions that would have been performed. Some
 -- actions require input from the outside world. Simulating these actions will
@@ -185,8 +195,8 @@ runActionRws =
       TryPromote prBranch headSha cont -> do
         Rws.tell [ATryPromote prBranch headSha]
         cont <$> takeResultPush
-      TryPromoteWithTag prBranch headSha newTag cont -> do
-        Rws.tell [ATryPromoteWithTag prBranch headSha newTag]
+      TryPromoteWithTag prBranch headSha newTag tagMessage cont -> do
+        Rws.tell [ATryPromoteWithTag prBranch headSha newTag tagMessage]
         cont . (Right newTag, ) <$> takeResultPush
       LeaveComment pr body cont -> do
         Rws.tell [ALeaveComment pr body]
@@ -201,6 +211,7 @@ runActionRws =
         Rws.tell [AGetOpenPullRequests]
         cont <$> takeResultGetOpenPullRequests
       GetLatestVersion _ cont -> cont <$> takeResultGetLatestVersion
+      GetChangelog _ _ cont -> cont <$> takeResultGetChangelog
 
 -- Simulates running the action. Use the provided results as result for various
 -- operations. Results are consumed one by one.
@@ -700,7 +711,7 @@ main = hspec $ do
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag 0))
-    
+
     it "rejects 'merge' commands to a branch other than master" $ do
       let
         prId = PullRequestId 1
@@ -719,19 +730,19 @@ main = hspec $ do
         (\pr -> Project.integrationStatus pr == Project.IncorrectBaseBranch)
 
     it "doesn't reject 'merge' after a base branch change" $ do
-      let 
+      let
         prId = PullRequestId 1
         state = singlePullRequestState prId (Branch "p") (BaseBranch "m") (Sha "abc1234") "tyrell"
-        
-        events = 
+
+        events =
           [ CommentAdded prId "deckard" "@bot merge"
           , PullRequestEdited prId "Untitled" masterBranch
-          , CommentAdded prId "deckard" "@bot merge"] 
+          , CommentAdded prId "deckard" "@bot merge"]
 
         results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
         (state', actions) = runActionCustom results $ handleEventsTest events state
 
-      actions `shouldBe` 
+      actions `shouldBe`
         [ AIsReviewer (Username "deckard")
         , ALeaveComment (PullRequestId 1) "Merge rejected: the target branch must be the integration branch."
         , AIsReviewer (Username "deckard")
@@ -739,25 +750,25 @@ main = hspec $ do
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
         , ALeaveComment (PullRequestId 1) "Rebased as def2345, waiting for CI \8230"
         ]
-      
+
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.integrationStatus pr == Project.Integrated (Sha "def2345") Project.BuildPending)
 
     it "loses approval after an invalid base branch change" $ do
-      let 
+      let
         prId = PullRequestId 1
         state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
-        
-        events = 
+
+        events =
           [ CommentAdded prId "deckard" "@bot merge"
           , PullRequestEdited prId "Untitled" (BaseBranch "m")
-          ] 
+          ]
 
         results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
         (state', actions) = runActionCustom results $ handleEventsTest events state
         pr = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
 
-      actions `shouldBe` 
+      actions `shouldBe`
         [ AIsReviewer (Username "deckard")
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
@@ -772,17 +783,17 @@ main = hspec $ do
       let
         prId = PullRequestId 1
         state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
-        
-        events = 
+
+        events =
           [ CommentAdded prId "deckard" "@bot merge"
           , PullRequestCommitChanged prId (Sha "Untitled")
-          ] 
+          ]
 
         results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
         (state', actions) = runActionCustom results $ handleEventsTest events state
         pr = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
 
-      actions `shouldBe` 
+      actions `shouldBe`
         [ AIsReviewer (Username "deckard")
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
@@ -792,7 +803,7 @@ main = hspec $ do
 
       Project.approval pr `shouldBe` Nothing
       Project.integrationCandidate state' `shouldBe` Nothing
-      
+
 
   describe "Logic.proceedUntilFixedPoint" $ do
 
@@ -860,7 +871,7 @@ main = hspec $ do
       candidate `shouldBe` Nothing
       actions   `shouldBe` [ATryPromote (Branch "results/rachael") (Sha "38d")]
 
-    it "pushes and tags with a new version after a successful build" $ do
+    it "pushes and tags with a new version after a successful build (merge and tag)" $ do
       let
         pullRequest = PullRequest
           { Project.branch              = Branch "results/rachael"
@@ -878,14 +889,53 @@ main = hspec $ do
           , Project.integrationCandidate = Just $ PullRequestId 1
           , Project.pullRequestApprovalIndex = 1
           }
-        results = defaultResults { resultIntegrate = [Right (Sha "38e")] }
+        results = defaultResults
+          { resultIntegrate = [Right (Sha "38e")]
+          , resultGetChangelog = [Just "changelog"]
+          }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         candidate = Project.getIntegrationCandidate state'
       -- After a successful push, the candidate should be gone.
       candidate `shouldBe` Nothing
-      actions   `shouldBe` [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2")
-                           , ALeaveComment (PullRequestId 1) "@deckard I tagged your PR with `v2`. Don't forget to deploy it!"
-                           ]
+      actions   `shouldBe`
+        [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2")
+            (TagMessage "v2\n\nchangelog")
+        , ALeaveComment (PullRequestId 1)
+            "@deckard I tagged your PR with `v2`. Don't forget to deploy it!"
+        ]
+
+    it "pushes and tags with a new version after a successful build (merge and deploy)" $ do
+      let
+        pullRequest = PullRequest
+          { Project.branch              = Branch "results/rachael"
+          , Project.baseBranch          = masterBranch
+          , Project.sha                 = Sha "f35"
+          , Project.title               = "Add my test results"
+          , Project.author              = "rachael"
+          , Project.approval            = Just (Approval "deckard" Project.MergeAndDeploy 0)
+          , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
+          , Project.integrationAttempts = []
+          , Project.needsFeedback       = False
+          }
+        state = ProjectState
+          { Project.pullRequests         = IntMap.singleton 1 pullRequest
+          , Project.integrationCandidate = Just $ PullRequestId 1
+          , Project.pullRequestApprovalIndex = 1
+          }
+        results = defaultResults
+          { resultIntegrate = [Right (Sha "38e")]
+          , resultGetChangelog = [Just "changelog"]
+          }
+        (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
+        candidate = Project.getIntegrationCandidate state'
+      -- After a successful push, the candidate should be gone.
+      candidate `shouldBe` Nothing
+      actions   `shouldBe`
+        [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2")
+            (TagMessage "v2 (autodeploy)\n\nchangelog")
+        , ALeaveComment (PullRequestId 1)
+            "@deckard I tagged your PR with `v2`. It is scheduled for autodeploy!"
+        ]
 
     it "pushes after successful build even if tagging failed" $ do
       let
@@ -977,6 +1027,7 @@ main = hspec $ do
         results = defaultResults
           { resultIntegrate = [Right (Sha "38e")]
           , resultPush = [PushRejected]
+          , resultGetChangelog = [Just "changelog"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
@@ -984,7 +1035,7 @@ main = hspec $ do
       Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") Project.BuildPending
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
       actions `shouldBe`
-        [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2")
+        [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2") (TagMessage "v2\n\nchangelog")
         , ATryIntegrate "Merge #1: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "f35") False
         , ALeaveComment (PullRequestId 1) "Rebased as 38e, waiting for CI \x2026"
         ]

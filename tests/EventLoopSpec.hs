@@ -20,14 +20,18 @@ import Control.Concurrent.Async (async, wait)
 import Control.Monad (forM_, void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runNoLoggingT)
+import Data.Map (Map)
 import Data.Maybe (isJust)
+import Data.Set (Set)
 import Data.Text (Text)
 import Prelude hiding (appendFile, writeFile)
 import System.FilePath ((</>))
 import Test.Hspec
 
-import qualified Data.UUID.V4 as Uuid
 import qualified System.Directory as FileSystem
+import qualified Data.UUID.V4 as Uuid
+import qualified Data.Set as Set
+import qualified Data.Map as Map
 
 import Configuration (ProjectConfiguration, TriggerConfiguration, UserConfiguration)
 import Git (BaseBranch (..), Branch (..), RefSpec (refSpec), Sha (..))
@@ -100,7 +104,7 @@ populateRepository dir =
       gitBranch "ahead" c3
       appendFile "tyrell.txt" "Would you like to be modified?"
       gitAdd "tyrell.txt"
-      c4 <- gitCommit "c4: Add Tyrell  response"
+      c4 <- gitCommit "c4: Add Tyrell response"
 
       -- Now make an alternative commit that conflicts with c3.
       gitBranch "alternative" c2
@@ -257,13 +261,20 @@ makeWritableRecursive path = do
 type LoopRunner = ProjectState -> [Logic.Event] -> IO ProjectState
 type GitRunner = [String] -> IO ()
 
+-- | Tag annotations contain a shortlog of the commits between the current and previous versions.
+data TagAnn = TagAnn {
+  tagName     :: Text,
+  tagSubject  :: Text,
+  tagBody     :: Map Text (Set Text)
+} deriving (Eq, Show)
+
 -- Sets up a test environment with an actual Git repository on the file system,
 -- and a thread running the main event loop. Then invokes the body, and tears
 -- down the test environment afterwards. Returns a list of commit message
 -- prefixes of the remote master branch log. The body function is provided with
 -- the shas of the test repository and a function to run the event loop.
 withTestEnv :: ([Sha] -> LoopRunner -> GitRunner -> IO ()) -> IO [Text]
-withTestEnv = fmap (\(history, _branches, _tags) -> history) . withTestEnv'
+withTestEnv = fmap (\(history, _branches, _tagRefs, _tagAnns) -> history) . withTestEnv'
 
 -- Sets up a test environment with an actual Git repository on the file system,
 -- and a thread running the main event loop. Then invokes the body, and tears
@@ -273,7 +284,7 @@ withTestEnv = fmap (\(history, _branches, _tags) -> history) . withTestEnv'
 -- to run the event loop.
 withTestEnv'
   :: ([Sha] -> LoopRunner -> GitRunner -> IO ())
-  -> IO ([Text], [Branch], [Text])
+  -> IO ([Text], [Branch], [Text], [TagAnn])
 withTestEnv' body = do
   -- To run these tests, a real repository has to be made somewhere. Do that in
   -- /tmp because it can be mounted as a ramdisk, so it is fast and we don't
@@ -310,24 +321,47 @@ withTestEnv' body = do
   branchesRaw <- callGit ["-C", originDir, "branch", "--format=%(refname:short)"]
   -- Tags are sorted in no particular order and displayed as 'tagname commit_number: message'. We
   -- filter out the messages so that only colon numbers remain
-  tagsRaw <- callGit ["-C", originDir, "log", "--tags", "--no-walk", "--format=%S %s"]
+  tagReferencesRaw <- callGit ["-C", originDir, "log", "--tags", "--no-walk", "--format=%S %s"]
+  tagAnnotationsRaw <- callGit ["-C", originDir, "tag", "--list", "-n100"]
   let
     commits = stripMessage <$> Text.lines masterLog
     branches = Branch <$> Text.lines branchesRaw
-    tags = stripMessage <$> Text.lines tagsRaw
+    tagReferences = stripMessage <$> Text.lines tagReferencesRaw
+    tagAnnotations = (groupAnnotations . Text.lines) tagAnnotationsRaw
 
   makeWritableRecursive testDir
   FileSystem.removeDirectoryRecursive testDir
-  pure (commits, branches, tags)
+  pure (commits, branches, tagReferences, tagAnnotations)
   where
     stripMessage = Text.strip . Text.takeWhile (/= ':')
+
+    -- Group annotations
+    -- `git tag` doesn't support `-z` option to split the groups by a null byte.
+    -- We have to split the different annotations on indentation...
+    groupAnnotations :: [Text] -> [TagAnn]
+    groupAnnotations [] = []
+    groupAnnotations (x:xs) =
+      TagAnn tag (Text.strip subject) (groupCommits $ map (Text.drop 4) ys) : groupAnnotations zs
+      where
+        (tag, subject) = Text.breakOn " " x
+        (ys, zs) = span (Text.isPrefixOf "    ") xs
+
+    -- Group commits by committer
+    -- The committers are ordered alphabetically.
+    -- The order of the commits is unspecified.
+    groupCommits :: [Text] -> Map Text (Set Text)
+    groupCommits [] = Map.empty
+    groupCommits ("":xs) = groupCommits xs
+    groupCommits (x:xs) = Map.insert x ((Set.fromList . map Text.strip) ys) (groupCommits zs)
+      where
+        (ys, zs) = span (Text.isPrefixOf "    ") xs
 
 eventLoopSpec :: Spec
 eventLoopSpec = parallel $ do
   describe "The main event loop" $ do
 
     it "handles a fast-forwardable pull request" $ do
-      (history, branches, _tags) <- withTestEnv' $ \ shas runLoop _git -> do
+      (history, branches, _tagRefs, _tagAnns) <- withTestEnv' $ \ shas runLoop _git -> do
         let
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
           -- Note that at the remote, refs/pull/4/head points to c4.
@@ -357,8 +391,9 @@ eventLoopSpec = parallel $ do
       -- The other branches should be left untouched.
       branches `shouldMatchList`
         fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused", "integration"]
+
     it "handles a fast-forwardable pull request with tag" $ do
-      (history, _branches, tags) <- withTestEnv' $ \ shas runLoop _git -> do
+      (history, _branches, tagRefs, tagAnns) <- withTestEnv' $ \ shas runLoop _git -> do
         let
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
           pr4 = PullRequestId 4
@@ -380,13 +415,92 @@ eventLoopSpec = parallel $ do
         , "* c1"
         , "* c0"
         ]
-      tags `shouldMatchList`
+      tagRefs `shouldMatchList`
         [ "v1 c1"
         , "v2 c4"
         ]
+      tagAnns `shouldMatchList`
+        [ TagAnn
+            { tagName = "v2"
+            , tagSubject = "v2"
+            , tagBody = Map.fromList
+                [ ( "Testbot (3):", Set.fromList
+                    [ "c2: Add new Tyrell quote"
+                    , "c3: Add new Roy quote"
+                    , "c4: Add Tyrell response"
+                    ]
+                  )
+                ]
+            }
+        , TagAnn
+            { tagName = "v1"
+            , tagSubject = "v1"
+            , tagBody = Map.empty
+            }
+        ]
+
+    it "handles a fast-forwardable pull request with deploy" $ do
+      (history, _branches, tagRefs, tagAnns) <- withTestEnv' $ \ shas runLoop _git -> do
+        let
+          [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
+          pr4 = PullRequestId 4
+          branch = Branch "ahead"
+          baseBranch = masterBranch
+
+        -- Commit c4 is one commit ahead of master, so integrating it can be done
+        -- with a fast-forward merge. The deploy command currently enforces a merge
+        -- commit. A new tag `v2` should appear.
+        state <- runLoop Project.emptyProjectState
+          [ Logic.PullRequestOpened pr4 branch baseBranch c4 "Deploy tests!" "deckard"
+          , Logic.CommentAdded pr4 "rachael" "@bot merge and deploy"
+          ]
+
+        -- Extract the sha of the rebased commit from the project state.
+        let
+          Just (_prId, pullRequest)       = Project.getIntegrationCandidate state
+          Project.Integrated rebasedSha _ = Project.integrationStatus pullRequest
+
+        -- The rebased commit should have been pushed to the remote repository
+        -- 'integration' branch. Tell that building it succeeded.
+        void $ runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
+
+      history `shouldBe`
+        [ "*   Merge #4"
+        , "|\\"
+        , "| * c4"
+        , "|/"
+        , "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
+      tagRefs `shouldMatchList`
+        [ "v2 Merge #4"
+        , "v1 c1"
+        ]
+      tagAnns `shouldMatchList`
+        [ TagAnn
+            { tagName = "v2"
+            , tagSubject = "v2 (autodeploy)"
+            , tagBody = Map.fromList
+                [ ( "Testbot (4):", Set.fromList
+                    [ "c2: Add new Tyrell quote"
+                    , "c3: Add new Roy quote"
+                    , "c4: Add Tyrell response"
+                    , "Merge #4: Deploy tests!"
+                    ]
+                  )
+                ]
+            }
+        , TagAnn
+            { tagName = "v1"
+            , tagSubject = "v1"
+            , tagBody = Map.empty
+            }
+        ]
 
     it "handles a non-conflicting non-fast-forwardable pull request" $ do
-      (history, branches, _tags) <- withTestEnv' $ \ shas runLoop _git -> do
+      (history, branches, _tagRefs, _tagAnns) <- withTestEnv' $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6, _c7, _c7f, _c8] = shas
             -- Note that at the remote, refs/pull/6/head points to c6.
             pr6 = PullRequestId 6
@@ -429,7 +543,7 @@ eventLoopSpec = parallel $ do
         fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused", "integration"]
 
     it "handles a non-conflicting non-fast-forwardable pull request with tag" $ do
-      (history, _branches, tags) <- withTestEnv' $ \ shas runLoop _git -> do
+      (history, _branches, tagRefs, tagAnns) <- withTestEnv' $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6, _c7, _c7f, _c8] = shas
             pr6 = PullRequestId 6
             branch = Branch "intro"
@@ -460,10 +574,92 @@ eventLoopSpec = parallel $ do
         , "* c1"
         , "* c0"
         ]
-      tags `shouldMatchList`
+      tagRefs `shouldMatchList`
         [ "v2 Merge #6"
         , "v1 c1"
         ]
+      tagAnns `shouldMatchList`
+        [ TagAnn
+            { tagName = "v2"
+            , tagSubject = "v2"
+            , tagBody = Map.fromList
+                [ ( "Testbot (5):"
+                  , Set.fromList
+                      [ "c2: Add new Tyrell quote"
+                      , "c3: Add new Roy quote"
+                      , "c5: Add more characters"
+                      , "c6: Add response"
+                      , "Merge #6: Deploy it now!"
+                      ]
+                  )
+                ]
+            }
+        , TagAnn
+            { tagName = "v1"
+            , tagSubject = "v1"
+            , tagBody = Map.empty
+            }
+        ]
+
+
+    it "handles a non-conflicting non-fast-forwardable pull request with deploy" $ do
+      (history, _branches, tagRefs, tagAnns) <- withTestEnv' $ \ shas runLoop _git -> do
+        let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6, _c7, _c7f, _c8] = shas
+            pr6 = PullRequestId 6
+            branch = Branch "intro"
+            baseBranch = masterBranch
+
+        -- Commit c6 is two commits ahead and one behind of master, so
+        -- integrating it produces new rebased commits.
+        state <- runLoop Project.emptyProjectState
+          [
+            Logic.PullRequestOpened pr6 branch baseBranch c6 "Deploy it now!" "deckard",
+            Logic.CommentAdded pr6 "rachael" "@bot merge and deploy"
+          ]
+
+        let
+          Just (_prId, pullRequest)       = Project.getIntegrationCandidate state
+          Project.Integrated rebasedSha _ = Project.integrationStatus pullRequest
+
+        void $ runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
+
+      history `shouldBe`
+        [ "*   Merge #6"
+        , "|\\"
+        , "| * c6"
+        , "| * c5"
+        , "|/"
+        , "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
+      tagRefs `shouldMatchList`
+        [ "v2 Merge #6"
+        , "v1 c1"
+        ]
+      tagAnns `shouldMatchList`
+        [ TagAnn
+            { tagName = "v2"
+            , tagSubject = "v2 (autodeploy)"
+            , tagBody = Map.fromList
+                [ ( "Testbot (5):", Set.fromList
+                    [ "c2: Add new Tyrell quote"
+                    , "c3: Add new Roy quote"
+                    , "c5: Add more characters"
+                    , "c6: Add response"
+                    , "Merge #6: Deploy it now!"
+                    ]
+                  )
+                ]
+            }
+        , TagAnn
+            { tagName = "v1"
+            , tagSubject = "v1"
+            , tagBody = Map.empty
+            }
+        ]
+
 
     it "handles multiple pull requests" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
@@ -514,7 +710,7 @@ eventLoopSpec = parallel $ do
         ]
 
     it "tags version consistently across multiple PRs" $ do
-      (history, _branches, tags) <- withTestEnv' $ \ shas runLoop _git -> do
+      (history, _branches, tagRefs, tagAnns) <- withTestEnv' $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
             pr4 = PullRequestId 4
             pr6 = PullRequestId 6
@@ -554,14 +750,46 @@ eventLoopSpec = parallel $ do
         , "* c0"
         ]
       -- PR 6 had been "built" before PR 4 and version should reflect that
-      tags `shouldMatchList`
+      tagRefs `shouldMatchList`
         [ "v3 c4"
         , "v2 Merge #6"
         , "v1 c1"
         ]
+      tagAnns `shouldMatchList`
+        [ TagAnn
+            { tagName = "v3"
+            , tagSubject = "v3"
+            , tagBody = Map.fromList
+                [ ( "Testbot (1):", Set.fromList
+                    [ "c4: Add Tyrell response"
+                    ]
+                  )
+                ]
+            }
+        , TagAnn
+            { tagName = "v2"
+            , tagSubject = "v2"
+            , tagBody = Map.fromList
+                [ ( "Testbot (5):", Set.fromList
+                    [ "c2: Add new Tyrell quote"
+                    , "c3: Add new Roy quote"
+                    , "c5: Add more characters"
+                    , "c6: Add response"
+                    , "Merge #6: Add Rachael test results"
+                    ]
+                  )
+                ]
+            }
+        , TagAnn
+            { tagName = "v1"
+            , tagSubject = "v1"
+            , tagBody = Map.empty
+            }
+        ]
+
 
     it "skips conflicted pull requests" $ do
-      (history, branches, _tags) <- withTestEnv' $ \ shas runLoop _git -> do
+      (history, branches, _tagRefs, _tagAnns) <- withTestEnv' $ \ shas runLoop _git -> do
         let [_c0, _c1, _c2, _c3, c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
             pr3 = PullRequestId 3
             pr4 = PullRequestId 4
@@ -662,7 +890,7 @@ eventLoopSpec = parallel $ do
       -- but GitHub will remove it automatically if configured to do so.
 
     it "pushes tags atomically (rejected push)" $ do
-      (history, _branches, tags) <- withTestEnv' $ \ shas runLoop git -> do
+      (history, _branches, tagRefs, tagAnns) <- withTestEnv' $ \ shas runLoop git -> do
         let
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
           pr6 = PullRequestId 6
@@ -708,12 +936,36 @@ eventLoopSpec = parallel $ do
         , "* c1"
         , "* c0"
         ]
-      tags `shouldMatchList`
+      tagRefs `shouldMatchList`
         [ "v1 c1"
-        , "v2 Merge #6"]
+        , "v2 Merge #6"
+        ]
+      tagAnns `shouldMatchList`
+        [ TagAnn
+            { tagName = "v2"
+            , tagSubject = "v2"
+            , tagBody = Map.fromList
+                [ ( "Testbot (6):", Set.fromList
+                    [ "c2: Add new Tyrell quote"
+                    , "c3: Add new Roy quote"
+                    , "c4: Add Tyrell response"
+                    , "c5: Add more characters"
+                    , "c6: Add response"
+                    , "Merge #6: Add test results"
+                    ]
+                  )
+                ]
+            }
+        , TagAnn
+            { tagName = "v1"
+            , tagSubject = "v1"
+            , tagBody = Map.empty
+            }
+        ]
+
 
     it "pushes tags atomically (new tag appears)" $ do
-      (history, _branches, tags) <- withTestEnv' $ \ shas runLoop git -> do
+      (history, _branches, tagRefs, tagAnns) <- withTestEnv' $ \ shas runLoop git -> do
         let
           [_c0, _c1, _c2, _c3, _c3', c4, _c5, c6, _c7, _c7f, _c8] = shas
           pr6 = PullRequestId 6
@@ -760,10 +1012,36 @@ eventLoopSpec = parallel $ do
         , "* c1"
         , "* c0"
         ]
-      tags `shouldMatchList`
+      tagRefs `shouldMatchList`
         [ "v1 c1"
         , "v2 c4"
-        , "v3 Merge #6"]
+        , "v3 Merge #6"
+        ]
+      tagAnns `shouldMatchList`
+        [ TagAnn
+            { tagName = "v3"
+            , tagSubject = "v3"
+            , tagBody = Map.fromList
+                [ ( "Testbot (3):", Set.fromList
+                    [ "c5: Add more characters"
+                    , "c6: Add response"
+                    , "Merge #6: Add test results"
+                    ]
+                  )
+                ]
+            }
+        , TagAnn
+            { tagName = "v2"
+            , tagSubject = "v2"
+            , tagBody = Map.empty
+            }
+        , TagAnn
+            { tagName = "v1"
+            , tagSubject = "v1"
+            , tagBody = Map.empty
+            }
+        ]
+
 
     it "applies fixup commits during rebase, even if fast forward is possible" $ do
       history <- withTestEnv $ \ shas runLoop _git -> do
@@ -876,14 +1154,14 @@ eventLoopSpec = parallel $ do
 
         -- Extract the sha of the rebased commit from the project state, and
         -- tell the loop that building the commit succeeded.
-        
+
         let
           Just (_prId, pullRequest)       = Project.getIntegrationCandidate state
           Project.Integrated rebasedSha _ = Project.integrationStatus pullRequest
         state' <- runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
 
-        --The pull request should not be integrated. Moreover, the presence of 
-        --otphan fixups should make the PR ineligible for being a candidate for integration.
+        --The pull request should not be integrated. Moreover, the presence of
+        --orphan fixups should make the PR ineligible for being a candidate for integration.
         --That is, we expect no candidates for integration.
         Project.getIntegrationCandidate state' `shouldBe` Nothing
 
