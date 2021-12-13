@@ -104,6 +104,7 @@ data ApprovedFor
   = Merge
   | MergeAndDeploy
   | MergeAndTag
+  | MergeOnFriday
   deriving (Eq, Show, Generic)
 
 -- For a PR to be approved a specific user must give a specific approval
@@ -381,18 +382,22 @@ displayApproval :: ApprovedFor -> Text
 displayApproval Merge          = "merge"
 displayApproval MergeAndDeploy = "merge and deploy"
 displayApproval MergeAndTag    = "merge and tag"
+displayApproval MergeOnFriday    = "merge on friday"
 
 alwaysAddMergeCommit :: ApprovedFor -> Bool
 alwaysAddMergeCommit Merge          = False
 alwaysAddMergeCommit MergeAndDeploy = True
 alwaysAddMergeCommit MergeAndTag    = False
+alwaysAddMergeCommit MergeOnFriday    = False 
 
 needsDeploy :: ApprovedFor -> Bool
 needsDeploy Merge          = False
 needsDeploy MergeAndDeploy = True
 needsDeploy MergeAndTag    = False
+needsDeploy MergeOnFriday    = False 
 
 needsTag :: ApprovedFor -> Bool
 needsTag Merge          = False
 needsTag MergeAndDeploy = True
 needsTag MergeAndTag    = True
+needsTag MergeOnFriday    = False

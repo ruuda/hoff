@@ -54,6 +54,9 @@ import qualified Data.Text as Text
 import qualified Data.Text.Lazy.Builder as B
 import qualified Data.Text.Lazy.Builder.Int as B
 import qualified Data.Text.Read as Text
+import Data.Time (UTCTime)
+import Time (TimeOperation, TimeOperationFree, getDateTime)
+
 
 import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Format (format)
@@ -87,6 +90,7 @@ data ActionFree a
   | GetOpenPullRequests (Maybe IntSet -> a)
   | GetLatestVersion Sha (Either TagName Integer -> a)
   | GetChangelog TagName Sha (Maybe Text -> a)
+  | GetDateTime (UTCTime -> a)
   deriving (Functor)
 
 data PRCloseCause =
@@ -95,7 +99,7 @@ data PRCloseCause =
 
 type Action = Free ActionFree
 
-type Operation = Free (Sum GitOperationFree GithubOperationFree)
+type Operation = Free (Sum TimeOperationFree (Sum GitOperationFree GithubOperationFree))
 
 type PushWithTagResult = (Either Text TagName, PushResult)
 
@@ -104,11 +108,14 @@ type PushWithTagResult = (Either Text TagName, PushResult)
 
 data IntegrationFailure = IntegrationFailure BaseBranch GitIntegrationFailure
 
+doTime :: TimeOperation a -> Operation a
+doTime = hoistFree InL 
+
 doGit :: GitOperation a -> Operation a
-doGit = hoistFree InL
+doGit = hoistFree (InR . InL)
 
 doGithub :: GithubOperation a -> Operation a
-doGithub = hoistFree InR
+doGithub = hoistFree (InR . InR)
 
 tryIntegrate :: Text -> (Branch, Sha) -> Bool -> Action (Either IntegrationFailure Sha)
 tryIntegrate mergeMessage candidate alwaysAddMergeCommit = liftF $ TryIntegrate mergeMessage candidate alwaysAddMergeCommit id
@@ -199,6 +206,8 @@ runAction config = foldFree $ \case
 
   GetChangelog prevTag curHead cont -> doGit $
     cont <$> Git.shortlog (AsRefSpec prevTag) (AsRefSpec curHead)
+
+  GetDateTime cont -> doTime $ cont <$> getDateTime 
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
@@ -378,9 +387,12 @@ parseMergeCommand config message =
       if (prefixCaseFold <> " merge and tag") `Text.isInfixOf` messageCaseFold
       then Just MergeAndTag
       else
-        if (prefixCaseFold <> " merge") `Text.isInfixOf` messageCaseFold
-        then Just Merge
-        else Nothing
+        if (prefixCaseFold <> " merge on friday") `Text.isInfixOf` messageCaseFold
+        then Just MergeOnFriday
+        else 
+          if (prefixCaseFold <> " merge") `Text.isInfixOf` messageCaseFold
+          then Just Merge
+          else Nothing
 
 -- Mark the pull request as approved, and leave a comment to acknowledge that.
 approvePullRequest :: PullRequestId -> Approval -> ProjectState -> Action ProjectState

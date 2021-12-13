@@ -28,6 +28,7 @@ library
                  , Project
                  , Server
                  , Types
+                 , Time
                  , WebInterface
 
   build-depends: aeson
@@ -55,6 +56,7 @@ library
                , stm
                , text
                , text-format
+               , time
                , vector
                , wai
                , warp

@@ -46,6 +46,7 @@ import qualified GithubApi
 import qualified Logic
 import qualified Prelude
 import qualified Project
+import qualified Time
 
 masterBranch :: BaseBranch
 masterBranch = BaseBranch "master"
@@ -233,6 +234,7 @@ runMainEventLoop projectConfig initialState events = do
     $ EventLoop.runLogicEventLoop
         triggerConfig
         projectConfig
+        Time.runTime
         runGit
         runGithub
         getNextEvent
