@@ -376,7 +376,7 @@ parseMergeCommand config message =
   let messageCaseFold = Text.toCaseFold $ Text.strip message
       prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
       infixMatch msg = (prefixCaseFold <> msg) `Text.isInfixOf` messageCaseFold
-      -- Check if the prefix followed by ` merge [on friday] [and {deploy,tag}]` occurs within the message.
+      -- Check if the prefix followed by ` merge [and {deploy,tag}] [on friday]` occurs within the message.
       -- We opt to include the space here, instead of making it part of the
       -- prefix, because having the trailing space in config is something that is
       -- easy to get wrong.
@@ -385,9 +385,9 @@ parseMergeCommand config message =
       -- reversed all "merge and xxx" commands would be detected as a Merge
       -- command.
       cases =
-        [ (" merge on friday and deploy", MergeAndDeployOnFriday),
+        [ (" merge and deploy on friday", MergeAndDeployOnFriday),
           (" merge and deploy", MergeAndDeploy),
-          (" merge on friday and tag", MergeAndTagOnFriday),
+          (" merge and tag on friday", MergeAndTagOnFriday),
           (" merge and tag", MergeAndTag),
           (" merge on friday", MergeOnFriday),
           (" merge", Merge)
@@ -560,7 +560,7 @@ tryIntegratePullRequest pr state =
       [ format "Merge #{}: {}" (prNumber, title)
       , ""
       , format "Approved-by: {}" [approvedBy]
-      , format "Auto-deploy: {}" [if approvalType == MergeAndDeploy then "true" else "false" :: Text]
+      , format "Auto-deploy: {}" [if approvalType == MergeAndDeploy || approvalType == MergeAndDeployOnFriday then "true" else "false" :: Text]
       ]
     mergeMessage = Text.unlines mergeMessageLines
   in do
