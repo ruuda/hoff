@@ -809,7 +809,7 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment prId ""
+        , ALeaveComment prId "Merging is not allowed on Friday's. To override this behaviour use the command `merge and tag on Friday`."
         ]
 
     it "doesn't allow 'merge and deploy' command on Friday" $ do
@@ -824,7 +824,7 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment prId ""
+        , ALeaveComment prId "Merging is not allowed on Friday's. To override this behaviour use the command `merge and deploy on Friday`."
         ]
 
     it "doesn't allow 'merge' command on Friday" $ do
@@ -839,7 +839,7 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment prId ""
+        , ALeaveComment prId "Merging is not allowed on Friday's. To override this behaviour use the command `merge on Friday`." 
         ]
 
     it "rejects 'merge' commands to a branch other than master" $ do

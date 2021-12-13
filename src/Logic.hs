@@ -429,10 +429,12 @@ handleCommentAdded triggerConfig projectConfig prId author body state =
             MergeOnFriday -> handleComment' projectConfig prId author state pr (fromJust approvalType)
             MergeAndTagOnFriday -> handleComment' projectConfig prId author state pr (fromJust approvalType)
             MergeAndDeployOnFriday -> handleComment' projectConfig prId author state pr (fromJust approvalType)
-            _ -> do
+            other -> do
               time <- getDateTime
               case dayOfWeek (utctDay time) of
-                Friday -> leaveComment prId "" >> pure state
+                Friday -> do
+                  () <- leaveComment prId ("Merging is not allowed on Friday's. To override this behaviour use the command `" `Text.append` Pr.displayApproval other `Text.append` " on Friday`.") 
+                  pure state
                 _ -> handleComment' projectConfig prId author state pr (fromJust approvalType)
 
         else pure state
