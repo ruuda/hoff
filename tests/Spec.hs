@@ -41,6 +41,8 @@ import qualified Github
 import qualified GithubApi
 import qualified Logic
 import qualified Project
+import qualified Data.Time as T
+import qualified Data.Time.Calendar.OrdinalDate as T
 
 masterBranch :: BaseBranch
 masterBranch = BaseBranch "master"
@@ -105,6 +107,7 @@ data Results = Results
   , resultGetOpenPullRequests :: [Maybe IntSet]
   , resultGetLatestVersion    :: [Either TagName Integer]
   , resultGetChangelog        :: [Maybe Text]
+  , resultGetDateTime         :: T.UTCTime
   }
 
 defaultResults :: Results
@@ -119,6 +122,7 @@ defaultResults = Results
     -- And pretend that latest version just grows incrementally
   , resultGetLatestVersion = Right <$> [1 ..]
   , resultGetChangelog = repeat Nothing
+  , resultGetDateTime = (T.UTCTime (T.fromMondayStartWeek 2021 2 1) (T.secondsToDiffTime 0))
   }
 
 -- Consume the head of the field with given getter and setter in the Results.
@@ -212,7 +216,7 @@ runActionRws =
         cont <$> takeResultGetOpenPullRequests
       GetLatestVersion _ cont -> cont <$> takeResultGetLatestVersion
       GetChangelog _ _ cont -> cont <$> takeResultGetChangelog
-      GetDateTime cont -> cont <$> undefined
+      GetDateTime cont -> cont <$> Rws.gets resultGetDateTime
 
 -- Simulates running the action. Use the provided results as result for various
 -- operations. Results are consumed one by one.
@@ -712,6 +716,61 @@ main = hspec $ do
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag 0))
+
+    it "recognizes 'merge' command" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (state', actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.Merge 0))
+
+    it "recognizes 'merge on Friday' command" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge on Friday"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
+        (state', actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge on Friday by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeOnFriday 0))
+
+    it "doesn't allow 'merge' command on Friday" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
+        (_, actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId ""
+        ]
 
     it "rejects 'merge' commands to a branch other than master" $ do
       let

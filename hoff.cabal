@@ -97,6 +97,7 @@ test-suite spec
                , hspec
                , hspec-core
                , text
+               , time
                , transformers
                , uuid
 

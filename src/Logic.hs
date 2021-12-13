@@ -43,7 +43,7 @@ import Data.Bifunctor (first)
 import Data.Either.Extra (maybeToEither)
 import Data.Functor.Sum (Sum (InL, InR))
 import Data.IntSet (IntSet)
-import Data.Maybe (fromJust, isJust)
+import Data.Maybe (fromJust, isJust, listToMaybe)
 import Data.Text (Text)
 import Data.Text.Lazy (toStrict)
 import GHC.Natural (Natural)
@@ -54,8 +54,8 @@ import qualified Data.Text as Text
 import qualified Data.Text.Lazy.Builder as B
 import qualified Data.Text.Lazy.Builder.Int as B
 import qualified Data.Text.Read as Text
-import Data.Time (UTCTime)
-import Time (TimeOperation, TimeOperationFree, getDateTime)
+import Data.Time (UTCTime, DayOfWeek (Friday), dayOfWeek, utctDay)
+import Time (TimeOperation, TimeOperationFree)
 
 
 import Configuration (ProjectConfiguration, TriggerConfiguration)
@@ -73,6 +73,7 @@ import qualified Configuration as Config
 import qualified Git
 import qualified GithubApi
 import qualified Project as Pr
+import qualified Time
 
 data ActionFree a
   = TryIntegrate
@@ -109,7 +110,7 @@ type PushWithTagResult = (Either Text TagName, PushResult)
 data IntegrationFailure = IntegrationFailure BaseBranch GitIntegrationFailure
 
 doTime :: TimeOperation a -> Operation a
-doTime = hoistFree InL 
+doTime = hoistFree InL
 
 doGit :: GitOperation a -> Operation a
 doGit = hoistFree (InR . InL)
@@ -150,6 +151,9 @@ getLatestVersion sha = liftF $ GetLatestVersion sha id
 
 getChangelog :: TagName -> Sha -> Action (Maybe Text)
 getChangelog prevTag curHead = liftF $ GetChangelog prevTag curHead id
+
+getDateTime :: Action UTCTime
+getDateTime = liftF $ GetDateTime id
 
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
@@ -207,7 +211,7 @@ runAction config = foldFree $ \case
   GetChangelog prevTag curHead cont -> doGit $
     cont <$> Git.shortlog (AsRefSpec prevTag) (AsRefSpec curHead)
 
-  GetDateTime cont -> doTime $ cont <$> getDateTime 
+  GetDateTime cont -> doTime $ cont <$> Time.getDateTime
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
@@ -369,30 +373,26 @@ handlePullRequestEdited prId newTitle newBaseBranch state =
 -- indicate the `Merge` approval type.
 parseMergeCommand :: TriggerConfiguration -> Text -> Maybe ApprovedFor
 parseMergeCommand config message =
-  let
-    messageCaseFold = Text.toCaseFold $ Text.strip message
-    prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
-  in
-    -- Check if the prefix followed by ` merge and {deploy,tag}` occurs within the message.
-    -- We opt to include the space here, instead of making it part of the
-    -- prefix, because having the trailing space in config is something that is
-    -- easy to get wrong.
-    -- Note that because "merge" is an infix of "merge and xxx" we need to
-    -- check for the "merge and xxx" commands first: if this order were
-    -- reversed all "merge and xxx" commands would be detected as a Merge
-    -- command.
-    if (prefixCaseFold <> " merge and deploy") `Text.isInfixOf` messageCaseFold
-    then Just MergeAndDeploy
-    else
-      if (prefixCaseFold <> " merge and tag") `Text.isInfixOf` messageCaseFold
-      then Just MergeAndTag
-      else
-        if (prefixCaseFold <> " merge on friday") `Text.isInfixOf` messageCaseFold
-        then Just MergeOnFriday
-        else 
-          if (prefixCaseFold <> " merge") `Text.isInfixOf` messageCaseFold
-          then Just Merge
-          else Nothing
+  let messageCaseFold = Text.toCaseFold $ Text.strip message
+      prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
+      infixMatch msg = (prefixCaseFold <> msg) `Text.isInfixOf` messageCaseFold
+      -- Check if the prefix followed by ` merge [on friday] [and {deploy,tag}]` occurs within the message.
+      -- We opt to include the space here, instead of making it part of the
+      -- prefix, because having the trailing space in config is something that is
+      -- easy to get wrong.
+      -- Note that because "merge" is an infix of "merge and xxx" we need to
+      -- check for the "merge and xxx" commands first: if this order were
+      -- reversed all "merge and xxx" commands would be detected as a Merge
+      -- command.
+      cases =
+        [ (" merge on friday and deploy", MergeAndDeployOnFriday),
+          (" merge and deploy", MergeAndDeploy),
+          (" merge on friday and tag", MergeAndTagOnFriday),
+          (" merge and tag", MergeAndTag),
+          (" merge on friday", MergeOnFriday),
+          (" merge", Merge)
+        ]
+   in listToMaybe [y | (x, y) <- cases, infixMatch x]
 
 -- Mark the pull request as approved, and leave a comment to acknowledge that.
 approvePullRequest :: PullRequestId -> Approval -> ProjectState -> Action ProjectState
@@ -424,17 +424,30 @@ handleCommentAdded triggerConfig projectConfig prId author body state =
         else pure False
       if isApproved
         -- The PR has now been approved by the author of the comment.
-        then do
-          let (order, state') = Pr.newApprovalOrder state
-          state'' <- approvePullRequest prId (Approval author (fromJust approvalType) order) state'
-          -- Check whether the integration branch is valid, if not, mark the integration as invalid.
-          if Pr.baseBranch pr /= BaseBranch (Config.branch projectConfig)
-             then pure $ Pr.setIntegrationStatus prId IncorrectBaseBranch state''
-             else pure state''
+        then
+          case fromJust approvalType of
+            MergeOnFriday -> handleComment' projectConfig prId author state pr (fromJust approvalType)
+            MergeAndTagOnFriday -> handleComment' projectConfig prId author state pr (fromJust approvalType)
+            MergeAndDeployOnFriday -> handleComment' projectConfig prId author state pr (fromJust approvalType)
+            _ -> do
+              time <- getDateTime
+              case dayOfWeek (utctDay time) of
+                Friday -> leaveComment prId "" >> pure state
+                _ -> handleComment' projectConfig prId author state pr (fromJust approvalType)
+
         else pure state
 
     -- If the pull request is not in the state, ignore the comment.
     Nothing -> pure state
+
+handleComment' :: ProjectConfiguration -> PullRequestId -> Username -> ProjectState -> PullRequest -> ApprovedFor -> Action ProjectState
+handleComment' projectConfig prId author state pr approvalType = do
+  let (order, state') = Pr.newApprovalOrder state
+  state'' <- approvePullRequest prId (Approval author approvalType order) state'
+  -- Check whether the integration branch is valid, if not, mark the integration as invalid.
+  if Pr.baseBranch pr /= BaseBranch (Config.branch projectConfig)
+    then pure $ Pr.setIntegrationStatus prId IncorrectBaseBranch state''
+    else pure state''
 
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> ProjectState
 handleBuildStatusChanged buildSha newStatus state =

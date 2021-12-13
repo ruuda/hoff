@@ -1,5 +1,5 @@
 {-#LANGUAGE GeneralizedNewtypeDeriving #-}
-module Time where
+module Time (getDateTime, runTime, TimeOperationFree(..), TimeOperation) where
 import Control.Monad.Free (Free, liftF)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Time (UTCTime, getCurrentTime)
@@ -15,4 +15,4 @@ getDateTime :: TimeOperation UTCTime
 getDateTime = liftF $ GetDateTime id
 
 runTime :: MonadIO m => TimeOperationFree a -> m a
-runTime (GetDateTime cont) = cont <$> liftIO getCurrentTime 
+runTime (GetDateTime cont) = cont <$> liftIO getCurrentTime
