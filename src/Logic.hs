@@ -402,48 +402,49 @@ approvePullRequest pr approval = pure . Pr.updatePullRequest pr
       , Pr.needsFeedback = True
       })
 
-handleCommentAdded
-  :: TriggerConfiguration
-  -> ProjectConfiguration
-  -> PullRequestId
-  -> Username
-  -> Text
-  -> ProjectState
-  -> Action ProjectState
+handleCommentAdded ::
+  TriggerConfiguration ->
+  ProjectConfiguration ->
+  PullRequestId ->
+  Username ->
+  Text ->
+  ProjectState ->
+  Action ProjectState
 handleCommentAdded triggerConfig projectConfig prId author body state =
-  let maybePR = Pr.lookupPullRequest prId state in
-  case maybePR of
-    -- Check if the comment is a merge command, and if it is, check if the
-    -- author is allowed to approve. Comments by users with push access happen
-    -- frequently, but most comments are not merge commands, and checking that
-    -- a user has push access requires an API call.
-    Just pr -> do
-      let approvalType = parseMergeCommand triggerConfig body
-      isApproved <- if isJust approvalType
-        then isReviewer author
-        else pure False
-      if isApproved
-        -- The PR has now been approved by the author of the comment.
-        then
-          case fromJust approvalType of
-            MergeOnFriday -> handleComment' projectConfig prId author state pr (fromJust approvalType)
-            MergeAndTagOnFriday -> handleComment' projectConfig prId author state pr (fromJust approvalType)
-            MergeAndDeployOnFriday -> handleComment' projectConfig prId author state pr (fromJust approvalType)
-            other -> do
-              time <- getDateTime
-              case dayOfWeek (utctDay time) of
-                Friday -> do
-                  () <- leaveComment prId ("Merging is not allowed on Friday's. To override this behaviour use the command `" `Text.append` Pr.displayApproval other `Text.append` " on Friday`.") 
-                  pure state
-                _ -> handleComment' projectConfig prId author state pr (fromJust approvalType)
+  let maybePR = Pr.lookupPullRequest prId state
+   in case maybePR of
+        -- Check if the comment is a merge command, and if it is, check if the
+        -- author is allowed to approve. Comments by users with push access happen
+        -- frequently, but most comments are not merge commands, and checking that
+        -- a user has push access requires an API call.
+        Just pr -> do
+          let approvalType = parseMergeCommand triggerConfig body
+          isApproved <-
+            if isJust approvalType
+              then isReviewer author
+              else pure False
+          day <- dayOfWeek . utctDay <$> getDateTime
+          if isApproved
+            then -- The PR has now been approved by the author of the comment.
 
-        else pure state
+            case fromJust approvalType of
+              approval | isMergeOnFriday approval || day /= Friday -> handleCommentAdded' projectConfig prId author state pr approval
+              other -> do
+                () <- leaveComment prId ("Merging is not allowed on Fridays. To override this behaviour use the command `" `Text.append` Pr.displayApproval other `Text.append` " on Friday`.")
+                pure state
+            else pure state
 
-    -- If the pull request is not in the state, ignore the comment.
-    Nothing -> pure state
+        -- If the pull request is not in the state, ignore the comment.
+        Nothing -> pure state
 
-handleComment' :: ProjectConfiguration -> PullRequestId -> Username -> ProjectState -> PullRequest -> ApprovedFor -> Action ProjectState
-handleComment' projectConfig prId author state pr approvalType = do
+isMergeOnFriday :: ApprovedFor -> Bool
+isMergeOnFriday MergeOnFriday = True
+isMergeOnFriday MergeAndTagOnFriday  = True
+isMergeOnFriday MergeAndDeployOnFriday = True
+isMergeOnFriday _ = False
+
+handleCommentAdded' :: ProjectConfiguration -> PullRequestId -> Username -> ProjectState -> PullRequest -> ApprovedFor -> Action ProjectState
+handleCommentAdded' projectConfig prId author state pr approvalType = do
   let (order, state') = Pr.newApprovalOrder state
   state'' <- approvePullRequest prId (Approval author approvalType order) state'
   -- Check whether the integration branch is valid, if not, mark the integration as invalid.

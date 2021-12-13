@@ -1,11 +1,12 @@
-{-#LANGUAGE GeneralizedNewtypeDeriving #-}
-module Time (getDateTime, runTime, TimeOperationFree(..), TimeOperation) where
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
+module Time (getDateTime, runTime, TimeOperationFree (..), TimeOperation) where
+
 import Control.Monad.Free (Free, liftF)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Time (UTCTime, getCurrentTime)
 
-
-newtype TimeOperationFree a 
+newtype TimeOperationFree a
   = GetDateTime (UTCTime -> a)
   deriving (Functor)
 
