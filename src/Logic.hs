@@ -403,15 +403,15 @@ approvePullRequest pr approval = pure . Pr.updatePullRequest pr
       })
 
 handleCommentAdded ::
-  TriggerConfiguration 
-  -> ProjectConfiguration 
+  TriggerConfiguration
+  -> ProjectConfiguration
   -> PullRequestId
-  -> Username 
-  -> Text 
-  -> ProjectState 
+  -> Username
+  -> Text
+  -> ProjectState
   -> Action ProjectState
 handleCommentAdded triggerConfig projectConfig prId author body state =
-  let maybePR = Pr.lookupPullRequest prId state in 
+  let maybePR = Pr.lookupPullRequest prId state in
   case maybePR of
     -- Check if the comment is a merge command, and if it is, check if the
     -- author is allowed to approve. Comments by users with push access happen
@@ -427,14 +427,18 @@ handleCommentAdded triggerConfig projectConfig prId author body state =
       if isApproved
         then -- The PR has now been approved by the author of the comment.
          case fromJust approvalType of
-          approval | Pr.isMergeOnFriday approval || day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
+          approval | Pr.isMergeOnFriday approval `xnor` (day == Friday) -> handleMergeRequested projectConfig prId author state pr approval
           other -> do
-            () <- leaveComment prId ("Merging is not allowed on Fridays. To override this behaviour use the command `" <> Pr.displayApproval other <> " on Friday`.")
+            () <- leaveComment prId ("Your merge request has been denied. Merging is not allowed on Fridays. \
+                                      \To override this behaviour use the command `"
+                                      <> Pr.displayApproval other <> " on Friday`.")
             pure state
         else pure state
      -- If the pull request is not in the state, ignore the comment.
     Nothing -> pure state
 
+xnor :: Bool -> Bool -> Bool
+xnor = (==)
 
 handleMergeRequested :: ProjectConfiguration -> PullRequestId -> Username -> ProjectState -> PullRequest -> ApprovedFor -> Action ProjectState
 handleMergeRequested projectConfig prId author state pr approvalType = do
