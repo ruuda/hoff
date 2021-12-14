@@ -27,8 +27,8 @@ library
                  , Logic
                  , Project
                  , Server
-                 , Types
                  , Time
+                 , Types
                  , WebInterface
 
   build-depends: aeson
