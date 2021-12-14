@@ -44,8 +44,7 @@ module Project
   setNeedsFeedback,
   updatePullRequest,
   getOwners,
-  wasIntegrationAttemptFor,
-  isMergeOnFriday)
+  wasIntegrationAttemptFor,MergeWindow(..))
 where
 
 import Data.Aeson (FromJSON, ToJSON)
@@ -104,16 +103,7 @@ data ApprovedFor
   = Merge
   | MergeAndDeploy
   | MergeAndTag
-  | MergeOnFriday
-  | MergeAndDeployOnFriday
-  | MergeAndTagOnFriday
   deriving (Eq, Show, Generic)
-
-isMergeOnFriday :: ApprovedFor -> Bool
-isMergeOnFriday MergeOnFriday = True
-isMergeOnFriday MergeAndTagOnFriday  = True
-isMergeOnFriday MergeAndDeployOnFriday = True
-isMergeOnFriday _ = False
 
 -- For a PR to be approved a specific user must give a specific approval
 -- command, i.e. either just "merge" or "merge and deploy".
@@ -123,6 +113,8 @@ data Approval = Approval
   , approvalOrder :: Int
   }
   deriving (Eq, Show, Generic)
+
+data MergeWindow = OnFriday | NotFriday
 
 data PullRequest = PullRequest
   { sha                 :: Sha
@@ -390,30 +382,18 @@ displayApproval :: ApprovedFor -> Text
 displayApproval Merge                  = "merge"
 displayApproval MergeAndDeploy         = "merge and deploy"
 displayApproval MergeAndTag            = "merge and tag"
-displayApproval MergeOnFriday          = "merge on Friday"
-displayApproval MergeAndDeployOnFriday = "merge and deploy on Friday"
-displayApproval MergeAndTagOnFriday    = "merge and tag on Friday"
 
 alwaysAddMergeCommit :: ApprovedFor -> Bool
 alwaysAddMergeCommit Merge                  = False
 alwaysAddMergeCommit MergeAndDeploy         = True
 alwaysAddMergeCommit MergeAndTag            = False
-alwaysAddMergeCommit MergeOnFriday          = False
-alwaysAddMergeCommit MergeAndDeployOnFriday = True
-alwaysAddMergeCommit MergeAndTagOnFriday    = False
 
 needsDeploy :: ApprovedFor -> Bool
 needsDeploy Merge                  = False
 needsDeploy MergeAndDeploy         = True
 needsDeploy MergeAndTag            = False
-needsDeploy MergeOnFriday          = False
-needsDeploy MergeAndDeployOnFriday = True
-needsDeploy MergeAndTagOnFriday    = False
 
 needsTag :: ApprovedFor -> Bool
 needsTag Merge                  = False
 needsTag MergeAndDeploy         = True
 needsTag MergeAndTag            = True
-needsTag MergeOnFriday          = False
-needsTag MergeAndDeployOnFriday = True
-needsTag MergeAndTagOnFriday    = True

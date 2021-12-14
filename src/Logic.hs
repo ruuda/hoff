@@ -66,7 +66,7 @@ import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushRe
 
 import GithubApi (GithubOperation, GithubOperationFree)
 import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
-                ProjectState, PullRequest, PullRequestStatus (..))
+                MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..))
 import Types (PullRequestId (..), Username (..))
 
 import qualified Configuration as Config
@@ -371,7 +371,7 @@ handlePullRequestEdited prId newTitle newBaseBranch state =
 -- command that instructs us to merge the PR.
 -- If the trigger prefix is "@hoffbot", a command "@hoffbot merge" would
 -- indicate the `Merge` approval type.
-parseMergeCommand :: TriggerConfiguration -> Text -> Maybe ApprovedFor
+parseMergeCommand :: TriggerConfiguration -> Text -> Maybe (ApprovedFor, MergeWindow)
 parseMergeCommand config message =
   let messageCaseFold = Text.toCaseFold $ Text.strip message
       prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
@@ -385,12 +385,12 @@ parseMergeCommand config message =
       -- reversed all "merge and xxx" commands would be detected as a Merge
       -- command.
       cases =
-        [ (" merge and deploy on friday", MergeAndDeployOnFriday),
-          (" merge and deploy", MergeAndDeploy),
-          (" merge and tag on friday", MergeAndTagOnFriday),
-          (" merge and tag", MergeAndTag),
-          (" merge on friday", MergeOnFriday),
-          (" merge", Merge)
+        [ (" merge and deploy on friday", (MergeAndDeploy, OnFriday)),
+          (" merge and deploy", (MergeAndDeploy, NotFriday)),
+          (" merge and tag on friday", (MergeAndTag, OnFriday)),
+          (" merge and tag", (MergeAndTag, NotFriday)),
+          (" merge on friday", (Merge,OnFriday)),
+          (" merge", (Merge,NotFriday))
         ]
    in listToMaybe [y | (x, y) <- cases, infixMatch x]
 
@@ -427,18 +427,22 @@ handleCommentAdded triggerConfig projectConfig prId author body state =
       if isApproved
         then -- The PR has now been approved by the author of the comment.
          case fromJust approvalType of
-          approval | Pr.isMergeOnFriday approval `xnor` (day == Friday) -> handleMergeRequested projectConfig prId author state pr approval
-          other -> do
-            () <- leaveComment prId ("Your merge request has been denied. Merging is not allowed on Fridays. \
+          (approval, OnFriday) | day == Friday -> handleMergeRequested projectConfig prId author state pr approval
+          (approval, NotFriday)| day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
+          (other, NotFriday) -> do
+            () <- leaveComment prId ("Your merge request has been denied, because \
+                                      \merging on Fridays is not recommended. \
                                       \To override this behaviour use the command `"
                                       <> Pr.displayApproval other <> " on Friday`.")
+            pure state
+          (other, OnFriday) -> do
+            () <- leaveComment prId ("Your merge request has been denied because \
+                                      \it not Friday. Run " <> 
+                                      Pr.displayApproval other <> " instead")
             pure state
         else pure state
      -- If the pull request is not in the state, ignore the comment.
     Nothing -> pure state
-
-xnor :: Bool -> Bool -> Bool
-xnor = (==)
 
 handleMergeRequested :: ProjectConfiguration -> PullRequestId -> Username -> ProjectState -> PullRequest -> ApprovedFor -> Action ProjectState
 handleMergeRequested projectConfig prId author state pr approvalType = do
@@ -560,7 +564,7 @@ tryIntegratePullRequest pr state =
       [ format "Merge #{}: {}" (prNumber, title)
       , ""
       , format "Approved-by: {}" [approvedBy]
-      , format "Auto-deploy: {}" [if approvalType == MergeAndDeploy || approvalType == MergeAndDeployOnFriday then "true" else "false" :: Text]
+      , format "Auto-deploy: {}" [if approvalType == MergeAndDeploy then "true" else "false" :: Text]
       ]
     mergeMessage = Text.unlines mergeMessageLines
   in do
