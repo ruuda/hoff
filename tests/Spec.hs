@@ -107,7 +107,7 @@ data Results = Results
   , resultGetOpenPullRequests :: [Maybe IntSet]
   , resultGetLatestVersion    :: [Either TagName Integer]
   , resultGetChangelog        :: [Maybe Text]
-  , resultGetDateTime         :: T.UTCTime
+  , resultGetDateTime         :: [T.UTCTime]
   }
 
 defaultResults :: Results
@@ -122,7 +122,7 @@ defaultResults = Results
     -- And pretend that latest version just grows incrementally
   , resultGetLatestVersion = Right <$> [1 ..]
   , resultGetChangelog = repeat Nothing
-  , resultGetDateTime = (T.UTCTime (T.fromMondayStartWeek 2021 2 1) (T.secondsToDiffTime 0))
+  , resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 1) (T.secondsToDiffTime 0))
   }
 
 -- Consume the head of the field with given getter and setter in the Results.
@@ -178,9 +178,16 @@ takeResultGetLatestVersion =
 takeResultGetChangelog :: (HasCallStack, Monoid w) => RWS r w Results (Maybe Text)
 takeResultGetChangelog =
   takeFromList
-    "resultGetChangelog"
+    "resultGetChangeLog"
     resultGetChangelog
     (\v res -> res { resultGetChangelog = v })
+
+takeResultGetDateTime :: (HasCallStack, Monoid w) => RWS r w Results (T.UTCTime )
+takeResultGetDateTime =
+  takeFromList
+    "resultGetDateTime"
+    resultGetDateTime
+    (\v res -> res { resultGetDateTime = v })
 
 -- This function simulates running the actions, and returns the final state,
 -- together with a list of all actions that would have been performed. Some
@@ -216,8 +223,8 @@ runActionRws =
         cont <$> takeResultGetOpenPullRequests
       GetLatestVersion _ cont -> cont <$> takeResultGetLatestVersion
       GetChangelog _ _ cont -> cont <$> takeResultGetChangelog
-      GetDateTime cont -> cont <$> Rws.gets resultGetDateTime
-
+      GetDateTime cont -> cont <$> takeResultGetDateTime 
+      
 -- Simulates running the action. Use the provided results as result for various
 -- operations. Results are consumed one by one.
 runActionCustom :: HasCallStack => Results -> Action a -> (a, [ActionFlat])
@@ -704,7 +711,7 @@ main = hspec $ do
 
         event = CommentAdded prId "deckard" "@bot merge and deploy on Friday"
 
-        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0))}
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0))}
         (state', actions) = runActionCustom results $ handleEventTest event state
 
       actions `shouldBe`
@@ -744,7 +751,7 @@ main = hspec $ do
 
         event = CommentAdded prId "deckard" "@bot merge and tag on friday"
 
-        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
         (state', actions) = runActionCustom results $ handleEventTest event state
 
       actions `shouldBe`
@@ -784,7 +791,7 @@ main = hspec $ do
 
         event = CommentAdded prId "deckard" "@bot merge on Friday"
 
-        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
         (state', actions) = runActionCustom results $ handleEventTest event state
 
       actions `shouldBe`
@@ -804,7 +811,7 @@ main = hspec $ do
 
         event = CommentAdded prId "deckard" "@bot merge and tag"
 
-        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
         (_, actions) = runActionCustom results $ handleEventTest event state
 
       actions `shouldBe`
@@ -819,7 +826,7 @@ main = hspec $ do
 
         event = CommentAdded prId "deckard" "@bot merge and deploy"
 
-        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
         (_, actions) = runActionCustom results $ handleEventTest event state
 
       actions `shouldBe`
@@ -834,7 +841,7 @@ main = hspec $ do
 
         event = CommentAdded prId "deckard" "@bot merge"
 
-        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
         (_, actions) = runActionCustom results $ handleEventTest event state
 
       actions `shouldBe`
