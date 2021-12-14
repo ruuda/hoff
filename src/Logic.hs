@@ -55,8 +55,6 @@ import qualified Data.Text.Lazy.Builder as B
 import qualified Data.Text.Lazy.Builder.Int as B
 import qualified Data.Text.Read as Text
 import Data.Time (UTCTime, DayOfWeek (Friday), dayOfWeek, utctDay)
-import Time (TimeOperation, TimeOperationFree)
-
 
 import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Format (format)
@@ -67,6 +65,7 @@ import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushRe
 import GithubApi (GithubOperation, GithubOperationFree)
 import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
                 MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..))
+import Time (TimeOperation, TimeOperationFree)                
 import Types (PullRequestId (..), Username (..))
 
 import qualified Configuration as Config
@@ -373,25 +372,26 @@ handlePullRequestEdited prId newTitle newBaseBranch state =
 -- indicate the `Merge` approval type.
 parseMergeCommand :: TriggerConfiguration -> Text -> Maybe (ApprovedFor, MergeWindow)
 parseMergeCommand config message =
-  let messageCaseFold = Text.toCaseFold $ Text.strip message
-      prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
-      infixMatch msg = (prefixCaseFold <> msg) `Text.isInfixOf` messageCaseFold
-      -- Check if the prefix followed by ` merge [and {deploy,tag}] [on friday]` occurs within the message.
-      -- We opt to include the space here, instead of making it part of the
-      -- prefix, because having the trailing space in config is something that is
-      -- easy to get wrong.
-      -- Note that because "merge" is an infix of "merge and xxx" we need to
-      -- check for the "merge and xxx" commands first: if this order were
-      -- reversed all "merge and xxx" commands would be detected as a Merge
-      -- command.
-      cases =
-        [ (" merge and deploy on friday", (MergeAndDeploy, OnFriday)),
-          (" merge and deploy", (MergeAndDeploy, NotFriday)),
-          (" merge and tag on friday", (MergeAndTag, OnFriday)),
-          (" merge and tag", (MergeAndTag, NotFriday)),
-          (" merge on friday", (Merge,OnFriday)),
-          (" merge", (Merge,NotFriday))
-        ]
+  let 
+    messageCaseFold = Text.toCaseFold $ Text.strip message
+    prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
+    infixMatch msg = (prefixCaseFold <> msg) `Text.isInfixOf` messageCaseFold
+    -- Check if the prefix followed by ` merge [and {deploy,tag}] [on friday]` occurs within the message.
+    -- We opt to include the space here, instead of making it part of the
+    -- prefix, because having the trailing space in config is something that is
+    -- easy to get wrong.
+    -- Note that because "merge" is an infix of "merge and xxx" we need to
+    -- check for the "merge and xxx" commands first: if this order were
+    -- reversed all "merge and xxx" commands would be detected as a Merge
+    -- command.
+    cases =
+      [ (" merge and deploy on friday", (MergeAndDeploy, OnFriday)),
+        (" merge and deploy", (MergeAndDeploy, NotFriday)),
+        (" merge and tag on friday", (MergeAndTag, OnFriday)),
+        (" merge and tag", (MergeAndTag, NotFriday)),
+        (" merge on friday", (Merge,OnFriday)),
+        (" merge", (Merge,NotFriday))
+      ]
    in listToMaybe [y | (x, y) <- cases, infixMatch x]
 
 -- Mark the pull request as approved, and leave a comment to acknowledge that.
@@ -402,8 +402,8 @@ approvePullRequest pr approval = pure . Pr.updatePullRequest pr
       , Pr.needsFeedback = True
       })
 
-handleCommentAdded ::
-  TriggerConfiguration
+handleCommentAdded 
+  :: TriggerConfiguration
   -> ProjectConfiguration
   -> PullRequestId
   -> Username

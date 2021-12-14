@@ -44,7 +44,8 @@ module Project
   setNeedsFeedback,
   updatePullRequest,
   getOwners,
-  wasIntegrationAttemptFor,MergeWindow(..))
+  wasIntegrationAttemptFor,
+  MergeWindow(..))
 where
 
 import Data.Aeson (FromJSON, ToJSON)
@@ -379,21 +380,21 @@ getOwners :: [ProjectInfo] -> [Owner]
 getOwners = nub . map owner
 
 displayApproval :: ApprovedFor -> Text
-displayApproval Merge                  = "merge"
-displayApproval MergeAndDeploy         = "merge and deploy"
-displayApproval MergeAndTag            = "merge and tag"
+displayApproval Merge          = "merge"
+displayApproval MergeAndDeploy = "merge and deploy"
+displayApproval MergeAndTag    = "merge and tag"
 
 alwaysAddMergeCommit :: ApprovedFor -> Bool
-alwaysAddMergeCommit Merge                  = False
-alwaysAddMergeCommit MergeAndDeploy         = True
-alwaysAddMergeCommit MergeAndTag            = False
+alwaysAddMergeCommit Merge          = False
+alwaysAddMergeCommit MergeAndDeploy = True
+alwaysAddMergeCommit MergeAndTag    = False
 
 needsDeploy :: ApprovedFor -> Bool
-needsDeploy Merge                  = False
-needsDeploy MergeAndDeploy         = True
-needsDeploy MergeAndTag            = False
+needsDeploy Merge          = False
+needsDeploy MergeAndDeploy = True
+needsDeploy MergeAndTag    = False
 
 needsTag :: ApprovedFor -> Bool
-needsTag Merge                  = False
-needsTag MergeAndDeploy         = True
-needsTag MergeAndTag            = True
+needsTag Merge          = False
+needsTag MergeAndDeploy = True
+needsTag MergeAndTag    = True
