@@ -423,10 +423,14 @@ handleCommentAdded triggerConfig projectConfig prId author body state =
         if isJust approvalType
           then isReviewer author
           else pure False
+      -- For now Friday at UTC+0 is good enough. 
+      -- See https://github.com/channable/hoff/pull/95 for caveats and improvement ideas.
       day <- dayOfWeek . utctDay <$> getDateTime
       if isApproved
         then -- The PR has now been approved by the author of the comment.
-         case fromJust approvalType of
+         case fromJust approvalType of 
+           -- To guard against accidental merges we make use of a merge window. 
+           -- Merging inside this window is discouraged but can be overruled with a special command.
           (approval, OnFriday) | day == Friday -> handleMergeRequested projectConfig prId author state pr approval
           (approval, NotFriday)| day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
           (other, NotFriday) -> do
