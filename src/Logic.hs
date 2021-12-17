@@ -65,7 +65,7 @@ import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushRe
 import GithubApi (GithubOperation, GithubOperationFree)
 import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
                 MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..))
-import Time (TimeOperation, TimeOperationFree)                
+import Time (TimeOperation, TimeOperationFree)
 import Types (PullRequestId (..), Username (..))
 
 import qualified Configuration as Config
@@ -372,7 +372,7 @@ handlePullRequestEdited prId newTitle newBaseBranch state =
 -- indicate the `Merge` approval type.
 parseMergeCommand :: TriggerConfiguration -> Text -> Maybe (ApprovedFor, MergeWindow)
 parseMergeCommand config message =
-  let 
+  let
     messageCaseFold = Text.toCaseFold $ Text.strip message
     prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
     infixMatch msg = (prefixCaseFold <> msg) `Text.isInfixOf` messageCaseFold
@@ -402,7 +402,7 @@ approvePullRequest pr approval = pure . Pr.updatePullRequest pr
       , Pr.needsFeedback = True
       })
 
-handleCommentAdded 
+handleCommentAdded
   :: TriggerConfiguration
   -> ProjectConfiguration
   -> PullRequestId
@@ -423,13 +423,13 @@ handleCommentAdded triggerConfig projectConfig prId author body state =
         if isJust approvalType
           then isReviewer author
           else pure False
-      -- For now Friday at UTC+0 is good enough. 
+      -- For now Friday at UTC+0 is good enough.
       -- See https://github.com/channable/hoff/pull/95 for caveats and improvement ideas.
       day <- dayOfWeek . utctDay <$> getDateTime
       if isApproved
         then -- The PR has now been approved by the author of the comment.
-         case fromJust approvalType of 
-           -- To guard against accidental merges we make use of a merge window. 
+         case fromJust approvalType of
+           -- To guard against accidental merges we make use of a merge window.
            -- Merging inside this window is discouraged but can be overruled with a special command.
           (approval, OnFriday) | day == Friday -> handleMergeRequested projectConfig prId author state pr approval
           (approval, NotFriday)| day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
@@ -441,14 +441,21 @@ handleCommentAdded triggerConfig projectConfig prId author body state =
             pure state
           (other, OnFriday) -> do
             () <- leaveComment prId ("Your merge request has been denied because \
-                                      \it not Friday. Run " <> 
+                                      \it is not Friday. Run " <>
                                       Pr.displayApproval other <> " instead")
             pure state
         else pure state
      -- If the pull request is not in the state, ignore the comment.
     Nothing -> pure state
 
-handleMergeRequested :: ProjectConfiguration -> PullRequestId -> Username -> ProjectState -> PullRequest -> ApprovedFor -> Action ProjectState
+handleMergeRequested
+  :: ProjectConfiguration
+  -> PullRequestId
+  -> Username
+  -> ProjectState
+  -> PullRequest
+  -> ApprovedFor
+  -> Action ProjectState
 handleMergeRequested projectConfig prId author state pr approvalType = do
   let (order, state') = Pr.newApprovalOrder state
   state'' <- approvePullRequest prId (Approval author approvalType order) state'
