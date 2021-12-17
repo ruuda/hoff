@@ -35,6 +35,7 @@ import qualified Github
 import qualified GithubApi
 import qualified Logic
 import qualified Project
+import qualified Time
 
 data Options = Options
   { configFilePath :: FilePath
@@ -184,7 +185,7 @@ runMain options = do
       runGithub = if readOnly options
         then GithubApi.runGithubReadOnly auth projectInfo
         else GithubApi.runGithub         auth projectInfo
-
+      runTime = Time.runTime
     -- Start a worker thread to run the main event loop for the project.
     Async.async
       $ void
@@ -192,6 +193,7 @@ runMain options = do
       $ runLogicEventLoop
           (Config.trigger config)
           projectConfig
+          runTime
           runGit
           runGithub
           getNextEvent

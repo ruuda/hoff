@@ -45,7 +45,7 @@ module Project
   updatePullRequest,
   getOwners,
   wasIntegrationAttemptFor,
-)
+  MergeWindow(..))
 where
 
 import Data.Aeson (FromJSON, ToJSON)
@@ -114,6 +114,8 @@ data Approval = Approval
   , approvalOrder :: Int
   }
   deriving (Eq, Show, Generic)
+
+data MergeWindow = OnFriday | NotFriday
 
 data PullRequest = PullRequest
   { sha                 :: Sha

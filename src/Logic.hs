@@ -43,7 +43,7 @@ import Data.Bifunctor (first)
 import Data.Either.Extra (maybeToEither)
 import Data.Functor.Sum (Sum (InL, InR))
 import Data.IntSet (IntSet)
-import Data.Maybe (fromJust, isJust)
+import Data.Maybe (fromJust, isJust, listToMaybe)
 import Data.Text (Text)
 import Data.Text.Lazy (toStrict)
 import GHC.Natural (Natural)
@@ -54,6 +54,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Lazy.Builder as B
 import qualified Data.Text.Lazy.Builder.Int as B
 import qualified Data.Text.Read as Text
+import Data.Time (UTCTime, DayOfWeek (Friday), dayOfWeek, utctDay)
 
 import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Format (format)
@@ -63,13 +64,15 @@ import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushRe
 
 import GithubApi (GithubOperation, GithubOperationFree)
 import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
-                ProjectState, PullRequest, PullRequestStatus (..))
+                MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..))
+import Time (TimeOperation, TimeOperationFree)
 import Types (PullRequestId (..), Username (..))
 
 import qualified Configuration as Config
 import qualified Git
 import qualified GithubApi
 import qualified Project as Pr
+import qualified Time
 
 data ActionFree a
   = TryIntegrate
@@ -87,6 +90,7 @@ data ActionFree a
   | GetOpenPullRequests (Maybe IntSet -> a)
   | GetLatestVersion Sha (Either TagName Integer -> a)
   | GetChangelog TagName Sha (Maybe Text -> a)
+  | GetDateTime (UTCTime -> a)
   deriving (Functor)
 
 data PRCloseCause =
@@ -95,7 +99,7 @@ data PRCloseCause =
 
 type Action = Free ActionFree
 
-type Operation = Free (Sum GitOperationFree GithubOperationFree)
+type Operation = Free (Sum TimeOperationFree (Sum GitOperationFree GithubOperationFree))
 
 type PushWithTagResult = (Either Text TagName, PushResult)
 
@@ -104,11 +108,14 @@ type PushWithTagResult = (Either Text TagName, PushResult)
 
 data IntegrationFailure = IntegrationFailure BaseBranch GitIntegrationFailure
 
+doTime :: TimeOperation a -> Operation a
+doTime = hoistFree InL
+
 doGit :: GitOperation a -> Operation a
-doGit = hoistFree InL
+doGit = hoistFree (InR . InL)
 
 doGithub :: GithubOperation a -> Operation a
-doGithub = hoistFree InR
+doGithub = hoistFree (InR . InR)
 
 tryIntegrate :: Text -> (Branch, Sha) -> Bool -> Action (Either IntegrationFailure Sha)
 tryIntegrate mergeMessage candidate alwaysAddMergeCommit = liftF $ TryIntegrate mergeMessage candidate alwaysAddMergeCommit id
@@ -143,6 +150,9 @@ getLatestVersion sha = liftF $ GetLatestVersion sha id
 
 getChangelog :: TagName -> Sha -> Action (Maybe Text)
 getChangelog prevTag curHead = liftF $ GetChangelog prevTag curHead id
+
+getDateTime :: Action UTCTime
+getDateTime = liftF $ GetDateTime id
 
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
@@ -199,6 +209,8 @@ runAction config = foldFree $ \case
 
   GetChangelog prevTag curHead cont -> doGit $
     cont <$> Git.shortlog (AsRefSpec prevTag) (AsRefSpec curHead)
+
+  GetDateTime cont -> doTime $ cont <$> Time.getDateTime
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
@@ -358,13 +370,13 @@ handlePullRequestEdited prId newTitle newBaseBranch state =
 -- command that instructs us to merge the PR.
 -- If the trigger prefix is "@hoffbot", a command "@hoffbot merge" would
 -- indicate the `Merge` approval type.
-parseMergeCommand :: TriggerConfiguration -> Text -> Maybe ApprovedFor
+parseMergeCommand :: TriggerConfiguration -> Text -> Maybe (ApprovedFor, MergeWindow)
 parseMergeCommand config message =
   let
     messageCaseFold = Text.toCaseFold $ Text.strip message
     prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
-  in
-    -- Check if the prefix followed by ` merge and {deploy,tag}` occurs within the message.
+    infixMatch msg = (prefixCaseFold <> msg) `Text.isInfixOf` messageCaseFold
+    -- Check if the prefix followed by ` merge [and {deploy,tag}] [on friday]` occurs within the message.
     -- We opt to include the space here, instead of making it part of the
     -- prefix, because having the trailing space in config is something that is
     -- easy to get wrong.
@@ -372,15 +384,15 @@ parseMergeCommand config message =
     -- check for the "merge and xxx" commands first: if this order were
     -- reversed all "merge and xxx" commands would be detected as a Merge
     -- command.
-    if (prefixCaseFold <> " merge and deploy") `Text.isInfixOf` messageCaseFold
-    then Just MergeAndDeploy
-    else
-      if (prefixCaseFold <> " merge and tag") `Text.isInfixOf` messageCaseFold
-      then Just MergeAndTag
-      else
-        if (prefixCaseFold <> " merge") `Text.isInfixOf` messageCaseFold
-        then Just Merge
-        else Nothing
+    cases =
+      [ (" merge and deploy on friday", (MergeAndDeploy, OnFriday)),
+        (" merge and deploy", (MergeAndDeploy, NotFriday)),
+        (" merge and tag on friday", (MergeAndTag, OnFriday)),
+        (" merge and tag", (MergeAndTag, NotFriday)),
+        (" merge on friday", (Merge,OnFriday)),
+        (" merge", (Merge,NotFriday))
+      ]
+   in listToMaybe [y | (x, y) <- cases, infixMatch x]
 
 -- Mark the pull request as approved, and leave a comment to acknowledge that.
 approvePullRequest :: PullRequestId -> Approval -> ProjectState -> Action ProjectState
@@ -407,22 +419,50 @@ handleCommentAdded triggerConfig projectConfig prId author body state =
     -- a user has push access requires an API call.
     Just pr -> do
       let approvalType = parseMergeCommand triggerConfig body
-      isApproved <- if isJust approvalType
-        then isReviewer author
-        else pure False
+      isApproved <-
+        if isJust approvalType
+          then isReviewer author
+          else pure False
+      -- For now Friday at UTC+0 is good enough.
+      -- See https://github.com/channable/hoff/pull/95 for caveats and improvement ideas.
+      day <- dayOfWeek . utctDay <$> getDateTime
       if isApproved
-        -- The PR has now been approved by the author of the comment.
-        then do
-          let (order, state') = Pr.newApprovalOrder state
-          state'' <- approvePullRequest prId (Approval author (fromJust approvalType) order) state'
-          -- Check whether the integration branch is valid, if not, mark the integration as invalid.
-          if Pr.baseBranch pr /= BaseBranch (Config.branch projectConfig)
-             then pure $ Pr.setIntegrationStatus prId IncorrectBaseBranch state''
-             else pure state''
+        then -- The PR has now been approved by the author of the comment.
+         case fromJust approvalType of
+           -- To guard against accidental merges we make use of a merge window.
+           -- Merging inside this window is discouraged but can be overruled with a special command.
+          (approval, OnFriday) | day == Friday -> handleMergeRequested projectConfig prId author state pr approval
+          (approval, NotFriday)| day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
+          (other, NotFriday) -> do
+            () <- leaveComment prId ("Your merge request has been denied, because \
+                                      \merging on Fridays is not recommended. \
+                                      \To override this behaviour use the command `"
+                                      <> Pr.displayApproval other <> " on Friday`.")
+            pure state
+          (other, OnFriday) -> do
+            () <- leaveComment prId ("Your merge request has been denied because \
+                                      \it is not Friday. Run " <>
+                                      Pr.displayApproval other <> " instead")
+            pure state
         else pure state
-
-    -- If the pull request is not in the state, ignore the comment.
+     -- If the pull request is not in the state, ignore the comment.
     Nothing -> pure state
+
+handleMergeRequested
+  :: ProjectConfiguration
+  -> PullRequestId
+  -> Username
+  -> ProjectState
+  -> PullRequest
+  -> ApprovedFor
+  -> Action ProjectState
+handleMergeRequested projectConfig prId author state pr approvalType = do
+  let (order, state') = Pr.newApprovalOrder state
+  state'' <- approvePullRequest prId (Approval author approvalType order) state'
+  -- Check whether the integration branch is valid, if not, mark the integration as invalid.
+  if Pr.baseBranch pr /= BaseBranch (Config.branch projectConfig)
+    then pure $ Pr.setIntegrationStatus prId IncorrectBaseBranch state''
+    else pure state''
 
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> ProjectState
 handleBuildStatusChanged buildSha newStatus state =

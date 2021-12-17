@@ -32,6 +32,7 @@ import Configuration (ProjectConfiguration, TriggerConfiguration)
 import Github (PullRequestPayload, CommentPayload, CommitStatusPayload, WebhookEvent (..))
 import Github (eventProjectInfo)
 import Project (ProjectInfo (..), ProjectState, PullRequestId (..))
+import Time ( TimeOperationFree )
 
 import qualified Git
 import qualified Github
@@ -128,6 +129,7 @@ runLogicEventLoop
   => TriggerConfiguration
   -> ProjectConfiguration
   -- Interpreters for Git and GitHub actions.
+  -> (forall a. Time.TimeOperationFree a -> m a)
   -> (forall a. Git.GitOperationFree a -> m a)
   -> (forall a. GithubApi.GithubOperationFree a -> m a)
   -- Action that gets the next event from the queue.
@@ -138,9 +140,9 @@ runLogicEventLoop
   -> (ProjectState -> m ())
   -> ProjectState
   -> m ProjectState
-runLogicEventLoop triggerConfig projectConfig runGit runGithub getNextEvent publish initialState =
+runLogicEventLoop triggerConfig projectConfig runTime runGit runGithub getNextEvent publish initialState =
   let
-    runAll      = foldFree (runSum runGit runGithub)
+    runAll      = foldFree (runSum runTime (runSum runGit runGithub))
     runAction   = Logic.runAction projectConfig
 
     handleAndContinue state0 event = do

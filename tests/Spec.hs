@@ -41,6 +41,8 @@ import qualified Github
 import qualified GithubApi
 import qualified Logic
 import qualified Project
+import qualified Data.Time as T
+import qualified Data.Time.Calendar.OrdinalDate as T
 
 masterBranch :: BaseBranch
 masterBranch = BaseBranch "master"
@@ -105,6 +107,7 @@ data Results = Results
   , resultGetOpenPullRequests :: [Maybe IntSet]
   , resultGetLatestVersion    :: [Either TagName Integer]
   , resultGetChangelog        :: [Maybe Text]
+  , resultGetDateTime         :: [T.UTCTime]
   }
 
 defaultResults :: Results
@@ -119,6 +122,7 @@ defaultResults = Results
     -- And pretend that latest version just grows incrementally
   , resultGetLatestVersion = Right <$> [1 ..]
   , resultGetChangelog = repeat Nothing
+  , resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 1) (T.secondsToDiffTime 0))
   }
 
 -- Consume the head of the field with given getter and setter in the Results.
@@ -174,9 +178,16 @@ takeResultGetLatestVersion =
 takeResultGetChangelog :: (HasCallStack, Monoid w) => RWS r w Results (Maybe Text)
 takeResultGetChangelog =
   takeFromList
-    "resultGetChangelog"
+    "resultGetChangeLog"
     resultGetChangelog
     (\v res -> res { resultGetChangelog = v })
+
+takeResultGetDateTime :: (HasCallStack, Monoid w) => RWS r w Results (T.UTCTime )
+takeResultGetDateTime =
+  takeFromList
+    "resultGetDateTime"
+    resultGetDateTime
+    (\v res -> res { resultGetDateTime = v })
 
 -- This function simulates running the actions, and returns the final state,
 -- together with a list of all actions that would have been performed. Some
@@ -212,7 +223,8 @@ runActionRws =
         cont <$> takeResultGetOpenPullRequests
       GetLatestVersion _ cont -> cont <$> takeResultGetLatestVersion
       GetChangelog _ _ cont -> cont <$> takeResultGetChangelog
-
+      GetDateTime cont -> cont <$> takeResultGetDateTime 
+      
 -- Simulates running the action. Use the provided results as result for various
 -- operations. Results are consumed one by one.
 runActionCustom :: HasCallStack => Results -> Action a -> (a, [ActionFlat])
@@ -692,6 +704,26 @@ main = hspec $ do
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.approval pr== Just (Approval (Username "deckard") Project.MergeAndDeploy 0))
 
+    it "recognizes 'merge and deploy on Friday' commands as the proper ApprovedFor value" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge and deploy on Friday"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0))}
+        (state', actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge and deploy by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\n" (Branch "refs/pull/1/head", Sha "abc1234") True
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") Project.MergeAndDeploy 0))
+
     it "recognizes 'merge and tag' command" $ do
       let
         prId = PullRequestId 1
@@ -711,6 +743,111 @@ main = hspec $ do
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag 0))
+
+    it "recognizes 'merge and tag on friday' command" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge and tag on friday"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
+        (state', actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge and tag by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag 0))
+
+    it "recognizes 'merge' command" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (state', actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.Merge 0))
+
+    it "recognizes 'merge on Friday' command" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge on Friday"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
+        (state', actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.Merge 0))
+
+    it "doesn't allow 'merge and tag' command on Friday" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge and tag"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
+        (_, actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Your merge request has been denied, because merging on Fridays is not recommended. To override this behaviour use the command `merge and tag on Friday`."
+        ]
+
+    it "doesn't allow 'merge and deploy' command on Friday" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge and deploy"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
+        (_, actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Your merge request has been denied, because merging on Fridays is not recommended. To override this behaviour use the command `merge and deploy on Friday`."
+        ]
+
+    it "doesn't allow 'merge' command on Friday" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
+        (_, actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Your merge request has been denied, because merging on Fridays is not recommended. To override this behaviour use the command `merge on Friday`." 
+        ]
 
     it "rejects 'merge' commands to a branch other than master" $ do
       let

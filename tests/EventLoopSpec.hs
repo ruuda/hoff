@@ -32,6 +32,8 @@ import qualified System.Directory as FileSystem
 import qualified Data.UUID.V4 as Uuid
 import qualified Data.Set as Set
 import qualified Data.Map as Map
+import qualified Data.Time as T
+import qualified Data.Time.Calendar.OrdinalDate as T
 
 import Configuration (ProjectConfiguration, TriggerConfiguration, UserConfiguration)
 import Git (BaseBranch (..), Branch (..), RefSpec (refSpec), Sha (..))
@@ -46,6 +48,7 @@ import qualified GithubApi
 import qualified Logic
 import qualified Prelude
 import qualified Project
+import qualified Time
 
 masterBranch :: BaseBranch
 masterBranch = BaseBranch "master"
@@ -208,6 +211,9 @@ fakeRunGithub action = case action of
   GithubApi.GetPullRequest _pr cont -> pure $ cont Nothing
   GithubApi.GetOpenPullRequests cont -> pure $ cont Nothing
 
+fakeRunTime :: Monad m => Time.TimeOperationFree a -> m a
+fakeRunTime (Time.GetDateTime cont) = pure (cont (T.UTCTime (T.fromMondayStartWeek 2021 2 1) (T.secondsToDiffTime 0)))
+
 -- Runs the main loop in a separate thread, and feeds it the given events.
 runMainEventLoop
   :: ProjectConfiguration
@@ -228,11 +234,13 @@ runMainEventLoop projectConfig initialState events = do
     getNextEvent  = liftIO $ Logic.dequeueEvent queue
     runGit      = Git.runGit userConfig (Config.checkout projectConfig)
     runGithub   = fakeRunGithub
+    runTime = fakeRunTime
   finalStateAsync  <- async
     $ runNoLoggingT
     $ EventLoop.runLogicEventLoop
         triggerConfig
         projectConfig
+        runTime
         runGit
         runGithub
         getNextEvent
