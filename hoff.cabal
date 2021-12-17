@@ -127,4 +127,5 @@ test-suite end-to-end
                , random
                , stm
                , text
+               , time
                , uuid
