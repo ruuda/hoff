@@ -35,7 +35,7 @@ import qualified Data.Map as Map
 import qualified Data.Time as T
 import qualified Data.Time.Calendar.OrdinalDate as T
 
-import Configuration (ProjectConfiguration, TriggerConfiguration, UserConfiguration)
+import Configuration (ProjectConfiguration, TriggerConfiguration, UserConfiguration, MergeWindowExemptionConfiguration (..))
 import Git (BaseBranch (..), Branch (..), RefSpec (refSpec), Sha (..))
 import GithubApi (GithubOperationFree)
 import Project (BuildStatus (..), IntegrationStatus (..), ProjectState, PullRequestId (..))
@@ -199,6 +199,9 @@ triggerConfig = Config.TriggerConfiguration {
   Config.commentPrefix = "@bot"
 }
 
+mergeWindowExemptionConfig :: MergeWindowExemptionConfiguration
+mergeWindowExemptionConfig = MergeWindowExemptionConfiguration ["bot"]
+
 -- An interpreter for the GitHub API free monad that ignores most API calls, and
 -- provides fake inputs. We don't want to require a Github repository and API
 -- token to be able to run the tests, and that we send the right operations is
@@ -240,6 +243,7 @@ runMainEventLoop projectConfig initialState events = do
     $ EventLoop.runLogicEventLoop
         triggerConfig
         projectConfig
+        mergeWindowExemptionConfig
         runTime
         runGit
         runGithub
