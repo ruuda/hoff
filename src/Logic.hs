@@ -301,11 +301,13 @@ handleEventInternal
   -> ProjectState
   -> Action ProjectState
 handleEventInternal triggerConfig projectConfig mergeWindowExemption event = case event of
-  PullRequestOpened pr branch baseBranch sha title author -> handlePullRequestOpened pr branch baseBranch sha title author
+  PullRequestOpened pr branch baseBranch sha title author
+    -> handlePullRequestOpened pr branch baseBranch sha title author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosedByUser pr
   PullRequestEdited pr title baseBranch -> handlePullRequestEdited pr title baseBranch
-  CommentAdded pr author body     -> handleCommentAdded triggerConfig projectConfig mergeWindowExemption pr author body
+  CommentAdded pr author body
+    -> handleCommentAdded triggerConfig projectConfig mergeWindowExemption pr author body
   BuildStatusChanged sha status   -> pure . handleBuildStatusChanged sha status
   Synchronize                     -> synchronizeState
 

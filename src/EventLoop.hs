@@ -141,7 +141,10 @@ runLogicEventLoop
   -> (ProjectState -> m ())
   -> ProjectState
   -> m ProjectState
-runLogicEventLoop triggerConfig projectConfig mergeWindowExemption runTime runGit runGithub getNextEvent publish initialState =
+runLogicEventLoop
+  triggerConfig projectConfig mergeWindowExemptionConfig
+  runTime runGit runGithub
+  getNextEvent publish initialState =
   let
     runAll      = foldFree (runSum runTime (runSum runGit runGithub))
     runAction   = Logic.runAction projectConfig
@@ -152,7 +155,8 @@ runLogicEventLoop triggerConfig projectConfig mergeWindowExemption runTime runGi
       -- perform).
       logInfoN  $ Text.append "logic loop received event: " (Text.pack $ show event)
       logDebugN $ Text.append "state before: " (Text.pack $ show state0)
-      state1 <- runAll $ runAction $ Logic.handleEvent triggerConfig projectConfig mergeWindowExemption event state0
+      state1 <- runAll $ runAction $
+        Logic.handleEvent triggerConfig projectConfig mergeWindowExemptionConfig event state0
       publish state1
       logDebugN $ Text.append "state after: " (Text.pack $ show state1)
       runLoop state1
