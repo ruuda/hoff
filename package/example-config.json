@@ -16,6 +16,7 @@
     "email": "cibot@example.com",
     "sshConfigFile": "/etc/hoff/ssh_config"
   },
+  "mergeWindowExemption": ["hoffbot"],
   "trigger": {
     "commentPrefix": "@hoffbot"
   }

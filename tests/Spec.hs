@@ -63,6 +63,9 @@ testProjectConfig = Config.ProjectConfiguration {
   Config.stateFile = "/var/lib/hoff/state/peter/rep.json"
 }
 
+testmergeWindowExemptionConfig :: Config.MergeWindowExemptionConfiguration
+testmergeWindowExemptionConfig = Config.MergeWindowExemptionConfiguration ["bot"]
+
 -- Functions to prepare certain test states.
 
 singlePullRequestState :: PullRequestId -> Branch -> BaseBranch -> Sha -> Username -> ProjectState
@@ -197,7 +200,7 @@ runActionRws :: HasCallStack => Action a -> RWS () [ActionFlat] Results a
 runActionRws =
   let
     -- In the tests, only "deckard" is a reviewer.
-    isReviewer username = username == "deckard"
+    isReviewer username = elem username ["deckard", "bot"]
   in
     foldFree $ \case
       TryIntegrate msg candidate alwaysAddMergeCommit' cont -> do
@@ -223,8 +226,8 @@ runActionRws =
         cont <$> takeResultGetOpenPullRequests
       GetLatestVersion _ cont -> cont <$> takeResultGetLatestVersion
       GetChangelog _ _ cont -> cont <$> takeResultGetChangelog
-      GetDateTime cont -> cont <$> takeResultGetDateTime 
-      
+      GetDateTime cont -> cont <$> takeResultGetDateTime
+
 -- Simulates running the action. Use the provided results as result for various
 -- operations. Results are consumed one by one.
 runActionCustom :: HasCallStack => Results -> Action a -> (a, [ActionFlat])
@@ -237,12 +240,12 @@ runAction = runActionCustom defaultResults
 -- Handle an event, then advance the state until a fixed point,
 -- and simulate its side effects.
 handleEventTest :: Event -> ProjectState -> Action ProjectState
-handleEventTest = Logic.handleEvent testTriggerConfig testProjectConfig
+handleEventTest = Logic.handleEvent testTriggerConfig testProjectConfig testmergeWindowExemptionConfig
 
 -- Handle events (advancing the state until a fixed point in between) and
 -- simulate their side effects.
 handleEventsTest :: [Event] -> ProjectState -> Action ProjectState
-handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig testProjectConfig) state events
+handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig testProjectConfig testmergeWindowExemptionConfig) state events
 
 main :: IO ()
 main = hspec $ do
@@ -804,6 +807,23 @@ main = hspec $ do
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.Merge 0))
 
+    it "allow 'merge' on Friday for exempted users" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "bot" "@bot merge"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")], resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0)) }
+        (_, actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "bot"
+        , ALeaveComment prId "Pull request approved for merge by @bot, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: bot\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "abc1234") False
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
     it "doesn't allow 'merge and tag' command on Friday" $ do
       let
         prId = PullRequestId 1
@@ -846,7 +866,7 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment prId "Your merge request has been denied, because merging on Fridays is not recommended. To override this behaviour use the command `merge on Friday`." 
+        , ALeaveComment prId "Your merge request has been denied, because merging on Fridays is not recommended. To override this behaviour use the command `merge on Friday`."
         ]
 
     it "rejects 'merge' commands to a branch other than master" $ do
@@ -1440,6 +1460,7 @@ main = hspec $ do
         project  = head projects
         user     = Config.user cfg
         trigger  = Config.trigger cfg
+        (Config.MergeWindowExemptionConfiguration mergeWindowExemption) = Config.mergeWindowExemption cfg
 
       Config.owner      project `shouldBe` "your-github-username-or-organization"
       Config.repository project `shouldBe` "your-repo"
@@ -1452,6 +1473,7 @@ main = hspec $ do
       Config.email user         `shouldBe` "cibot@example.com"
       Config.sshConfigFile user `shouldBe` "/etc/hoff/ssh_config"
 
+      mergeWindowExemption `shouldBe` ["hoffbot"]
       Config.commentPrefix trigger `shouldBe` "@hoffbot"
 
   describe "EventLoop.convertGithubEvent" $ do

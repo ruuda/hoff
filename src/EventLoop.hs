@@ -28,7 +28,7 @@ import Data.Functor.Sum (Sum (InL, InR))
 
 import qualified Data.Text as Text
 
-import Configuration (ProjectConfiguration, TriggerConfiguration)
+import Configuration (ProjectConfiguration, TriggerConfiguration, MergeWindowExemptionConfiguration)
 import Github (PullRequestPayload, CommentPayload, CommitStatusPayload, WebhookEvent (..))
 import Github (eventProjectInfo)
 import Project (ProjectInfo (..), ProjectState, PullRequestId (..))
@@ -128,6 +128,7 @@ runLogicEventLoop
   => MonadLogger m
   => TriggerConfiguration
   -> ProjectConfiguration
+  -> MergeWindowExemptionConfiguration
   -- Interpreters for Git and GitHub actions.
   -> (forall a. Time.TimeOperationFree a -> m a)
   -> (forall a. Git.GitOperationFree a -> m a)
@@ -140,7 +141,10 @@ runLogicEventLoop
   -> (ProjectState -> m ())
   -> ProjectState
   -> m ProjectState
-runLogicEventLoop triggerConfig projectConfig runTime runGit runGithub getNextEvent publish initialState =
+runLogicEventLoop
+  triggerConfig projectConfig mergeWindowExemptionConfig
+  runTime runGit runGithub
+  getNextEvent publish initialState =
   let
     runAll      = foldFree (runSum runTime (runSum runGit runGithub))
     runAction   = Logic.runAction projectConfig
@@ -151,7 +155,8 @@ runLogicEventLoop triggerConfig projectConfig runTime runGit runGithub getNextEv
       -- perform).
       logInfoN  $ Text.append "logic loop received event: " (Text.pack $ show event)
       logDebugN $ Text.append "state before: " (Text.pack $ show state0)
-      state1 <- runAll $ runAction $ Logic.handleEvent triggerConfig projectConfig event state0
+      state1 <- runAll $ runAction $
+        Logic.handleEvent triggerConfig projectConfig mergeWindowExemptionConfig event state0
       publish state1
       logDebugN $ Text.append "state after: " (Text.pack $ show state1)
       runLoop state1

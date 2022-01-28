@@ -193,6 +193,7 @@ runMain options = do
       $ runLogicEventLoop
           (Config.trigger config)
           projectConfig
+          (Config.mergeWindowExemption config)
           runTime
           runGit
           runGithub

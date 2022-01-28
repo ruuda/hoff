@@ -56,7 +56,7 @@ import qualified Data.Text.Lazy.Builder.Int as B
 import qualified Data.Text.Read as Text
 import Data.Time (UTCTime, DayOfWeek (Friday), dayOfWeek, utctDay)
 
-import Configuration (ProjectConfiguration, TriggerConfiguration)
+import Configuration (ProjectConfiguration, TriggerConfiguration, MergeWindowExemptionConfiguration)
 import Format (format)
 import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushResult (..),
             GitIntegrationFailure (..), Sha (..), SomeRefSpec (..), TagMessage (..), TagName (..),
@@ -296,15 +296,18 @@ clearPullRequest prId pr state =
 handleEventInternal
   :: TriggerConfiguration
   -> ProjectConfiguration
+  -> MergeWindowExemptionConfiguration
   -> Event
   -> ProjectState
   -> Action ProjectState
-handleEventInternal triggerConfig projectConfig event = case event of
-  PullRequestOpened pr branch baseBranch sha title author -> handlePullRequestOpened pr branch baseBranch sha title author
+handleEventInternal triggerConfig projectConfig mergeWindowExemption event = case event of
+  PullRequestOpened pr branch baseBranch sha title author
+    -> handlePullRequestOpened pr branch baseBranch sha title author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosedByUser pr
   PullRequestEdited pr title baseBranch -> handlePullRequestEdited pr title baseBranch
-  CommentAdded pr author body     -> handleCommentAdded triggerConfig projectConfig pr author body
+  CommentAdded pr author body
+    -> handleCommentAdded triggerConfig projectConfig mergeWindowExemption pr author body
   BuildStatusChanged sha status   -> pure . handleBuildStatusChanged sha status
   Synchronize                     -> synchronizeState
 
@@ -405,12 +408,13 @@ approvePullRequest pr approval = pure . Pr.updatePullRequest pr
 handleCommentAdded
   :: TriggerConfiguration
   -> ProjectConfiguration
+  -> MergeWindowExemptionConfiguration
   -> PullRequestId
   -> Username
   -> Text
   -> ProjectState
   -> Action ProjectState
-handleCommentAdded triggerConfig projectConfig prId author body state =
+handleCommentAdded triggerConfig projectConfig mergeWindowExemption prId author body state =
   let maybePR = Pr.lookupPullRequest prId state in
   case maybePR of
     -- Check if the comment is a merge command, and if it is, check if the
@@ -419,6 +423,10 @@ handleCommentAdded triggerConfig projectConfig prId author body state =
     -- a user has push access requires an API call.
     Just pr -> do
       let approvalType = parseMergeCommand triggerConfig body
+          exempted :: Username -> Bool
+          exempted (Username user) =
+            let (Config.MergeWindowExemptionConfiguration users) = mergeWindowExemption
+            in elem user users
       isApproved <-
         if isJust approvalType
           then isReviewer author
@@ -430,7 +438,9 @@ handleCommentAdded triggerConfig projectConfig prId author body state =
         then -- The PR has now been approved by the author of the comment.
          case fromJust approvalType of
            -- To guard against accidental merges we make use of a merge window.
-           -- Merging inside this window is discouraged but can be overruled with a special command.
+           -- Merging inside this window is discouraged but can be overruled with a special command or by adding the
+           -- user to the merge window exemption list.
+          (approval, _) | exempted author -> handleMergeRequested projectConfig prId author state pr approval
           (approval, OnFriday) | day == Friday -> handleMergeRequested projectConfig prId author state pr approval
           (approval, NotFriday)| day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
           (other, NotFriday) -> do
@@ -715,11 +725,12 @@ provideFeedback state
 handleEvent
   :: TriggerConfiguration
   -> ProjectConfiguration
+  -> MergeWindowExemptionConfiguration
   -> Event
   -> ProjectState
   -> Action ProjectState
-handleEvent triggerConfig projectConfig event state =
-  handleEventInternal triggerConfig projectConfig event state >>= proceedUntilFixedPoint
+handleEvent triggerConfig projectConfig mergeWindowExemption event state =
+  handleEventInternal triggerConfig projectConfig mergeWindowExemption event state >>= proceedUntilFixedPoint
 
 
 -- TODO this is very Channable specific, perhaps it should be more generic

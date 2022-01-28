@@ -14,6 +14,7 @@ module Configuration
   TlsConfiguration (..),
   TriggerConfiguration (..),
   UserConfiguration (..),
+  MergeWindowExemptionConfiguration (..),
   loadConfiguration
 )
 where
@@ -61,6 +62,9 @@ data TlsConfiguration = TlsConfiguration
   }
   deriving (Generic, Show)
 
+newtype MergeWindowExemptionConfiguration = MergeWindowExemptionConfiguration [Text]
+  deriving (Generic, Show)
+
 data Configuration = Configuration
   {
     -- The projects to manage.
@@ -87,7 +91,11 @@ data Configuration = Configuration
     tls :: Maybe TlsConfiguration,
 
     -- Configuration of the Git user.
-    user :: UserConfiguration
+    user :: UserConfiguration,
+
+    -- List of users that are exempted from the merge window. This is useful for
+    -- bots that automatically merge low impact changes.
+    mergeWindowExemption :: MergeWindowExemptionConfiguration
   }
   deriving (Generic)
 
@@ -96,6 +104,7 @@ instance FromJSON ProjectConfiguration
 instance FromJSON TlsConfiguration
 instance FromJSON TriggerConfiguration
 instance FromJSON UserConfiguration
+instance FromJSON MergeWindowExemptionConfiguration
 
 -- Reads and parses the configuration. Returns Nothing if parsing failed, but
 -- crashes if the file could not be read.
