@@ -14,8 +14,7 @@ if [ -z "$VERSION" ]; then
 fi
 
 # build the package with Stack
-stack setup
-stack build --split-objs
+./build-binary
 
 # Set package filename.
 PKGNAME="hoff_$VERSION-1"
