@@ -1,14 +1,8 @@
 #!/bin/bash
 
-# Entrypoint for building a package on Semaphore CI and shipping to our apt
-# file host. Only builds a package when the current build is a git tag.
+# Build Hoff and ship it to Freight
 
 set -efuo pipefail
-
-if [[ "$SEMAPHORE" != "true" ]]; then
-    echo "Run this script from a Semaphore job"
-    exit 1
-fi
 
 # Get the version from the git history. Strip the first `v`
 # character as dpkg really wants versions to start with a digit.
@@ -21,21 +15,16 @@ export VERSION
 cd "$(dirname "$0")"
 ./build-package.sh
 
-if [[ "$SEMAPHORE_GIT_REF_TYPE" != "tag" ]]; then
-    echo "Not on a tagged build. Skipping ship step."
-    exit 0
-fi
-
 PKGFILE="hoff_$VERSION-1.deb"
-FREIGHT_HOST="freight@archive-external.channable.com"
+FREIGHT_HOST="archive-petrol"
 
-scp "$PKGFILE" "$FREIGHT_HOST:/tmp/$PKGFILE"
+gcloud compute scp --tunnel-through-iap "$PKGFILE" "$FREIGHT_HOST:/tmp/$PKGFILE"
 
 # Shellcheck false positive. We want the client side versions
 # of these variables, not the server side versions.
 # shellcheck disable=SC2087
-ssh -T "$FREIGHT_HOST" <<END
-freight add "/tmp/${PKGFILE}" apt/bionic apt/focal
-freight-cache
+gcloud compute ssh --tunnel-through-iap "$FREIGHT_HOST" -- -T <<END
+sudo freight add "/tmp/${PKGFILE}" apt/bionic apt/focal
+sudo freight-cache
 rm /tmp/${PKGFILE}
 END

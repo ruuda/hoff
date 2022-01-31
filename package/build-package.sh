@@ -13,6 +13,10 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
+# build the package with Stack
+stack setup
+stack build --split-objs
+
 # Set package filename.
 PKGNAME="hoff_$VERSION-1"
 
