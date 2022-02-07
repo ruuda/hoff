@@ -60,6 +60,9 @@ image with [Nix][nix]:
 The image includes Hoff and all of its dependencies (Git, SSH). You can run it
 with systemd. TODO: Make it work with portablectl.
 
+You can also build Hoff as a deb package by running:
+`./package/build-and-ship.sh`
+
 ## Further reading
 
 More information is available in the doc directory:

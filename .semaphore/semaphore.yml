@@ -74,9 +74,3 @@ blocks:
 
             # Store the dependencies that Stack compiled for us.
             - "cache store stack-cache-$(checksum stack.yaml.lock)-$(checksum hoff.cabal) $HOME/.stack"
-
-            # Configure SSH keys for our shipping destination.
-            - "tee < package/known_hosts >> $HOME/.ssh/known_hosts"
-
-            # Build a package and and ship it (ship only on a git tag build)
-            - "./package/build-and-ship-package-semaphore.sh"
