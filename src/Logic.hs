@@ -436,26 +436,29 @@ handleCommentAdded triggerConfig projectConfig mergeWindowExemption prId author 
       day <- dayOfWeek . utctDay <$> getDateTime
       if isApproved
         then -- The PR has now been approved by the author of the comment.
-         case fromJust approvalType of
-           -- To guard against accidental merges we make use of a merge window.
-           -- Merging inside this window is discouraged but can be overruled with a special command or by adding the
-           -- user to the merge window exemption list.
-          (approval, _) | exempted author -> handleMergeRequested projectConfig prId author state pr approval
-          (approval, OnFriday) | day == Friday -> handleMergeRequested projectConfig prId author state pr approval
-          (approval, NotFriday)| day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
-          (other, NotFriday) -> do
-            () <- leaveComment prId ("Your merge request has been denied, because \
-                                      \merging on Fridays is not recommended. \
-                                      \To override this behaviour use the command `"
-                                      <> Pr.displayApproval other <> " on Friday`.")
-            pure state
-          (other, OnFriday) -> do
-            () <- leaveComment prId ("Your merge request has been denied because \
-                                      \it is not Friday. Run " <>
-                                      Pr.displayApproval other <> " instead")
-            pure state
+          case approvalType of
+            -- To guard against accidental merges we make use of a merge window.
+            -- Merging inside this window is discouraged but can be overruled with a special command or by adding the
+            -- user to the merge window exemption list.
+            Just (approval, _) | exempted author -> handleMergeRequested projectConfig prId author state pr approval
+            Just (approval, OnFriday) | day == Friday -> handleMergeRequested projectConfig prId author state pr approval
+            Just (approval, NotFriday)| day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
+            Just (other, NotFriday) -> do
+              () <- leaveComment prId ("Your merge request has been denied, because \
+                                        \merging on Fridays is not recommended. \
+                                        \To override this behaviour use the command `"
+                                        <> Pr.displayApproval other <> " on Friday`.")
+              pure state
+            Just (other, OnFriday) -> do
+              () <- leaveComment prId ("Your merge request has been denied because \
+                                        \it is not Friday. Run " <>
+                                        Pr.displayApproval other <> " instead")
+              pure state
+            Nothing -> do
+              () <- leaveComment prId ("This command was not recognized.")
+              pure state
         else pure state
-     -- If the pull request is not in the state, ignore the comment.
+    -- If the pull request is not in the state, ignore the comment.
     Nothing -> pure state
 
 handleMergeRequested
