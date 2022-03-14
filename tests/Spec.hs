@@ -787,19 +787,6 @@ main = hspec $ do
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.Merge 0))
 
-    it "notifies when command not recognized" $ do
-      let
-        prId = PullRequestId 1
-        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
-
-        event = CommentAdded prId "deckard" "@bot mergre"
-
-        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
-        (_, actions) = runActionCustom results $ handleEventTest event state
-
-      actions `shouldBe`
-        [ ALeaveComment prId "`@bot mergre` was not recognized as a valid command." ]
-
     it "recognizes 'merge on Friday' command" $ do
       let
         prId = PullRequestId 1
@@ -819,6 +806,19 @@ main = hspec $ do
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.Merge 0))
+
+    it "notifies when command not recognized" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot mergre"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (_, actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ ALeaveComment prId "`mergre` was not recognized as a valid command." ]
 
     it "allow 'merge' on Friday for exempted users" $ do
       let

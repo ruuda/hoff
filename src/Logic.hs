@@ -398,8 +398,11 @@ parseMergeCommand config message =
   let
     messageCaseFold = Text.toCaseFold $ Text.strip message
     prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
-    infixMatch msg = (prefixCaseFold <> msg) `Text.isInfixOf` messageCaseFold
     mentioned = prefixCaseFold `Text.isPrefixOf` messageCaseFold
+    -- Determines if any individual mention matches the given command message
+    matchWith :: Text -> Bool
+    matchWith msg = any (Text.isPrefixOf msg) mentions
+      where mentions = Text.splitOn prefixCaseFold messageCaseFold
     -- Check if the prefix followed by ` merge [and {deploy,tag}] [on friday]` occurs within the message.
     -- We opt to include the space here, instead of making it part of the
     -- prefix, because having the trailing space in config is something that is
@@ -413,10 +416,10 @@ parseMergeCommand config message =
         (" merge and deploy", (MergeAndDeploy, NotFriday)),
         (" merge and tag on friday", (MergeAndTag, OnFriday)),
         (" merge and tag", (MergeAndTag, NotFriday)),
-        (" merge on friday", (Merge,OnFriday)),
-        (" merge", (Merge,NotFriday))
+        (" merge on friday", (Merge, OnFriday)),
+        (" merge", (Merge, NotFriday))
       ]
-   in case listToMaybe [y | (x, y) <- cases, infixMatch x] of
+   in case listToMaybe [ cmd | (msg, cmd) <- cases, matchWith msg ] of
      Just command -> Success command
      Nothing | mentioned -> Unknown message
              | otherwise -> Ignored
@@ -466,7 +469,9 @@ handleCommentAdded triggerConfig projectConfig mergeWindowExemption prId author 
         -- The bot was mentioned but encountered an invalid command, report error and
         -- take no further action
         Unknown command -> do
-          () <- leaveComment prId ("`" <> command <> "` was not recognized as a valid command.")
+          let prefix = Text.toCaseFold $ Config.commentPrefix triggerConfig
+              cmdstr = Text.strip $ fromJust $ Text.stripPrefix prefix command
+          () <- leaveComment prId ("`" <> cmdstr <> "` was not recognized as a valid command.")
           pure state
         -- Cases where the parse was successful
         Success command
