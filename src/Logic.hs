@@ -370,15 +370,15 @@ handlePullRequestEdited prId newTitle newBaseBranch state =
     Nothing -> pure state
 
 -- | Internal result type for parsing a merge command, which allows the
--- | consumer of `parseMergeCommand` to inspect the reason why a message
--- | was considered invalid.
+-- consumer of `parseMergeCommand` to inspect the reason why a message
+-- was considered invalid.
 data ParseResult a
   -- | The parser found a valid prefix and a valid command.
   = Success a
   -- | The parser found a valid prefix, but no valid command.
   | Unknown Text
   -- | The parser decided to ignore the message because it did
-  -- | not contain a valid prefix.
+  -- not contain a valid prefix.
   | Ignored
 
 -- Checks whether the parse result was valid.
