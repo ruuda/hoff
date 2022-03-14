@@ -369,11 +369,19 @@ handlePullRequestEdited prId newTitle newBaseBranch state =
     -- Do nothing if the pull request is not present.
     Nothing -> pure state
 
+-- Internal result type for parsing a merge command, which allows the
+-- consumer of `parseMergeCommand` to inspect the reason why a message
+-- was considered invalid.
 data ParseResult a
+  -- The parser found a valid prefix and a valid command.
   = Success a
+  -- The parser found a valid prefix, but no valid command.
   | Unknown Text
+  -- The parser decided to ignore the message because it did
+  -- not contain a valid prefix.
   | Ignored
 
+-- Checks whether the parse result was valid.
 isSuccess :: ParseResult a -> Bool
 isSuccess (Success _) = True
 isSuccess _ = False
@@ -391,7 +399,7 @@ parseMergeCommand config message =
     messageCaseFold = Text.toCaseFold $ Text.strip message
     prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
     infixMatch msg = (prefixCaseFold <> msg) `Text.isInfixOf` messageCaseFold
-    mentioned = prefixCaseFold `Text.isPrefixOf` message
+    mentioned = prefixCaseFold `Text.isPrefixOf` messageCaseFold
     -- Check if the prefix followed by ` merge [and {deploy,tag}] [on friday]` occurs within the message.
     -- We opt to include the space here, instead of making it part of the
     -- prefix, because having the trailing space in config is something that is
@@ -439,47 +447,50 @@ handleCommentAdded triggerConfig projectConfig mergeWindowExemption prId author 
     -- frequently, but most comments are not merge commands, and checking that
     -- a user has push access requires an API call.
     Just pr -> do
-      let approvalType = parseMergeCommand triggerConfig body
+      let commandType = parseMergeCommand triggerConfig body
           exempted :: Username -> Bool
           exempted (Username user) =
             let (Config.MergeWindowExemptionConfiguration users) = mergeWindowExemption
             in elem user users
-      isApproved <-
-        if isSuccess approvalType
-          then isReviewer author
-          else pure False
+      -- Check whether the author is allowed to do merge commands, but only if
+      -- a valid command was parsed.
+      isAllowed <- if isSuccess commandType
+        then isReviewer author
+        else pure False
       -- For now Friday at UTC+0 is good enough.
       -- See https://github.com/channable/hoff/pull/95 for caveats and improvement ideas.
       day <- dayOfWeek . utctDay <$> getDateTime
-      case approvalType of
+      case commandType of
         -- The bot was not mentioned in the comment, ignore
         Ignored -> pure state
         -- The bot was mentioned but encountered an invalid command, report error and
-        -- take not further action
+        -- take no further action
         Unknown command -> do
           () <- leaveComment prId ("`" <> command <> "` was not recognized as a valid command.")
           pure state
-        -- Cases where the parse was successful AND the author is a reviewer
-        Success command | isApproved -> case command of
-          -- To guard against accidental merges we make use of a merge window.
-          -- Merging inside this window is discouraged but can be overruled with a special command or by adding the
-          -- user to the merge window exemption list.
-          (approval, _) | exempted author -> handleMergeRequested projectConfig prId author state pr approval
-          (approval, OnFriday) | day == Friday -> handleMergeRequested projectConfig prId author state pr approval
-          (approval, NotFriday)| day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
-          (other, NotFriday) -> do
-            () <- leaveComment prId ("Your merge request has been denied, because \
-                                      \merging on Fridays is not recommended. \
-                                      \To override this behaviour use the command `"
-                                      <> Pr.displayApproval other <> " on Friday`.")
-            pure state
-          (other, OnFriday) -> do
-            () <- leaveComment prId ("Your merge request has been denied because \
-                                      \it is not Friday. Run " <>
-                                      Pr.displayApproval other <> " instead")
-            pure state
-        -- The command was parsed correctly but the author is not a reviewer, ignore
-        Success _ -> pure state
+        -- Cases where the parse was successful
+        Success command
+          -- Author is a reviewer
+          | isAllowed -> case command of
+            -- To guard against accidental merges we make use of a merge window.
+            -- Merging inside this window is discouraged but can be overruled with a special command or by adding the
+            -- user to the merge window exemption list.
+            (approval, _) | exempted author -> handleMergeRequested projectConfig prId author state pr approval
+            (approval, OnFriday) | day == Friday -> handleMergeRequested projectConfig prId author state pr approval
+            (approval, NotFriday)| day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
+            (other, NotFriday) -> do
+              () <- leaveComment prId ("Your merge request has been denied, because \
+                                        \merging on Fridays is not recommended. \
+                                        \To override this behaviour use the command `"
+                                        <> Pr.displayApproval other <> " on Friday`.")
+              pure state
+            (other, OnFriday) -> do
+              () <- leaveComment prId ("Your merge request has been denied because \
+                                        \it is not Friday. Run " <>
+                                        Pr.displayApproval other <> " instead")
+              pure state
+          -- Author is not a reviewer, so we ignore
+          | otherwise -> pure state
     -- If the pull request is not in the state, ignore the comment.
     Nothing -> pure state
 
