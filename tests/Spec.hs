@@ -852,7 +852,6 @@ main = hspec $ do
         , ALeaveComment prId "Your merge request has been denied, because merging on Fridays is not recommended. To override this behaviour use the command `merge and tag on Friday`."
         ]
 
-
     it "doesn't allow 'merge and deploy' command on Friday" $ do
       let
         prId = PullRequestId 1
