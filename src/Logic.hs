@@ -369,16 +369,16 @@ handlePullRequestEdited prId newTitle newBaseBranch state =
     -- Do nothing if the pull request is not present.
     Nothing -> pure state
 
--- Internal result type for parsing a merge command, which allows the
--- consumer of `parseMergeCommand` to inspect the reason why a message
--- was considered invalid.
+-- | Internal result type for parsing a merge command, which allows the
+-- | consumer of `parseMergeCommand` to inspect the reason why a message
+-- | was considered invalid.
 data ParseResult a
-  -- The parser found a valid prefix and a valid command.
+  -- | The parser found a valid prefix and a valid command.
   = Success a
-  -- The parser found a valid prefix, but no valid command.
+  -- | The parser found a valid prefix, but no valid command.
   | Unknown Text
-  -- The parser decided to ignore the message because it did
-  -- not contain a valid prefix.
+  -- | The parser decided to ignore the message because it did
+  -- | not contain a valid prefix.
   | Ignored
 
 -- Checks whether the parse result was valid.
@@ -469,9 +469,12 @@ handleCommentAdded triggerConfig projectConfig mergeWindowExemption prId author 
         -- The bot was mentioned but encountered an invalid command, report error and
         -- take no further action
         Unknown command -> do
-          let prefix = Text.toCaseFold $ Config.commentPrefix triggerConfig
-              cmdstr = Text.strip $ fromJust $ Text.stripPrefix prefix command
-          () <- leaveComment prId ("`" <> cmdstr <> "` was not recognized as a valid command.")
+          let prefix  = Text.toCaseFold $ Config.commentPrefix triggerConfig
+              cmdstr  = fmap Text.strip $ Text.stripPrefix prefix command
+              comment = case cmdstr of
+                Just str -> "`" <> str <> "` was not recognized as a valid command."
+                Nothing  -> "That was not a valid command."
+          () <- leaveComment prId comment
           pure state
         -- Cases where the parse was successful
         Success command
