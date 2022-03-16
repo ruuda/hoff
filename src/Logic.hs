@@ -369,16 +369,40 @@ handlePullRequestEdited prId newTitle newBaseBranch state =
     -- Do nothing if the pull request is not present.
     Nothing -> pure state
 
+-- | Internal result type for parsing a merge command, which allows the
+-- consumer of `parseMergeCommand` to inspect the reason why a message
+-- was considered invalid.
+data ParseResult a
+  -- | The parser found a valid prefix and a valid command.
+  = Success a
+  -- | The parser found a valid prefix, but no valid command.
+  | Unknown Text
+  -- | The parser decided to ignore the message because it did
+  -- not contain a valid prefix.
+  | Ignored
+
+-- Checks whether the parse result was valid.
+isSuccess :: ParseResult a -> Bool
+isSuccess (Success _) = True
+isSuccess _ = False
+
 -- Returns the approval type contained in the given text, if the message is a
 -- command that instructs us to merge the PR.
 -- If the trigger prefix is "@hoffbot", a command "@hoffbot merge" would
 -- indicate the `Merge` approval type.
-parseMergeCommand :: TriggerConfiguration -> Text -> Maybe (ApprovedFor, MergeWindow)
+-- Returns `Ignored` if the bot was not mentioned, `Success` if it was mentioned
+-- in the same message as a valid command, and `Unknown` if it was mentioned but
+-- no valid command was found.
+parseMergeCommand :: TriggerConfiguration -> Text -> ParseResult (ApprovedFor, MergeWindow)
 parseMergeCommand config message =
   let
     messageCaseFold = Text.toCaseFold $ Text.strip message
     prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
-    infixMatch msg = (prefixCaseFold <> msg) `Text.isInfixOf` messageCaseFold
+    mentioned = prefixCaseFold `Text.isPrefixOf` messageCaseFold
+    -- Determines if any individual mention matches the given command message
+    matchWith :: Text -> Bool
+    matchWith msg = any (Text.isPrefixOf msg) mentions
+      where mentions = Text.splitOn prefixCaseFold messageCaseFold
     -- Check if the prefix followed by ` merge [and {deploy,tag}] [on friday]` occurs within the message.
     -- We opt to include the space here, instead of making it part of the
     -- prefix, because having the trailing space in config is something that is
@@ -392,10 +416,14 @@ parseMergeCommand config message =
         (" merge and deploy", (MergeAndDeploy, NotFriday)),
         (" merge and tag on friday", (MergeAndTag, OnFriday)),
         (" merge and tag", (MergeAndTag, NotFriday)),
-        (" merge on friday", (Merge,OnFriday)),
-        (" merge", (Merge,NotFriday))
+        (" merge on friday", (Merge, OnFriday)),
+        (" merge", (Merge, NotFriday))
       ]
-   in listToMaybe [y | (x, y) <- cases, infixMatch x]
+   in case listToMaybe [ cmd | (msg, cmd) <- cases, matchWith msg ] of
+     Just command -> Success command
+     Nothing | mentioned -> Unknown message
+             | otherwise -> Ignored
+
 
 -- Mark the pull request as approved, and leave a comment to acknowledge that.
 approvePullRequest :: PullRequestId -> Approval -> ProjectState -> Action ProjectState
@@ -422,40 +450,56 @@ handleCommentAdded triggerConfig projectConfig mergeWindowExemption prId author 
     -- frequently, but most comments are not merge commands, and checking that
     -- a user has push access requires an API call.
     Just pr -> do
-      let approvalType = parseMergeCommand triggerConfig body
+      let commandType = parseMergeCommand triggerConfig body
           exempted :: Username -> Bool
           exempted (Username user) =
             let (Config.MergeWindowExemptionConfiguration users) = mergeWindowExemption
             in elem user users
-      isApproved <-
-        if isJust approvalType
-          then isReviewer author
-          else pure False
+      -- Check whether the author is allowed to do merge commands, but only if
+      -- a valid command was parsed.
+      isAllowed <- if isSuccess commandType
+        then isReviewer author
+        else pure False
       -- For now Friday at UTC+0 is good enough.
       -- See https://github.com/channable/hoff/pull/95 for caveats and improvement ideas.
       day <- dayOfWeek . utctDay <$> getDateTime
-      if isApproved
-        then -- The PR has now been approved by the author of the comment.
-         case fromJust approvalType of
-           -- To guard against accidental merges we make use of a merge window.
-           -- Merging inside this window is discouraged but can be overruled with a special command or by adding the
-           -- user to the merge window exemption list.
-          (approval, _) | exempted author -> handleMergeRequested projectConfig prId author state pr approval
-          (approval, OnFriday) | day == Friday -> handleMergeRequested projectConfig prId author state pr approval
-          (approval, NotFriday)| day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
-          (other, NotFriday) -> do
-            () <- leaveComment prId ("Your merge request has been denied, because \
-                                      \merging on Fridays is not recommended. \
-                                      \To override this behaviour use the command `"
-                                      <> Pr.displayApproval other <> " on Friday`.")
-            pure state
-          (other, OnFriday) -> do
-            () <- leaveComment prId ("Your merge request has been denied because \
-                                      \it is not Friday. Run " <>
-                                      Pr.displayApproval other <> " instead")
-            pure state
-        else pure state
-     -- If the pull request is not in the state, ignore the comment.
+      case commandType of
+        -- The bot was not mentioned in the comment, ignore
+        Ignored -> pure state
+        -- The bot was mentioned but encountered an invalid command, report error and
+        -- take no further action
+        Unknown command -> do
+          let prefix  = Text.toCaseFold $ Config.commentPrefix triggerConfig
+              cmdstr  = fmap Text.strip $ Text.stripPrefix prefix command
+              comment = case cmdstr of
+                Just str -> "`" <> str <> "` was not recognized as a valid command."
+                Nothing  -> "That was not a valid command."
+          () <- leaveComment prId comment
+          pure state
+        -- Cases where the parse was successful
+        Success command
+          -- Author is a reviewer
+          | isAllowed -> case command of
+            -- To guard against accidental merges we make use of a merge window.
+            -- Merging inside this window is discouraged but can be overruled with a special command or by adding the
+            -- user to the merge window exemption list.
+            (approval, _) | exempted author -> handleMergeRequested projectConfig prId author state pr approval
+            (approval, OnFriday) | day == Friday -> handleMergeRequested projectConfig prId author state pr approval
+            (approval, NotFriday)| day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
+            (other, NotFriday) -> do
+              () <- leaveComment prId ("Your merge request has been denied, because \
+                                        \merging on Fridays is not recommended. \
+                                        \To override this behaviour use the command `"
+                                        <> Pr.displayApproval other <> " on Friday`.")
+              pure state
+            (other, OnFriday) -> do
+              () <- leaveComment prId ("Your merge request has been denied because \
+                                        \it is not Friday. Run " <>
+                                        Pr.displayApproval other <> " instead")
+              pure state
+          -- Author is not a reviewer, so we ignore
+          | otherwise -> pure state
+    -- If the pull request is not in the state, ignore the comment.
     Nothing -> pure state
 
 handleMergeRequested
