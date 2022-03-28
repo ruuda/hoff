@@ -14,7 +14,7 @@ if [ -z "$VERSION" ]; then
 fi
 
 # build the package with Stack
-./build-binary
+./build-binary.sh
 
 # Set package filename.
 PKGNAME="hoff_$VERSION-1"

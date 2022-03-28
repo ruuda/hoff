@@ -24,7 +24,7 @@ gcloud compute scp --tunnel-through-iap "$PKGFILE" "$FREIGHT_HOST:/tmp/$PKGFILE"
 # of these variables, not the server side versions.
 # shellcheck disable=SC2087
 gcloud compute ssh --tunnel-through-iap "$FREIGHT_HOST" -- -T <<END
-sudo freight add "/tmp/${PKGFILE}" apt/bionic apt/focal
-sudo freight-cache
+sudo -iu freight freight add "/tmp/${PKGFILE}" apt/bionic apt/focal
+sudo -iu freight freight-cache
 rm /tmp/${PKGFILE}
 END
