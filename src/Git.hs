@@ -278,8 +278,8 @@ callGit userConfig args = do
       -- not prompt for things such as passphrases, because there is no
       -- interactive terminal.
       Process.env = Just
-        $ ("GIT_EDITOR", "/usr/bin/env true")
-        : ("GIT_SSH_COMMAND", "/usr/bin/ssh -F " ++ (Config.sshConfigFile userConfig))
+        $ ("GIT_EDITOR", "true")
+        : ("GIT_SSH_COMMAND", "ssh -F " ++ (Config.sshConfigFile userConfig))
         : ("GIT_TERMINAL_PROMPT", "0")
         : currentEnv
     }

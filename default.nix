@@ -1,13 +1,5 @@
 let
-  pkgs = import ./nixpkgs-pinned.nix {};
+  nixpkgs = import ./nixpkgs-pinned.nix {};
+  hoff = nixpkgs.callPackage ./hoff.nix {};
 in
-  pkgs.buildEnv {
-    name = "hoff-devenv";
-    paths = [
-      pkgs.niv
-      pkgs.dpkg
-      pkgs.git
-      pkgs.shellcheck
-      pkgs.stack
-    ];
-  }
+  hoff
