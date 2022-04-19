@@ -59,9 +59,10 @@ blocks:
             # contains them.
             - "export LOCALE_ARCHIVE=$(nix-build --no-out-link locale.nix)/lib/locale/locale-archive"
 
-            - "stack setup"
-            - "stack --no-terminal build --split-objs"
-            - "stack --no-terminal test --split-objs"
+            # The stack builds are currently broken, see https://github.com/channable/hoff/issues/106
+            # - "stack setup"
+            # - "stack --no-terminal build --split-objs"
+            # - "stack --no-terminal test --split-objs"
 
             # Match the licenses of dependencies agains a whitelist, and fail
             # if anything is not whitelisted. Grep -v returns # 1 if nothing
