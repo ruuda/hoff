@@ -18,6 +18,8 @@ blocks:
     task:
       secrets:
         - name: "opsbot-github-key"
+        # Keys needed to access our cachix cache.
+        - name: "cachix-channable-public"
 
       jobs:
         - name: "Build, test, package, ship"
@@ -45,6 +47,10 @@ blocks:
             - "./nix/install"
             - ". $HOME/.nix-profile/etc/profile.d/nix.sh"
 
+            # Install Cachix and use the Channable cache
+            - "nix-env -iA nixpkgs.cachix"
+            - "cachix use channable-public"
+
             # Bring all the tools from the pinned build environment into the PATH.
             - "export PATH=$(nix-build --no-out-link default.nix)/bin:$PATH"
 
@@ -53,9 +59,10 @@ blocks:
             # contains them.
             - "export LOCALE_ARCHIVE=$(nix-build --no-out-link locale.nix)/lib/locale/locale-archive"
 
-            - "stack setup"
-            - "stack --no-terminal build --split-objs"
-            - "stack --no-terminal test --split-objs"
+            # The stack builds are currently broken, see https://github.com/channable/hoff/issues/106
+            # - "stack setup"
+            # - "stack --no-terminal build --split-objs"
+            # - "stack --no-terminal test --split-objs"
 
             # Match the licenses of dependencies agains a whitelist, and fail
             # if anything is not whitelisted. Grep -v returns # 1 if nothing
@@ -67,6 +74,11 @@ blocks:
 
             # Check shell scripts for issues.
             - "shellcheck package/*.sh package/deb-postinst"
+
+            # Run build and tests in Nix, and push the result to Cachix.
+            # Because this is a public repository, and not everyone is using Nix,
+            # we keep the stack setup around. The Nix build however is used in production.
+            - "nix-build --no-out-link release.nix | cachix push channable-public"
 
             # Store a copy of the nix store. This will be refreshed daily, which
             # is more than sufficient for this repo.

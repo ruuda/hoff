@@ -62,13 +62,16 @@ styleRoute = Literal $ LT.fromStrict WebInterface.stylesheetUrl
 isSignatureValid :: Text -> Text -> ByteString -> Bool
 isSignatureValid secret hexDigest message =
   let actualHmac   = hmac (encodeUtf8 secret) message :: HMAC SHA1
-      binaryDigest = fst $ Base16.decode $ encodeUtf8 hexDigest
-  in  case digestFromByteString binaryDigest of
-        -- The HMAC type implements a constant-time comparison.
-        Just expectedDigest -> (HMAC expectedDigest) == actualHmac
-        -- If the hexDigest was not a valid hexadecimally-encoded digest,
-        -- the signature was definitely not valid.
-        Nothing -> False
+      binaryDigest = Base16.decode $ encodeUtf8 hexDigest
+  in  case binaryDigest of
+        -- If the hexDigest was not hexadecimal, is was definitely not valid
+        Left _ -> False
+        Right x -> case digestFromByteString x of
+          -- The HMAC type implements a constant-time comparison.
+          Just expectedDigest -> (HMAC expectedDigest) == actualHmac
+          -- If the hexDigest was not a valid hexadecimally-encoded digest,
+          -- the signature was definitely not valid.
+          Nothing -> False
 
 -- The X-Hub-Signature header value is prefixed with "sha1=", and then the
 -- digest in hexadecimal. Strip off that prefix, and ensure that it has the
