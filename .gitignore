@@ -22,3 +22,6 @@
 
 # Test output
 .hspec-failures
+
+# Nix build result
+result
