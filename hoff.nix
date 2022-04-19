@@ -1,7 +1,7 @@
 { lib, haskellPackages, nix-gitignore, git, coreutils, openssh }:
   haskellPackages.mkDerivation {
     pname = "hoff";
-    version = "0.25";
+    version = "0.25.0";
 
     src =
       let
@@ -14,7 +14,6 @@
           ./src
           ./static
           ./tests
-          ./tools
           ./hoff.cabal
           ./stack.yaml
           ./license
@@ -82,5 +81,5 @@
 
     homepage = "https://github.com/channable/hoff";
 
-    license = ./license;
+    license = lib.licenses.asl20;
   }
