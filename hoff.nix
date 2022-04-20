@@ -1,4 +1,4 @@
-{ lib, haskellPackages, nix-gitignore, git, coreutils, openssh }:
+{ lib, haskellPackages, nix-gitignore, git, coreutils, openssh, glibcLocales, makeWrapper }:
   haskellPackages.mkDerivation {
     pname = "hoff";
     version = "0.25.0";
@@ -28,6 +28,14 @@
         };
       in
         whitelistedSrc;
+
+    buildTools = [ makeWrapper ];
+
+    postInstall = ''
+      # Set LOCALE_ARCHIVE so that glibc can find the locales it needs when running on Ubuntu
+      # machines.
+      wrapProgram $out/bin/hoff --set LOCALE_ARCHIVE ${glibcLocales}/lib/locale/locale-archive
+    '';
 
     isLibrary = false;
     isExecutable = true;
