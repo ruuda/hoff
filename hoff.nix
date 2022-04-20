@@ -1,7 +1,7 @@
 { lib, haskellPackages, nix-gitignore, git, coreutils, openssh, glibcLocales, makeWrapper }:
   haskellPackages.mkDerivation {
     pname = "hoff";
-    version = "0.25.0";
+    version = "0.25.1";
 
     src =
       let
