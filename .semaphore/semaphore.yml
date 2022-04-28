@@ -33,6 +33,9 @@ blocks:
 
             - "checkout"
 
+            # Free space on the disk in order to save the nix store and error on build failures.
+            - .semaphore/prologue.sh
+
             # Restore `/nix` cache. Create the directory first, otherwise we encounter
             # permission errors. We do this because the Semaphore cache is faster than
             # both Cachix and cache.nixos.org.
