@@ -396,13 +396,20 @@ isSuccess _ = False
 parseMergeCommand :: TriggerConfiguration -> Text -> ParseResult (ApprovedFor, MergeWindow)
 parseMergeCommand config message =
   let
-    messageCaseFold = Text.toCaseFold $ Text.strip message
-    prefixCaseFold = Text.toCaseFold $ Config.commentPrefix config
-    mentioned = prefixCaseFold `Text.isPrefixOf` messageCaseFold
+    normalise :: Text -> Text
+    normalise msg =
+      -- Normalise commands with extra spaces between them (`@Bot  merge  and tag` | `merge and  tag`)
+      let multiWhitespaceStripped = Text.unwords $ filter (not . Text.null) $ Text.words msg
+      -- Standardise the casing in order to match commands with different casing (@Bot Merge)
+      in Text.toCaseFold multiWhitespaceStripped
+
+    messageNormalised = normalise message
+    prefixNormalised = normalise $ Config.commentPrefix config
+    mentioned = prefixNormalised `Text.isPrefixOf` messageNormalised
     -- Determines if any individual mention matches the given command message
     matchWith :: Text -> Bool
     matchWith msg = any (Text.isPrefixOf msg) mentions
-      where mentions = Text.splitOn prefixCaseFold messageCaseFold
+      where mentions = Text.splitOn prefixNormalised messageNormalised
     -- Check if the prefix followed by ` merge [and {deploy,tag}] [on friday]` occurs within the message.
     -- We opt to include the space here, instead of making it part of the
     -- prefix, because having the trailing space in config is something that is
