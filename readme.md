@@ -5,12 +5,10 @@ always builds.
 
 [![Build Status][travis-img]][travis]
 
-Hoff intends to replace the merge button in the GitHub UI. Unlike GitHub\* and
-many other tools, Hoff integrates changes into master using a *rebase*. This
-keeps the history clean, free of random fork points and merge commits. (TODO:
-In the future Hoff will also enforce a commit message format.)
-
-\* [This is no longer true.](https://github.com/blog/2243-rebase-and-merge-pull-requests)
+Hoff intends to replace the merge button in the GitHub UI.  Hoff integrates
+changes into master using a *rebase*. This keeps the history clean, free of
+random fork points and merge commits.  (TODO: In the future Hoff will also
+enforce a commit message format.)
 
 Furthermore, Hoff implements the [Not Rocket Science Principle][not-rocket-science]
 of software engineering:
@@ -22,6 +20,29 @@ has been approved (through an LGTM comment left by a reviewer), it integrates
 the changes into master, and pushes those to a testing branch. When CI reports a
 successful build for this branch, master is forwarded to it. If the build fails,
 the commits never make it into master, keeping the build green at all times.
+
+
+## Using Hoff
+
+Supposing Hoff is set up to listen for the comment prefix `@hoffbot` with a
+matching GitHub user, you use it by commenting on a PR with any of the
+following commands:
+
+* `@hoffbot merge`: rebase then merge;
+* `@hoffbot merge and deploy`: rebase, merge then deploy;
+* `@hoffbot merge and tag`: rebase, merge, tag then deploy.
+
+For all the commands, Hoff will wait for the builds to pass after rebasing and
+before merging.  When the PR is merged, Hoff automatically closes it and
+deletes the PR branch.
+
+On Fridays, by default, Hoff refuses to do the above actions.  To force merges
+on Fridays, simply add `on friday` at the end of your commands, like so:
+
+* `@hoffbot merge on friday`;
+* `@hoffbot merge and deploy on friday`;
+* `@hoffbot merge and tag on friday`.
+
 
 ## Installing
 
