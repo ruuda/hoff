@@ -11,6 +11,10 @@
 # Editor files
 *.swp
 *.swo
+*~
+/.idea
+/.vscode
+/TAGS
 /tags
 
 # Vagrant files
