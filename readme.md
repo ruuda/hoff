@@ -29,8 +29,8 @@ matching GitHub user, you use it by commenting on a PR with any of the
 following commands:
 
 * `@hoffbot merge`: rebase then merge;
-* `@hoffbot merge and deploy`: rebase, merge then deploy;
-* `@hoffbot merge and tag`: rebase, merge, tag then deploy.
+* `@hoffbot merge and tag`: rebase, merge then tag.
+* `@hoffbot merge and deploy`: rebase, merge, tag then deploy;
 
 For all the commands, Hoff will wait for the builds to pass after rebasing and
 before merging.  When the PR is merged, Hoff automatically closes it and
@@ -40,8 +40,8 @@ On Fridays, by default, Hoff refuses to do the above actions.  To force merges
 on Fridays, simply add `on friday` at the end of your commands, like so:
 
 * `@hoffbot merge on friday`;
-* `@hoffbot merge and deploy on friday`;
 * `@hoffbot merge and tag on friday`.
+* `@hoffbot merge and deploy on friday`;
 
 
 ## Installing
