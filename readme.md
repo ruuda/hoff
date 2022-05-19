@@ -89,9 +89,6 @@ More information is available in the doc directory:
  * [Background](doc/background.md): My original intention was more ambitious
    than building a GitHub bot. This document gives some background about what I
    want to build.
- * [Approach](doc/approach.md): Progress is made in many small steps. This
-   document outlines the current goals.
- * [Design](doc/design.md): Outlines the architecture of the application.
  * [Installing](doc/installing.md): The installation guide.
 
 ## License
