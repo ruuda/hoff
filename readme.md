@@ -31,8 +31,11 @@ following commands:
 * `@hoffbot merge and deploy`: rebase, merge, tag then deploy;
 
 For all the commands, Hoff will wait for the builds to pass after rebasing and
-before merging.  When the PR is merged, Hoff automatically closes it and
-deletes the PR branch.
+before merging.  When the PR is merged, GitHub closes the PR as merged and,
+when configured to automatically do so, deletes the PR branch.
+
+Hoff does not actually do the deploying.  It just adds a special marker to the
+tag message indicating to the CI job that the tag should be deployed.
 
 On Fridays, by default, Hoff refuses to do the above actions.  To force merges
 on Fridays, simply add `on friday` at the end of your commands, like so:
