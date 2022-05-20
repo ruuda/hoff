@@ -1,4 +1,7 @@
 { lib, haskellPackages, nix-gitignore, git, coreutils, openssh, glibcLocales, makeWrapper }:
+let 
+  haskellLibs = import ./nix/haskell-dependencies.nix haskellPackages;
+in
   haskellPackages.mkDerivation {
     pname = "hoff";
     version = "0.25.1";
@@ -50,42 +53,7 @@
     ];
 
 
-    libraryHaskellDepends =
-      with haskellPackages; [
-        aeson
-        aeson-pretty
-        blaze-html
-        blaze-markup
-        bytestring
-        containers
-        cryptonite
-        directory
-        extra
-        file-embed
-        filepath
-        free
-        github
-        hspec
-        hspec-core
-        http-client
-        http-conduit
-        http-types
-        memory
-        monad-logger
-        optparse-applicative
-        process
-        process-extras
-        scotty
-        stm
-        text
-        text-format
-        time
-        uuid
-        vector
-        wai
-        warp
-        warp-tls
-      ];
+    libraryHaskellDepends = haskellLibs;
 
     homepage = "https://github.com/channable/hoff";
 
