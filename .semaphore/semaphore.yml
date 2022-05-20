@@ -72,8 +72,13 @@ blocks:
             # matches, so we invert it with a ! prefix.  The "unexceptionalio"
             # library is tagged as "license other" on Hackage, but the license
             # appears to be ISC, so whitelist it too. See also [1].
+            # Also, when getting the dependencies from Nixpkgs, `http-link-header` and
+            # `monad-loops` show up as `<unknown>`. According to hackgage, they
+            # are PublicDomain though. See also [2], [3].
             # [1]: https://hackage.haskell.org/package/unexceptionalio-0.3.0/src/COPYING.
-            - "! stack ls dependencies --license | egrep -v 'Apache-2|BSD-?2|BSD-?3|MIT|ISC|PublicDomain|MPL-2.0|unexceptionalio'"
+            # [2]: https://hackage.haskell.org/package/monad-loops-0.4.3
+            # [3]: https://hackage.haskell.org/package/http-link-header-1.2.0
+            - "! stack ls dependencies --license | egrep -v 'Apache-2|BSD-?2|BSD-?3|MIT|ISC|PublicDomain|MPL-2.0|unexceptionalio|http-link-header|monad-loops'"
 
             # Check shell scripts for issues.
             - "shellcheck package/*.sh package/deb-postinst"

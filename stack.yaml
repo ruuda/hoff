@@ -1,7 +1,12 @@
-resolver: lts-16.27
-extra-deps:
-  # We need github >= 0.25, which includes https://github.com/phadej/github/pull/425.
-  - github-0.26@sha256:a9d4046325c3eb28cdc7bef2c3f5bb213328caeae0b7dce6f51de655f0bffaa1,7162
-  # Dependency of the "github" package.
-  - binary-instances-1.0.1@sha256:974740042381555f9e3614d9fe37136daba155e1f92bc048894698590bcd82f7,2683
-  - text-format-0.3.2@sha256:2a3fc17cf87120fcfdbca62a0da59759755549285841cdc1483081c35fb3d115,1814
+# The `ghc` resolver does not use any stackage snapshot, instead, it only
+# provides those packages that are packaged with GHC.
+# Via nix (see `nix.shell-file` down below), we provide a GHC that comes
+# with all the packages we need. Therefore, stack does not have to
+# download or build any snapshot packages, they all come directly from nixpkgs.
+resolver: ghc-8.10
+
+# This makes stack pick up our nix environment for building by default.
+nix:
+  enable: true
+  shell-file: stack-shell.nix
+  path: ["nixpkgs=./nixpkgs-pinned.nix"]
