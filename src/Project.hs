@@ -93,6 +93,7 @@ data PullRequestStatus
   | PrStatusIntegrated                -- Integrated, build passed, merged into target branch.
   | PrStatusIncorrectBaseBranch       -- ^ Integration branch not being valid.
   | PrStatusWrongFixups               -- Failed to integrate due to the presence of orphan fixup commits.
+  | PrStatusEmptyRebase               -- Rebase was empty (changes already in the target branch?)
   | PrStatusFailedConflict            -- Failed to integrate due to merge conflict.
   | PrStatusFailedBuild (Maybe Text)  -- Integrated, but the build failed. Field should contain the URL to a page explaining the build failure.
   deriving (Eq)
@@ -280,6 +281,7 @@ classifyPullRequest pr = case approval pr of
     NotIntegrated -> PrStatusApproved
     IncorrectBaseBranch -> PrStatusIncorrectBaseBranch
     Conflicted _ WrongFixups -> PrStatusWrongFixups
+    Conflicted _ EmptyRebase -> PrStatusEmptyRebase
     Conflicted _ _  -> PrStatusFailedConflict
     Integrated _ buildStatus -> case buildStatus of
       BuildPending    -> PrStatusBuildPending

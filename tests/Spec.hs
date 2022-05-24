@@ -922,6 +922,30 @@ main = hspec $ do
         , ALeaveComment prId "Your merge request has been denied, because merging on Fridays is not recommended. To override this behaviour use the command `merge on Friday`."
         ]
 
+    it "refuses to merge an empty rebase" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge"
+
+        results = defaultResults
+                { resultIntegrate = [Left (IntegrationFailure (BaseBranch "master") EmptyRebase)]
+                }
+        (_, actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate
+            { mergeMessage = "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
+            , integrationCandidate = (Branch "refs/pull/1/head", Sha "abc1234")
+            , alwaysAddMergeCommit = False
+            }
+        , ALeaveComment (PullRequestId 1)
+            "Empty rebase.  Have the changes already been merged into the target branch?  Aborting."
+        ]
+
     it "rejects 'merge' commands to a branch other than master" $ do
       let
         prId = PullRequestId 1
