@@ -550,15 +550,16 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
   -- results come in, and we want to push -- it turns out that the target branch
   -- has new commits, then we just restart the cycle.)
   fetchBranchWithTags $ localBranch targetBranch
-  targetSha <- revParse $ localBranch targetBranch
+  revParseResult <- revParse $ localBranch targetBranch
   -- Rebase the candidate commits onto the target branch.
   rebaseResult <- rebase candidateSha targetBranch
-  case rebaseResult of
+  case (revParseResult, rebaseResult) of
     -- If the rebase succeeded, then this is our new integration candidate.
     -- Push it to the remote integration branch to trigger a build.
-    Nothing  -> pure $ Left RebaseFailed
-    Just sha | Just sha == targetSha -> pure $ Left EmptyRebase
-    Just sha -> do
+    (Nothing,_) -> pure $ Left RebaseFailed
+    (_,Nothing) -> pure $ Left RebaseFailed
+    (Just targetSha, Just sha) | sha == targetSha -> pure $ Left EmptyRebase
+                               | otherwise -> do
       -- Before merging, we check if there exist fixup commits that do not
       -- belong to any other commits. If there are no such fixups, we proceed
       -- with merging; otherwise we raise a warning and don't merge.
