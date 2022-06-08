@@ -192,7 +192,7 @@ data GitOperationFree a
   | Checkout RemoteBranch (Maybe Sha -> a)
   | Clone RemoteUrl (CloneResult -> a)
   | GetParent Sha (Maybe Sha -> a)
-  | RevParse Branch (Maybe Sha -> a)
+  | RevParse SomeRefSpec (Maybe Sha -> a)
   | DoesGitDirectoryExist (Bool -> a)
   | LastTag Sha (Maybe Text -> a)
   | ShortLog SomeRefSpec SomeRefSpec (Maybe Text -> a)
@@ -233,9 +233,9 @@ checkout branch = liftF $ Checkout branch id
 getParent :: Sha -> GitOperation (Maybe Sha)
 getParent sha = liftF $ GetParent sha id
 
--- | Returns the sha of the given commit.
-revParse :: Branch -> GitOperation (Maybe Sha)
-revParse branch = liftF $ RevParse branch id
+-- | Returns the sha of the given ref.
+revParse :: SomeRefSpec -> GitOperation (Maybe Sha)
+revParse ref = liftF $ RevParse ref id
 
 clone :: RemoteUrl -> GitOperation CloneResult
 clone url = liftF $ Clone url id
@@ -550,7 +550,7 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
   -- results come in, and we want to push -- it turns out that the target branch
   -- has new commits, then we just restart the cycle.)
   fetchBranchWithTags $ localBranch targetBranch
-  revParseResult <- revParse $ localBranch targetBranch
+  revParseResult <- revParse (AsRefSpec targetBranch)
   -- Rebase the candidate commits onto the target branch.
   rebaseResult <- rebase candidateSha targetBranch
   case (revParseResult, rebaseResult) of
