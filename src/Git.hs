@@ -175,6 +175,7 @@ data GitIntegrationFailure
   = MergeFailed
   | RebaseFailed
   | WrongFixups
+  | EmptyRebase
   deriving (Show, Eq, Generic)
 
 instance FromJSON GitIntegrationFailure
@@ -191,6 +192,7 @@ data GitOperationFree a
   | Checkout RemoteBranch (Maybe Sha -> a)
   | Clone RemoteUrl (CloneResult -> a)
   | GetParent Sha (Maybe Sha -> a)
+  | RevParse SomeRefSpec (Maybe Sha -> a)
   | DoesGitDirectoryExist (Bool -> a)
   | LastTag Sha (Maybe Text -> a)
   | ShortLog SomeRefSpec SomeRefSpec (Maybe Text -> a)
@@ -230,6 +232,10 @@ checkout branch = liftF $ Checkout branch id
 -- Return the parent of the given commit.
 getParent :: Sha -> GitOperation (Maybe Sha)
 getParent sha = liftF $ GetParent sha id
+
+-- | Returns the sha of the given ref.
+revParse :: SomeRefSpec -> GitOperation (Maybe Sha)
+revParse ref = liftF $ RevParse ref id
 
 clone :: RemoteUrl -> GitOperation CloneResult
 clone url = liftF $ Clone url id
@@ -405,6 +411,15 @@ runGit userConfig repoDir operation =
         Right parentSha ->
           pure $ cont $ Just $ Sha $ Text.stripEnd parentSha
 
+    RevParse branch cont -> do
+      parentRev <- callGitInRepo ["rev-parse", refSpec branch]
+      case parentRev of
+        Left _ -> do
+          logWarnN "git rev-parse failed"
+          pure $ cont Nothing
+        Right sha ->
+          pure $ cont $ Just $ Sha $ Text.stripEnd sha
+
     Clone (RemoteUrl url) cont -> do
       result <- callGit userConfig
         -- Pass some config flags, that get applied as the repository is
@@ -499,6 +514,7 @@ runGitReadOnly userConfig repoDir operation =
       Checkout {} -> unsafeResult
       Clone {} -> unsafeResult
       GetParent {} -> unsafeResult
+      RevParse {} -> unsafeResult
       DoesGitDirectoryExist {} -> unsafeResult
       LastTag {} -> unsafeResult
       ShortLog {} -> unsafeResult
@@ -534,13 +550,16 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
   -- results come in, and we want to push -- it turns out that the target branch
   -- has new commits, then we just restart the cycle.)
   fetchBranchWithTags $ localBranch targetBranch
+  revParseResult <- revParse (AsRefSpec targetBranch)
   -- Rebase the candidate commits onto the target branch.
   rebaseResult <- rebase candidateSha targetBranch
-  case rebaseResult of
+  case (revParseResult, rebaseResult) of
     -- If the rebase succeeded, then this is our new integration candidate.
     -- Push it to the remote integration branch to trigger a build.
-    Nothing  -> pure $ Left RebaseFailed
-    Just sha -> do
+    (Nothing,_) -> pure $ Left RebaseFailed
+    (_,Nothing) -> pure $ Left RebaseFailed
+    (Just targetSha, Just sha) | sha == targetSha -> pure $ Left EmptyRebase
+                               | otherwise -> do
       -- Before merging, we check if there exist fixup commits that do not
       -- belong to any other commits. If there are no such fixups, we proceed
       -- with merging; otherwise we raise a warning and don't merge.

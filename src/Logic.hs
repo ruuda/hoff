@@ -736,6 +736,9 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
   PrStatusIntegrated -> "The build succeeded."
   PrStatusIncorrectBaseBranch -> "Merge rejected: the target branch must be the integration branch."
   PrStatusWrongFixups -> "Pull request cannot be integrated as it contains fixup commits that do not belong to any other commits."
+  PrStatusEmptyRebase -> "Empty rebase. \
+                         \ Have the changes already been merged into the target branch? \
+                         \ Aborting."
   PrStatusFailedConflict ->
     let
       BaseBranch targetBranchName = Pr.baseBranch pr

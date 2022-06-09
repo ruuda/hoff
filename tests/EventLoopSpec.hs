@@ -1187,3 +1187,57 @@ eventLoopSpec = parallel $ do
         , "* c1"
         , "* c0"
         ]
+
+    it "detects empty rebases" $ do
+      (history, branches, _tagRefs, _tagAnns) <- withTestEnv' $ \ shas runLoop _git -> do
+        let [_c0, _c1, _c2, _c3, _c3', _c4, _c5, c6, _c7, c7f, _c8] = shas
+            pr6 = PullRequestId 6
+            pr8 = PullRequestId 8 -- PR#8 is built with 3 commits on top of PR#6
+            branch6 = Branch "intro"
+            branch8 = Branch "fixup" -- a fork from intro with all its changes
+            baseBranch = masterBranch
+
+        state <- runLoop Project.emptyProjectState
+          [
+            Logic.PullRequestOpened pr6 branch6 baseBranch c6 "Add Leon test results" "deckard",
+            Logic.PullRequestOpened pr8 branch8 baseBranch c7f "Update Leon data" "deckard",
+            Logic.CommentAdded pr8 "rachael" "@bot merge"
+          ]
+
+        let
+          Just (prId, pullRequest)       = Project.getIntegrationCandidate state
+          Project.Integrated rebasedSha _ = Project.integrationStatus pullRequest
+
+        prId `shouldBe` pr8
+
+        -- merging PR#8 implies all changes from PR#6 are already in master
+
+        state' <- runLoop state
+          [
+            Logic.BuildStatusChanged rebasedSha BuildSucceeded,
+            Logic.CommentAdded pr6 "rachael" "@bot merge"
+          ]
+
+        Project.getIntegrationCandidate state' `shouldBe` Nothing
+
+        let Just pullRequest' = Project.lookupPullRequest pr6 state'
+        Project.integrationStatus pullRequest' `shouldBe`
+          Project.Conflicted baseBranch Git.EmptyRebase
+        -- since all changes are already into master, the merge is aborted.
+        -- Users are notified and they should manually close the PR.
+
+      history `shouldBe`
+        [ "*   Merge #8"
+        , "|\\"
+        , "| * c8"
+        , "| * c7"
+        , "| * c6"
+        , "| * c5"
+        , "|/"
+        , "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
+      branches `shouldMatchList`
+        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused", "integration"]
