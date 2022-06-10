@@ -97,7 +97,7 @@ blocks:
             # push the result to Cachix.
             - "cat nix-store-location | cachix push channable-public"
 
-            # Remove store location (uneeded now)
+            # Remove store location (unneeded now)
             - "rm nix-store-location"
 
             # Store a copy of the nix store. This will be refreshed daily, which
