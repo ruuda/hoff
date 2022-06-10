@@ -4,7 +4,7 @@ name: "Hoff"
 
 agent:
   machine:
-    type: "e1-standard-2"
+    type: "e1-standard-4"
     os_image: "ubuntu1804"
 
 # If we push a new build to some branch that isn't master, and another build is
@@ -83,10 +83,22 @@ blocks:
             # Check shell scripts for issues.
             - "shellcheck package/*.sh package/deb-postinst"
 
-            # Run build and tests in Nix, and push the result to Cachix.
+            # Print working directory for debugging purposes
+            - "pwd"
+
+            # Run build and tests in Nix
             # Because this is a public repository, and not everyone is using Nix,
             # we keep the stack setup around. The Nix build however is used in production.
-            - "nix-build --no-out-link release.nix | cachix push channable-public"
+            - "nix-build --no-out-link release.nix >nix-store-location"
+
+            # Display Nix store location for debugging purposes
+            - "cat nix-store-location"
+
+            # push the result to Cachix.
+            - "cat nix-store-location | cachix push channable-public"
+
+            # Remove store location (unneeded now)
+            - "rm nix-store-location"
 
             # Store a copy of the nix store. This will be refreshed daily, which
             # is more than sufficient for this repo.
