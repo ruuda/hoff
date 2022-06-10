@@ -159,7 +159,7 @@ viewProjectQueues info state = do
     let approvedSorted = sortOn (\(_, pr, _) -> approvalOrder <$> Project.approval pr) approved
     viewList viewPullRequestWithApproval info approvedSorted
 
-  let awaitingApproval = filterPrs (== Project.PrStatusAwaitingApproval)
+  let awaitingApproval = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
   unless (null awaitingApproval) $ do
     h2 "Awaiting approval"
     viewList viewPullRequest info awaitingApproval
@@ -198,7 +198,7 @@ viewGroupedProjectQueues projects = do
     h2 "Approved"
     mapM_ (uncurry $ viewList' viewPullRequestWithApproval) approved
 
-  let awaitingApproval = filterPrs (== Project.PrStatusAwaitingApproval)
+  let awaitingApproval = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
   unless (null awaitingApproval) $ do
     h2 "Awaiting approval"
     mapM_ (uncurry $ viewList' viewPullRequest) awaitingApproval
