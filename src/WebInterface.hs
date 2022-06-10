@@ -159,13 +159,7 @@ viewProjectQueues info state = do
     let approvedSorted = sortOn (\(_, pr, _) -> approvalOrder <$> Project.approval pr) approved
     viewList viewPullRequestWithApproval info approvedSorted
 
-  let awaitingApproval = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
-  unless (null awaitingApproval) $ do
-    h2 "Awaiting approval"
-    viewList viewPullRequest info awaitingApproval
-
   let failed = filterPrs prFailed
-
   unless (null failed) $ do
     h2 "Failed"
     -- TODO: Also render failure reason: conflicted or build failed.
@@ -177,6 +171,11 @@ viewProjectQueues info state = do
   unless (null integrated) $ do
     h2 "Recently integrated"
     viewList viewPullRequestWithApproval info integrated
+
+  let awaitingApproval = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
+  unless (null awaitingApproval) $ do
+    h2 "Awaiting approval"
+    viewList viewPullRequest info awaitingApproval
 
 -- Render the html for the queues in a project, excluding the header and footer.
 viewGroupedProjectQueues :: [(ProjectInfo, ProjectState)] -> Html
@@ -198,13 +197,7 @@ viewGroupedProjectQueues projects = do
     h2 "Approved"
     mapM_ (uncurry $ viewList' viewPullRequestWithApproval) approved
 
-  let awaitingApproval = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
-  unless (null awaitingApproval) $ do
-    h2 "Awaiting approval"
-    mapM_ (uncurry $ viewList' viewPullRequest) awaitingApproval
-
   let failed = filterPrs prFailed
-
   unless (null failed) $ do
     h2 "Failed"
     -- TODO: Also render failure reason: conflicted or build failed.
@@ -216,6 +209,11 @@ viewGroupedProjectQueues projects = do
   unless (null integrated) $ do
     h2 "Recently integrated"
     mapM_ (uncurry $ viewList' viewPullRequestWithApproval) integrated
+
+  let awaitingApproval = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
+  unless (null awaitingApproval) $ do
+    h2 "Awaiting approval"
+    mapM_ (uncurry $ viewList' viewPullRequest) awaitingApproval
 
   where
     viewList'
