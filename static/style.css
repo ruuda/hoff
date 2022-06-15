@@ -105,6 +105,13 @@ p
   clear: both;
 }
 
+span.prId
+{
+  color: #adaca4;
+  display: inline-block;
+  margin-left: 0.391rem;
+}
+
 span.review
 {
   color: #adaca4;
