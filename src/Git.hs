@@ -11,6 +11,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -51,7 +52,8 @@ module Git
 )
 where
 
-import Control.Monad (mzero, when)
+import Control.Concurrent (threadDelay)
+import Control.Monad (mzero, when, foldM)
 import Control.Monad.Free (Free, liftF)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
@@ -155,7 +157,7 @@ instance ToJSON RemoteUrl where
 
 data PushResult
   = PushOk
-  | PushRejected
+  | PushRejected Text
   deriving stock (Eq, Show)
 
 data CloneResult
@@ -316,8 +318,8 @@ runGit userConfig repoDir operation =
     getHead = do
       revResult <- callGitInRepo ["rev-parse", "@"]
       case revResult of
-        Left  _   -> do
-          logWarnN "warning: git rev-parse failed"
+        Left (_, message) -> do
+          logWarnN $ "warning: git rev-parse failed. Reason: " <> message
           pure Nothing
         Right newSha ->
           pure $ Just $ Sha $ Text.stripEnd newSha
@@ -328,7 +330,7 @@ runGit userConfig repoDir operation =
         WithTags -> ["fetch", "--tags", "origin", refSpec branch]
         NoTags   -> ["fetch", "origin", refSpec branch]
       case result of
-        Left  _ -> logWarnN "warning: git fetch failed"
+        Left (_, message) -> logWarnN $ "warning: git fetch failed. Reason: " <> message
         Right _ -> return ()
       pure cont
 
@@ -340,17 +342,17 @@ runGit userConfig repoDir operation =
       -- not exist.
       result <- callGitInRepo ["push", "--force", "origin", refSpec (sha, branch)]
       case result of
-        Left  _ -> logWarnN "warning: git push --force failed"
+        Left _ -> logWarnN "warning: git push --force failed"
         Right _ -> return ()
       pure cont
 
     Push sha branch cont -> do
       result <- callGitInRepo ["push", "origin", refSpec (sha, branch)]
-      let pushResult = case result of
-            Left  _ -> PushRejected
-            Right _ -> PushOk
-      when (pushResult == PushRejected) $ logInfoN "push was rejected"
-      pure $ cont pushResult
+      case result of
+        Left  (_, message) -> do
+          logInfoN $ "warning: git push failed. Reason: " <> message
+          pure . cont $ PushRejected message
+        Right _ -> pure $ cont PushOk
 
     Rebase sha remoteBranch cont -> do
       -- Do an interactive rebase with editor set to /usr/bin/true, so we just
@@ -362,11 +364,11 @@ runGit userConfig repoDir operation =
         ,  refSpec remoteBranch, refSpec sha
         ]
       case result of
-        Left (code, message) -> do
+        Left (_, message) -> do
           -- Rebase failed, call the continuation with no rebased sha, but first
           -- abort the rebase.
           -- TODO: Don't spam the log with these, a failed rebase is expected.
-          logInfoN $ format "git rebase failed with code {}: {}" (show code, message)
+          logInfoN $ "git rebase failed. Reason: " <> message
           abortResult <- callGitInRepo ["rebase", "--abort"]
           when (isLeft abortResult) $ logWarnN "warning: git rebase --abort failed"
           pure $ cont Nothing
@@ -381,10 +383,10 @@ runGit userConfig repoDir operation =
         , refSpec sha
         ]
       case result of
-        Left (code, output) -> do
+        Left (_, message) -> do
           -- Merge failed, call the continuation with no rebased sha, but first
           -- abort the merge, if any.
-          logInfoN $ format "git merge failed with code {}: {}" (show code, output)
+          logInfoN $ "git merge failed. Reason: " <> message
           abortResult <- callGitInRepo ["merge", "--abort"]
           when (isLeft abortResult) $ logWarnN "git merge --abort failed"
           pure $ cont Nothing
@@ -434,8 +436,8 @@ runGit userConfig repoDir operation =
         , repoDir
         ]
       case result of
-        Left (code, message) -> do
-          logWarnN $ format "git clone failed with code {}: {}" (show code, message)
+        Left (_, message) -> do
+          logWarnN $ "git clone failed. Reason: " <> message
           pure $ cont CloneFailed
         Right _ -> do
           logInfoN $ format "cloned {} successfully" [url]
@@ -447,11 +449,12 @@ runGit userConfig repoDir operation =
 
     PushAtomic refs cont -> do
       result <- callGitInRepo $ ["push", "--atomic", "origin"] ++ map refSpec refs
-      let pushResult = case result of
-            Left  _ -> PushRejected
-            Right _ -> PushOk
-      when (pushResult == PushRejected) $ logInfoN "atomic push was rejected"
-      pure $ cont pushResult
+      case result of
+        Left  (_, message) -> do
+          logInfoN ("warning: atomic push was rejected. Reason: " <> message)
+          pure . cont $ PushRejected message
+        Right _ -> pure $ cont PushOk
+
     LastTag sha cont -> do
       result <- callGitInRepo ["describe", "--abbrev=0", "--tags", refSpec sha]
       pure $ cont $ either (const Nothing) Just result
@@ -459,8 +462,8 @@ runGit userConfig repoDir operation =
     ShortLog shaStart shaEnd cont -> do
       result <- callGitInRepo ["shortlog", refSpec shaStart <> ".." <> refSpec shaEnd]
       case result of
-        Left (code, message) -> do
-          logWarnN $ format "git shortlog failed with code {}: {}" (show code, message)
+        Left (_, message) -> do
+          logWarnN $ "git shortlog failed. Reason: " <> message
           pure $ cont Nothing
         Right changelog -> do
           pure $ cont $ Just changelog
@@ -468,8 +471,8 @@ runGit userConfig repoDir operation =
     Tag sha t (TagMessage m) cont -> do
       result <- callGitInRepo ["tag", "-a", refSpec t, "-m", Text.unpack m, refSpec sha]
       case result of
-        Left (code, message) -> do
-          logWarnN $ format "git tag failed with code {}: {}" (show code, message)
+        Left (_, message) -> do
+          logWarnN $ "git tag failed. Reason: " <> message
           pure $ cont $ TagFailed message
         Right _ -> do
           logInfoN $ format "tagged {} with {}" [show sha, show t]
@@ -482,8 +485,8 @@ runGit userConfig repoDir operation =
                     sha' = refSpec sha
                 in callGitInRepo ["log", Text.unpack $ format "{}..{}" [branch',sha'], "--format=%s"]
       case result of
-        Left (code, message) -> do
-          logWarnN $ format "git log failed with code {}: {}" (show code, message)
+        Left (_, message) -> do
+          logWarnN $ "git log failed. Reason: {}" <> message
           pure $ cont False
         Right logResponse -> do
           let anyOrphanFixups = any (\x -> "fixup!" `Text.isPrefixOf` x) $ Text.lines logResponse
@@ -528,13 +531,14 @@ runGitReadOnly userConfig repoDir operation =
         logInfoN $ Text.concat ["Would have force-pushed ", sha, " to ", branch]
         pure cont
       Push (Sha sha) (Branch branch) cont -> do
-        logInfoN $ Text.concat ["Would have pushed ", sha, " to ", branch]
-        pure $ cont PushRejected
+        let errorMsg = Text.concat ["Would have pushed ", sha, " to ", branch]
+        logInfoN errorMsg
+        pure . cont $ PushRejected errorMsg
       PushAtomic refs cont -> do
-        logInfoN
-          $ "Would have pushed atomically the following refs: "
-          <> Text.intercalate "," (map (Text.pack . refSpec) refs)
-        pure $ cont PushRejected
+        let errorMsg = "Would have pushed atomically the following refs: "
+                    <> Text.intercalate "," (map (Text.pack . refSpec) refs)
+        logInfoN errorMsg
+        pure . cont $ PushRejected errorMsg
 
 -- Fetches the target branch, rebases the candidate on top of the target branch,
 -- and if that was successful, force-pushes the resulting commits to the test

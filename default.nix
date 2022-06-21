@@ -9,5 +9,6 @@ in
       pkgs.git
       pkgs.shellcheck
       pkgs.stack
+      pkgs.haskellPackages.haskell-language-server
     ];
   }

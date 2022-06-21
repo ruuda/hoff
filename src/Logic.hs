@@ -706,7 +706,7 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       -- If something was pushed to the target branch while the candidate was
       -- being tested, try to integrate again and hope that next time the push
       -- succeeds.
-      PushRejected -> tryIntegratePullRequest pullRequestId state
+      PushRejected _why -> tryIntegratePullRequest pullRequestId state
 
 -- Keep doing a proceed step until the state doesn't change any more. For this
 -- to work properly, it is essential that "proceed" does not have any side
