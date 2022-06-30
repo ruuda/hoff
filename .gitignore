@@ -24,6 +24,9 @@
 # Configuration file
 /config.json
 
+# Hoff state
+/run
+
 # Test output
 .hspec-failures
 

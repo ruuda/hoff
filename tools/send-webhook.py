@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 
 
 def send_webhook(event_name: str, payload: dict):
-    url = 'http://localhost:5261/hook/github'
+    url = 'http://localhost:1979/hook/github'
     headers = {'X-GitHub-Event': event_name}
     payload_bytes = dumps(payload).encode('utf8')
     request = Request(url, payload_bytes, headers, method='POST')

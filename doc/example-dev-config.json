@@ -1,0 +1,23 @@
+{
+  "projects": [{
+    "owner": "USERNAME-OR-ORGANIZATION",
+    "repository": "git-sandbox",
+    "branch": "master",
+    "testBranch": "testing",
+    "checkout": "./run/checkouts/git-sandbox",
+    "stateFile": "./run/state/git-sandbox.json"
+  }],
+  "secret": "REPLACE with output of 'head --bytes 32 /dev/urandom | base64'",
+  "accessToken": "REPLACE with a new personal access token from https://github.com/settings/tokens",
+  "port": 1979,
+  "tls": null,
+  "user": {
+    "name": "Dev Hoffbot (YOURNAME)",
+    "email": "YOURNAME+hoffbot@example.com",
+    "sshConfigFile": "/dev/null"
+  },
+  "mergeWindowExemption": ["hoffbot-YOURNAME"],
+  "trigger": {
+    "commentPrefix": "@hoffbot-YOURNAME"
+  }
+}
