@@ -9,8 +9,6 @@
 
 module Server (buildServer) where
 
-import Debug.Trace (traceShow)
-
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TSem (newTSem, signalTSem, waitTSem)
 import Control.Monad.IO.Class (liftIO)
@@ -62,12 +60,10 @@ styleRoute = Literal $ LT.fromStrict WebInterface.stylesheetUrl
 -- Checks the signature (encoded as hexadecimal characters in 'hexDigest') of
 -- the message, given the secret, and the actual message bytes.
 isSignatureValid :: Text -> Text -> ByteString -> Bool
-isSignatureValid _ _ message | traceShow message False = undefined
 isSignatureValid secret hexDigest message =
   let actualHmac   = hmac (encodeUtf8 secret) message :: HMAC SHA1
       binaryDigest = Base16.decode $ encodeUtf8 hexDigest
-  in 
-      case binaryDigest of
+  in  case binaryDigest of
         -- If the hexDigest was not hexadecimal, is was definitely not valid
         Left _ -> False
         Right x -> case digestFromByteString x of
