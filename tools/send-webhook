@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# We could have used /tmp, but the current directory
+# is better for debugging purposes.
+cat >webhook-data.json <<DATA
+{
+    "action": "created"
+}
+DATA
+
+# -- Begin of Workaround --
+# We seem to be relying on the fact that GitHub always
+# sends webhook payloads without newlines to perform
+# the signature checks.  If GitHub changes this at some
+# point in the future, Hoff will stop working.
+tr -d '\n' <webhook-data.json >webhook-data-single-line.json
+mv webhook-data{-single-line,}.json
+# -- End of Workaround --
+
+secret=`cat config.json  | grep secret | sed 's/.* "//;s/".*//'`
+signature1=`cat webhook-data.json | openssl dgst -sha1 -hmac "$secret" | sed 's/^.* //'`
+signature256=`cat webhook-data.json | openssl dgst -sha256 -hmac "$secret" | sed 's/^.* //'`
+
+curl \
+	-XPOST \
+	-w "\n\n%{http_code}\n" \
+	-H "X-GitHub-Event: issue_comment" \
+	-H "X-Hub-Signature: sha1=$signature1" \
+	-H "X-Hub-Signature-256: sha256=$signature256" \
+	http://localhost:1979/hook/github \
+	-d @webhook-data.json
