@@ -87,12 +87,16 @@ to see the open PRs and build queue.
 The build queue is fetched through GitHub's web interface,
 so you will be able to see the full list right away.
 
-Comments and build results are sent in though a webhook.
+[Comment]s and [build status]es are only sent in though a webhook.
 While running without a public IP address,
-GitHub will have no way of notifying your Hoff instance,
-so you can use the [`send-webhook.py`](/tools/send-webhook.py) script:
+GitHub will have no way of notifying your Hoff instance.
+You can use the [`send-webhook.py`](/tools/send-webhook.py) script
+to simulate those:
 
     $ ./tools/send-webhook.py issue_comment created 31337 author "@hoffbot merge"
+
+[Comment]: https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#issue_comment
+[build status]: https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
 
 
 ## Running on a server
