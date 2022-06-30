@@ -13,6 +13,7 @@ DATA
 # sends webhook payloads without newlines to perform
 # the signature checks.  If GitHub changes this at some
 # point in the future, Hoff will stop working.
+# See: https://github.com/channable/hoff/issues/127
 tr -d '\n' <webhook-data.json >webhook-data-single-line.json
 mv webhook-data{-single-line,}.json
 # -- End of Workaround --
