@@ -32,7 +32,8 @@ To simulated a failed or error build status, use:
 
     ./tools/build-status c033170123456789abcdef0123456789abcdef01 error
 
-The owner/repository is figured out from your config.json.
+The secret and owner/repository are figured out from your config.json.
+Current setting: $owner/$repository
 USAGE
 }
 
@@ -42,14 +43,15 @@ errxit() {
 	exit 1
 }
 
-# Takes the first occurrence of a field in config.json
-# while requiring it to be one-field-per-line.
-# This is limited but should be enough for local testing.
+# Takes the first occurrence of a field in config.json.
+# This is not a proper JSON parsing, but is enough
+# for the purposes of locally simulating webhooks
+# in a development environment.
 get() {
 	cat config.json |
 	grep $1 |
 	head -1 |
-	sed 's/.* "//;s/".*//'
+	sed "s/.*\"$1\": *\"//;s/\".*//"
 }
 
 # Produced a comment payload with the fields needed by Hoff.
