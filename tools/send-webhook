@@ -60,6 +60,12 @@ comment)
 	comment-payload >webhook-data.json
 	event="issue_comment"
 	;;
+ci)
+	number="$1"
+	[ -n "$number" ] || errxit "PR number should be provided as the 1st argument"
+	fail="$2"
+	errxit "TODO: implement me"
+	;;
 *)
 	errxit "please call this script as ./tools/comment or ./tools/ci"
 	;;
