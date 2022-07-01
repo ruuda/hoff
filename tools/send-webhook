@@ -10,6 +10,7 @@
 #
 # ./tools/send-webhook deckard 137 "@hoffbot merge"
 
+# prints an error message on stderr and exit
 errxit() {
 	echo "$0: $*" >&2
 	exit 1
@@ -29,7 +30,8 @@ get() {
 # Variables $owner, $repository, $number, $author and $body must be set.
 # https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#issue_comment
 comment-payload() {
-cat <<JSON
+# TODO: change to cat after fixing #127 (see FIXME below).
+tr -d '\n' <<JSON
 {
 	"action": "created",
 	"repository": {
@@ -47,8 +49,8 @@ JSON
 # Variables $owner, $repository and $commit
 # https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
 build-status-payload() {
-# TODO: remove some uneeded fields here.
-cat <<JSON
+# TODO: change to cat after fixing #127 (see FIXME below).
+tr -d '\n' <<JSON
 {
 	"name": "$owner/$repository",
     "target_url": null,
@@ -62,6 +64,14 @@ cat <<JSON
 }
 JSON
 }
+
+# FIXME: In the above payload functions, tr is used to remove line breaks.
+#        We seem to be relying on the fact that GitHub always
+#        sends webhook payloads without newlines to perform
+#        the signature checks.  If GitHub changes this at some
+#        point in the future, Hoff will stop working.
+#        See: https://github.com/channable/hoff/issues/127
+#        After issue #127 is fixed, we can replace tr by cat.
 
 secret=`get secret`
 owner=`get owner`
@@ -103,16 +113,6 @@ esac
 # we could have used /tmp, but the current directory
 # is better for debugging purposes.
 # One can check the final payload after the fact.
-
-# -- Begin of Workaround --
-# We seem to be relying on the fact that GitHub always
-# sends webhook payloads without newlines to perform
-# the signature checks.  If GitHub changes this at some
-# point in the future, Hoff will stop working.
-# See: https://github.com/channable/hoff/issues/127
-tr -d '\n' <webhook-data.json >webhook-data-single-line.json
-mv webhook-data{-single-line,}.json
-# -- End of Workaround --
 
 signature1=`cat webhook-data.json | openssl dgst -sha1 -hmac "$secret" | sed 's/^.* //'`
 signature256=`cat webhook-data.json | openssl dgst -sha256 -hmac "$secret" | sed 's/^.* //'`
