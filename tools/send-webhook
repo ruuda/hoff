@@ -94,7 +94,7 @@ comment)
 	event="issue_comment"
 	comment-payload >webhook-data.json
 	;;
-ci)
+build-status)
 	event=
 	commit="$1"
 
@@ -105,7 +105,7 @@ ci)
 	build-status-payload >webhook-data.json
 	;;
 *)
-	errxit "please call this script as ./tools/comment or ./tools/ci"
+	errxit "please call this script as ./tools/comment or ./tools/build-status"
 	;;
 esac
 
