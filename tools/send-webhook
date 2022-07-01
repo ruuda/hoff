@@ -25,8 +25,11 @@ get() {
 	sed 's/.* "//;s/".*//'
 }
 
+# Produced a comment payload with the fields needed by Hoff.
+# Variables $owner, $repository, $number, $author and $body must be set.
+# https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#issue_comment
 comment-payload() {
-cat <<DATA
+cat <<JSON
 {
 	"action": "created",
 	"repository": {
@@ -37,7 +40,27 @@ cat <<DATA
 	"sender": {"login": "$author"},
 	"comment": {"body": "$body"}
 }
-DATA
+JSON
+}
+
+# Produced a build status payload with the fields needed by Hoff.
+# Variables $owner, $repository and $commit
+# https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
+build-status-payload() {
+# TODO: remove some uneeded fields here.
+cat <<JSON
+{
+	"name": "$owner/$repository",
+    "target_url": null,
+	"repository": {
+		"owner": {"login": "$owner"},
+		"name": "$repository"
+	},
+	"state": "success",
+    "sha": "$commit",
+    "commit": {"sha": "$commit"}
+}
+JSON
 }
 
 secret=`get secret`
@@ -57,14 +80,19 @@ comment)
 
 	[ -n "$author" ] || errxit "Author should be provided as the 1st argument"
 	[ -n "$number" ] || errxit "PR number should be provided as the 2st argument"
-	comment-payload >webhook-data.json
+
 	event="issue_comment"
+	comment-payload >webhook-data.json
 	;;
 ci)
-	number="$1"
-	[ -n "$number" ] || errxit "PR number should be provided as the 1st argument"
-	fail="$2"
-	errxit "TODO: implement me"
+	event=
+	commit="$1"
+
+	[ -n "$commit" ] || errxit "Full commit sha should be provided as the 1st argument"
+	status="$2" || status=success
+
+	event="status"
+	build-status-payload >webhook-data.json
 	;;
 *)
 	errxit "please call this script as ./tools/comment or ./tools/ci"
