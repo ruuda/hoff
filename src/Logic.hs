@@ -173,9 +173,12 @@ runAction config = foldFree $ \case
 
   TryPromote prBranch sha cont -> do
     doGit $ ensureCloned config
-    doGit $ Git.forcePush sha prBranch
-    pushResult <- doGit $ Git.push sha (Git.Branch $ Config.branch config)
-    pure $ cont pushResult
+    forcePushResult <- doGit $ Git.forcePush sha prBranch
+    case forcePushResult of
+      PushRejected _ -> pure $ cont forcePushResult
+      PushOk -> do
+        pushResult <- doGit $ Git.push sha (Git.Branch $ Config.branch config)
+        pure $ cont pushResult
 
   TryPromoteWithTag prBranch sha newTagName newTagMessage cont -> doGit $
     ensureCloned config >>

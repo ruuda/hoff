@@ -52,8 +52,7 @@ module Git
 )
 where
 
-import Control.Concurrent (threadDelay)
-import Control.Monad (mzero, when, foldM)
+import Control.Monad (mzero, when)
 import Control.Monad.Free (Free, liftF)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
@@ -178,6 +177,7 @@ data GitIntegrationFailure
   | RebaseFailed
   | WrongFixups
   | EmptyRebase
+  | FailedForcePush Text
   deriving (Show, Eq, Generic)
 
 instance FromJSON GitIntegrationFailure
@@ -186,7 +186,7 @@ instance ToJSON GitIntegrationFailure where toEncoding = Aeson.genericToEncoding
 
 data GitOperationFree a
   = FetchBranch Branch FetchWithTags a
-  | ForcePush Sha Branch a
+  | ForcePush Sha Branch (PushResult -> a)
   | Push Sha Branch (PushResult -> a)
   | PushAtomic [SomeRefSpec] (PushResult -> a)
   | Rebase Sha RemoteBranch (Maybe Sha -> a)
@@ -211,8 +211,8 @@ fetchBranch remoteBranch = liftF $ FetchBranch remoteBranch NoTags ()
 fetchBranchWithTags :: Branch -> GitOperation ()
 fetchBranchWithTags remoteBranch = liftF $ FetchBranch remoteBranch WithTags ()
 
-forcePush :: Sha -> Branch -> GitOperation ()
-forcePush sha remoteBranch = liftF $ ForcePush sha remoteBranch ()
+forcePush :: Sha -> Branch -> GitOperation PushResult
+forcePush sha remoteBranch = liftF $ ForcePush sha remoteBranch id
 
 push :: Sha -> Branch -> GitOperation PushResult
 push sha remoteBranch = liftF $ Push sha remoteBranch id
@@ -340,11 +340,12 @@ runGit userConfig repoDir operation =
       -- Note: the remote branch is prefixed with 'refs/heads/' to specify the
       -- branch unambiguously. This will make Git create the branch if it does
       -- not exist.
-      result <- callGitInRepo ["push", "--force", "origin", refSpec (sha, branch)]
-      case result of
-        Left _ -> logWarnN "warning: git push --force failed"
-        Right _ -> return ()
-      pure cont
+      gitResult <- callGitInRepo ["push", "--force", "origin", refSpec (sha, branch)]
+      case gitResult of
+        Right _ -> pure $ cont PushOk
+        Left (_, message) -> do
+          logWarnN $ "error: git push --force failed. Reason: " <> message
+          pure $ cont $ PushRejected message
 
     Push sha branch cont -> do
       result <- callGitInRepo ["push", "origin", refSpec (sha, branch)]
@@ -383,10 +384,10 @@ runGit userConfig repoDir operation =
         , refSpec sha
         ]
       case result of
-        Left (_, message) -> do
+        Left (_, output) -> do
           -- Merge failed, call the continuation with no rebased sha, but first
           -- abort the merge, if any.
-          logInfoN $ "git merge failed. Reason: " <> message
+          logInfoN $ "git merge failed. Reason: " <> output
           abortResult <- callGitInRepo ["merge", "--abort"]
           when (isLeft abortResult) $ logWarnN "git merge --abort failed"
           pure $ cont Nothing
@@ -529,7 +530,7 @@ runGitReadOnly userConfig repoDir operation =
       -- read-only mode.
       ForcePush (Sha sha) (Branch branch) cont -> do
         logInfoN $ Text.concat ["Would have force-pushed ", sha, " to ", branch]
-        pure cont
+        pure $ cont PushOk
       Push (Sha sha) (Branch branch) cont -> do
         let errorMsg = Text.concat ["Would have pushed ", sha, " to ", branch]
         logInfoN errorMsg
@@ -539,6 +540,7 @@ runGitReadOnly userConfig repoDir operation =
                     <> Text.intercalate "," (map (Text.pack . refSpec) refs)
         logInfoN errorMsg
         pure . cont $ PushRejected errorMsg
+
 
 -- Fetches the target branch, rebases the candidate on top of the target branch,
 -- and if that was successful, force-pushes the resulting commits to the test
@@ -593,8 +595,7 @@ tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAdd
           -- If both the rebase, and the (potential) merge went well, push it to the
           -- testing branch so CI will build it.
           case newTip of
-            Just tipSha -> do
-              forcePush tipSha testBranch
-            Nothing     -> pure ()
-
-          pure $ maybe (Left MergeFailed) Right newTip
+            Just tipSha -> forcePush tipSha testBranch >>= \case
+              PushOk           -> pure $ Right tipSha
+              PushRejected err -> pure $ Left $ FailedForcePush err
+            Nothing     -> pure $ Left MergeFailed
