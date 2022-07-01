@@ -90,10 +90,12 @@ so you will be able to see the full list right away.
 [Comment]s and [build status]es are only sent in though a webhook.
 While running without a public IP address,
 GitHub will have no way of notifying your Hoff instance.
-You can use the [`send-webhook.py`](/tools/send-webhook.py) script
+You can use some of the scripts in the `tools/` folder
 to simulate those:
 
-    $ ./tools/send-webhook.py issue_comment created 31337 author "@hoffbot merge"
+    $ ./tools/comment deckard 31337 @hoffbot merge
+
+	$ ./tools/build-status c033170123456789abcdef0123456789abcdef01
 
 [Comment]: https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#issue_comment
 [build status]: https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
