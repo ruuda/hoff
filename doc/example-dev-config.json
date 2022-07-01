@@ -12,12 +12,12 @@
   "port": 1979,
   "tls": null,
   "user": {
-    "name": "Dev Hoffbot (YOURNAME)",
-    "email": "YOURNAME+hoffbot@example.com",
+    "name": "Dev Hoffbot",
+    "email": "hoffbot@example.com",
     "sshConfigFile": "/dev/null"
   },
-  "mergeWindowExemption": ["hoffbot-YOURNAME"],
+  "mergeWindowExemption": ["hoffbot"],
   "trigger": {
-    "commentPrefix": "@hoffbot-YOURNAME"
+    "commentPrefix": "@hoffbot"
   }
 }
