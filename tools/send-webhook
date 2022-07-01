@@ -1,10 +1,57 @@
 #!/bin/bash
+#
+# Simulates a webhook from GitHub, only needed fields are included.
+#
+# Commenter, PR number and comment contents are taken from the command line.
+# Owner and repository are taken as the first to appear in config.json.
+# This avoids repetition when simulating GitHub hooks from the CLI.
+#
+# Example:
+#
+# ./tools/send-webhook deckard 137 "@hoffbot merge"
+
+errxit() {
+	echo "$0: $*" >&2
+	exit 1
+}
+
+# Takes the first occurrence of a field in config.json
+# while requiring it to be one-field-per-line.
+# This is limited but should be enough for local testing.
+get() {
+	cat config.json |
+	grep $1 |
+	head -1 |
+	sed 's/.* "//;s/".*//'
+}
+
+author="$1"
+number="$2"
+shift 2
+body="$*"
+
+secret=`get secret`
+owner=`get owner`
+repository=`get repository`
+
+[ -n "$author" ]     || errxit "Author should be provided as the 1st argument"
+[ -n "$number" ]     || errxit "PR number should be provided as the 2st argument"
+[ -n "$secret" ]     || errxit "could not parse secret from config.json"
+[ -n "$owner"  ]     || errxit "could not parse owner from config.json"
+[ -n "$repository" ] || errxit "could not parse repository from config.json"
 
 # We could have used /tmp, but the current directory
 # is better for debugging purposes.
 cat >webhook-data.json <<DATA
 {
-    "action": "created"
+    "action": "created",
+    "repository": {
+        "owner": {"login": "$owner"},
+        "name": "$repository"
+    },
+	"issue": {"number": $number},
+    "sender": {"login": "$author"},
+    "comment": {"body": "$body"}
 }
 DATA
 
@@ -18,7 +65,6 @@ tr -d '\n' <webhook-data.json >webhook-data-single-line.json
 mv webhook-data{-single-line,}.json
 # -- End of Workaround --
 
-secret=`cat config.json  | grep secret | sed 's/.* "//;s/".*//'`
 signature1=`cat webhook-data.json | openssl dgst -sha1 -hmac "$secret" | sed 's/^.* //'`
 signature256=`cat webhook-data.json | openssl dgst -sha256 -hmac "$secret" | sed 's/^.* //'`
 
