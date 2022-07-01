@@ -25,35 +25,50 @@ get() {
 	sed 's/.* "//;s/".*//'
 }
 
-author="$1"
-number="$2"
-shift 2
-body="$*"
+comment-payload() {
+cat <<DATA
+{
+	"action": "created",
+	"repository": {
+		"owner": {"login": "$owner"},
+		"name": "$repository"
+	},
+	"issue": {"number": $number},
+	"sender": {"login": "$author"},
+	"comment": {"body": "$body"}
+}
+DATA
+}
 
 secret=`get secret`
 owner=`get owner`
 repository=`get repository`
 
-[ -n "$author" ]     || errxit "Author should be provided as the 1st argument"
-[ -n "$number" ]     || errxit "PR number should be provided as the 2st argument"
 [ -n "$secret" ]     || errxit "could not parse secret from config.json"
 [ -n "$owner"  ]     || errxit "could not parse owner from config.json"
 [ -n "$repository" ] || errxit "could not parse repository from config.json"
 
-# We could have used /tmp, but the current directory
+case `basename $0` in
+comment)
+	author="$1"
+	number="$2"
+	shift 2
+	body="$*"
+
+	[ -n "$author" ] || errxit "Author should be provided as the 1st argument"
+	[ -n "$number" ] || errxit "PR number should be provided as the 2st argument"
+	comment-payload >webhook-data.json
+	event="issue_comment"
+	;;
+*)
+	errxit "please call this script as ./tools/comment or ./tools/ci"
+	;;
+esac
+
+# Regarding the choice of the webhook-data.json file,
+# we could have used /tmp, but the current directory
 # is better for debugging purposes.
-cat >webhook-data.json <<DATA
-{
-    "action": "created",
-    "repository": {
-        "owner": {"login": "$owner"},
-        "name": "$repository"
-    },
-	"issue": {"number": $number},
-    "sender": {"login": "$author"},
-    "comment": {"body": "$body"}
-}
-DATA
+# One can check the final payload after the fact.
 
 # -- Begin of Workaround --
 # We seem to be relying on the fact that GitHub always
@@ -71,7 +86,7 @@ signature256=`cat webhook-data.json | openssl dgst -sha256 -hmac "$secret" | sed
 curl \
 	-XPOST \
 	-w "\n\n%{http_code}\n" \
-	-H "X-GitHub-Event: issue_comment" \
+	-H "X-GitHub-Event: $event" \
 	-H "X-Hub-Signature: sha1=$signature1" \
 	-H "X-Hub-Signature-256: sha256=$signature256" \
 	http://localhost:1979/hook/github \
