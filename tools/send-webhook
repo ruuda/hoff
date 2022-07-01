@@ -1,14 +1,40 @@
 #!/bin/bash
 #
 # Simulates a webhook from GitHub, only needed fields are included.
+# Examples:
 #
-# Commenter, PR number and comment contents are taken from the command line.
-# Owner and repository are taken as the first to appear in config.json.
-# This avoids repetition when simulating GitHub hooks from the CLI.
+# $ ./tools/send-webhook  # displays usage
 #
-# Example:
+# $ ./tools/comment deckard 1337 @hoffbot merge
 #
-# ./tools/send-webhook deckard 137 "@hoffbot merge"
+# $ ./tools/build-status c033170123456789abcdef0123456789abcdef01 success
+
+usage() {
+cat <<USAGE
+How to use ./tools/send-webhook to simulate GitHub webhooks for Hoff
+====================================================================
+
+To display this message, use:
+
+    ./tools/send-webhook
+
+To simulate a comment by user "deckard" on PR #1337, use:
+
+    ./tools/comment deckard 1337 @hoffbot merge
+
+To simulate a suceeded build status (with full commit hash), use:
+
+    ./tools/build-status c033170123456789abcdef0123456789abcdef01
+
+To simulated a failed or error build status, use:
+
+    ./tools/build-status c033170123456789abcdef0123456789abcdef01 failure
+
+    ./tools/build-status c033170123456789abcdef0123456789abcdef01 error
+
+The owner/repository is figured out from your config.json.
+USAGE
+}
 
 # prints an error message on stderr and exit
 errxit() {
@@ -63,6 +89,7 @@ tr -d '\n' <<JSON
     "commit": {"sha": "$commit"}
 }
 JSON
+# TODO: cleanup uneeded entries above
 }
 
 # FIXME: In the above payload functions, tr is used to remove line breaks.
@@ -105,7 +132,8 @@ build-status)
 	build-status-payload >webhook-data.json
 	;;
 *)
-	errxit "please call this script as ./tools/comment or ./tools/build-status"
+	usage
+	exit 0
 	;;
 esac
 
