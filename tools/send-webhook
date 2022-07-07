@@ -58,8 +58,7 @@ get() {
 # Variables $owner, $repository, $number, $author and $body must be set.
 # https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#issue_comment
 comment-payload() {
-# TODO: change to cat after fixing #127 (see FIXME below).
-tr -d '\n' <<JSON
+cat <<JSON
 {
 	"action": "created",
 	"repository": {
@@ -77,8 +76,7 @@ JSON
 # Variables $owner, $repository and $commit
 # https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
 build-status-payload() {
-# TODO: change to cat after fixing #127 (see FIXME below).
-tr -d '\n' <<JSON
+cat <<JSON
 {
 	"name": "$owner/$repository",
     "target_url": null,
@@ -93,14 +91,6 @@ tr -d '\n' <<JSON
 JSON
 # TODO: cleanup uneeded entries above
 }
-
-# FIXME: In the above payload functions, tr is used to remove line breaks.
-#        We seem to be relying on the fact that GitHub always
-#        sends webhook payloads without newlines to perform
-#        the signature checks.  If GitHub changes this at some
-#        point in the future, Hoff will stop working.
-#        See: https://github.com/channable/hoff/issues/127
-#        After issue #127 is fixed, we can replace tr by cat.
 
 secret=`get secret`
 owner=`get owner`
@@ -154,4 +144,4 @@ curl \
 	-H "X-Hub-Signature: sha1=$signature1" \
 	-H "X-Hub-Signature-256: sha256=$signature256" \
 	http://localhost:1979/hook/github \
-	-d @webhook-data.json
+	--data-binary @webhook-data.json
