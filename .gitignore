@@ -28,7 +28,7 @@
 /run
 
 # Temporary file of send-webhook
-webhook-data*.json
+webhook-data.json
 
 # Test output
 .hspec-failures
