@@ -58,9 +58,7 @@ errxit() {
 # for the purposes of locally simulating webhooks
 # in a development environment.
 get() {
-	cat config.json |
-	grep $1 |
-	head -1 |
+	grep -m1 "$1" config.json |
 	sed "s/.*\"$1\": *\"//;s/\".*//"
 }
 
