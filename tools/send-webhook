@@ -78,18 +78,15 @@ JSON
 build-status-payload() {
 cat <<JSON
 {
-	"name": "$owner/$repository",
-    "target_url": null,
 	"repository": {
 		"owner": {"login": "$owner"},
 		"name": "$repository"
 	},
+	"sha": "$commit",
 	"state": "success",
-    "sha": "$commit",
-    "commit": {"sha": "$commit"}
+	"target_url": null
 }
 JSON
-# TODO: cleanup uneeded entries above
 }
 
 secret=`get secret`
