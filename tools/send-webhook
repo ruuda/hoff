@@ -1,5 +1,8 @@
 #!/bin/bash
 #
+# This file is part of Hoff -- A gatekeeper for your commits.
+#
+#
 # Simulates a webhook from GitHub, only needed fields are included.
 # Examples:
 #
@@ -7,7 +10,14 @@
 #
 # $ ./tools/comment deckard 1337 @hoffbot merge
 #
-# $ ./tools/build-status c033170123456789abcdef0123456789abcdef01 success
+# $ ./tools/build-status c033170123456789abcdef0123456789abcdef01
+#
+#
+# Copyright 2022 Channable.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# A copy of the License has been included in the root of the repository.
 
 usage() {
 cat <<USAGE
