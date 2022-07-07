@@ -105,7 +105,7 @@ repository=`get repository`
 [ -n "$owner"  ]     || errxit "could not parse owner from config.json"
 [ -n "$repository" ] || errxit "could not parse repository from config.json"
 
-case `basename $0` in
+case "`basename $0`" in
 comment)
 	author="$1"
 	number="$2"
