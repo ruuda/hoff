@@ -12,6 +12,8 @@
 #
 # $ ./tools/build-status c033170123456789abcdef0123456789abcdef01
 #
+# The files ./tools/comment and ./tools/build-status are set up as symlinks.
+#
 #
 # Copyright 2022 Channable.
 #
