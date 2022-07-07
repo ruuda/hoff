@@ -140,8 +140,8 @@ esac
 # is better for debugging purposes.
 # One can check the final payload after the fact.
 
-signature1=$(cat webhook-data.json | openssl dgst -sha1 -hmac "$secret" | sed 's/^.* //')
-signature256=$(cat webhook-data.json | openssl dgst -sha256 -hmac "$secret" | sed 's/^.* //')
+signature1=$(  openssl dgst -sha1   -hmac "$secret" <webhook-data.json | sed 's/^.* //')
+signature256=$(openssl dgst -sha256 -hmac "$secret" <webhook-data.json | sed 's/^.* //')
 
 curl \
 	-XPOST \
