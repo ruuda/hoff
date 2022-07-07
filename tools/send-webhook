@@ -83,7 +83,7 @@ cat <<JSON
 		"name": "$repository"
 	},
 	"sha": "$commit",
-	"state": "success",
+	"state": "$state",
 	"target_url": null
 }
 JSON
@@ -113,9 +113,10 @@ comment)
 build-status)
 	event=
 	commit="$1"
+	state="$2"
 
 	[ -n "$commit" ] || errxit "Full commit sha should be provided as the 1st argument"
-	status="$2" || status=success
+	[ -n "$state" ] || state=success
 
 	event="status"
 	build-status-payload >webhook-data.json
