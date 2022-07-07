@@ -24,6 +24,12 @@
 # Configuration file
 /config.json
 
+# Hoff state
+/run
+
+# Temporary file of send-webhook
+webhook-data.json
+
 # Test output
 .hspec-failures
 

@@ -61,18 +61,63 @@ Hoff is written in Haskell and builds with [Stack][stack]:
     $ stack build
     $ stack test
 
-To run the application locally:
+## Running as a developer
 
-    $ cp package/example-config.json config.json
+To run the application locally
+you first need to create an appropriate `config.json` file:
+
+    $ cp doc/example-dev-config.json config.json
+
+Edit `config.json` to match your required settings.
+You can generate a personal access token in the
+["personal access tokens" tab of GitHub settings](https://github.com/settings/tokens).
+Give it a 7 days expiration and access to just "repo"s.
+
+    $ mkdir -p run/state
     $ stack exec hoff config.json
 
-You probably want to edit the config file before running.
+If using Nix, you may get a `ssh: command not found` error
+-- just pass `--no-nix-pure` to `stack exec` to avoid it:
+
+    $ nix run -c stack exec hoff config.json --no-nix-pure
+
+You can then access [http://localhost:1979](http://localhost:1979)
+to see the open PRs and build queue.
+
+The build queue is fetched through GitHub's web interface,
+so you will be able to see the full list right away.
+
+[Comment]s and [build status]es are only sent in though a webhook.
+While running without a public IP address,
+GitHub will have no way of notifying your Hoff instance.
+You can use some of the scripts in the `tools/` folder
+to simulate those:
+
+    $ ./tools/comment deckard 31337 @hoffbot merge
+
+	$ ./tools/build-status c033170123456789abcdef0123456789abcdef01
+
+[Comment]: https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#issue_comment
+[build status]: https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
+
+The tests of Hoff are extensive, you may be able to get by just by running them
+when making changes to the code.  To run a specific test, use `--match` giving
+part of the test title:
+
+	$ nix run -c stack test --ta '--match "part of the test title"'
+
+The implementation uses free monads and some of the tests replace lower level
+functionality with mocks.
+
+
+## Running on a server
 
 To run Hoff on a server, you can build a self-contained squashfs file system
 image with [Nix][nix]:
 
     $ nix build --out-link hoff.img
     $ cp package/example-config.json config.json
+    $ vi config.json # edit the file appropriately
     $ sudo systemd-nspawn \
       --ephemeral         \
       --image hoff.img    \

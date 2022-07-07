@@ -1,0 +1,162 @@
+#!/bin/bash
+#
+# This file is part of Hoff -- A gatekeeper for your commits.
+#
+#
+# Simulates a webhook from GitHub, only needed fields are included.
+# Examples:
+#
+# $ ./tools/send-webhook  # displays usage
+#
+# $ ./tools/comment deckard 1337 @hoffbot merge
+#
+# $ ./tools/build-status c033170123456789abcdef0123456789abcdef01
+#
+# The files ./tools/comment and ./tools/build-status are set up as symlinks.
+#
+#
+# Copyright 2022 Channable.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# A copy of the License has been included in the root of the repository.
+
+usage() {
+cat <<USAGE
+How to use ./tools/send-webhook to simulate GitHub webhooks for Hoff
+====================================================================
+
+To display this message, use:
+
+    ./tools/send-webhook
+
+To simulate a comment by user "deckard" on PR #1337, use:
+
+    ./tools/comment deckard 1337 @hoffbot merge
+
+To simulate a suceeded build status (with full commit hash), use:
+
+    ./tools/build-status c033170123456789abcdef0123456789abcdef01
+
+To simulated a failed or error build status, use:
+
+    ./tools/build-status c033170123456789abcdef0123456789abcdef01 failure
+
+    ./tools/build-status c033170123456789abcdef0123456789abcdef01 error
+
+The secret and owner/repository are figured out from your config.json.
+Current setting: $owner/$repository
+USAGE
+}
+
+# prints an error message on stderr and exit
+errxit() {
+	echo "$0: $*" >&2
+	exit 1
+}
+
+# Takes the first occurrence of a field in config.json.
+# This is not a proper JSON parsing, but is enough
+# for the purposes of locally simulating webhooks
+# in a development environment.
+get() {
+	grep -m1 "$1" config.json |
+	sed "s/.*\"$1\": *\"//;s/\".*//"
+}
+
+# Produced a comment payload with the fields needed by Hoff.
+# Variables $owner, $repository, $number, $author and $body must be set.
+# https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#issue_comment
+comment-payload() {
+cat <<JSON
+{
+	"action": "created",
+	"repository": {
+		"owner": {"login": "$owner"},
+		"name": "$repository"
+	},
+	"issue": {"number": $number},
+	"sender": {"login": "$author"},
+	"comment": {"body": "$body"}
+}
+JSON
+}
+
+# Produced a build status payload with the fields needed by Hoff.
+# Variables $owner, $repository and $commit
+# https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
+build-status-payload() {
+cat <<JSON
+{
+	"repository": {
+		"owner": {"login": "$owner"},
+		"name": "$repository"
+	},
+	"sha": "$commit",
+	"state": "$state",
+	"target_url": null
+}
+JSON
+}
+
+secret=$(get secret)
+owner=$(get owner)
+repository=$(get repository)
+
+[ -n "$secret" ]     || errxit "could not parse secret from config.json"
+[ -n "$owner"  ]     || errxit "could not parse owner from config.json"
+[ -n "$repository" ] || errxit "could not parse repository from config.json"
+
+case "$(basename "$0")" in
+comment)
+	author="$1"
+	number="$2"
+	shift 2
+	body="$*"
+
+	[ -n "$author" ] || errxit "Author should be provided as the 1st argument"
+	[ -n "$number" ] || errxit "PR number should be provided as the 2st argument"
+
+	event="issue_comment"
+	comment-payload >webhook-data.json
+	;;
+build-status)
+	event=
+	commit="$1"
+	state="$2"
+
+	[ -n "$commit" ] || errxit "Full commit sha should be provided as the 1st argument"
+	[ -n "$state" ] || state=success
+
+	event="status"
+	build-status-payload >webhook-data.json
+	;;
+*)
+	usage
+	exit 0
+	;;
+esac
+
+# Regarding the choice of the webhook-data.json file,
+# we could have used /tmp, but the current directory
+# is better for debugging purposes.
+# One can check the final payload after the fact.
+
+# computes the HMAC of stdin printing result on stdout
+# pass either -sha1 or -sha256 for the HMAC type
+hmac() {
+	openssl dgst "$1" -hmac "$secret" |
+	sed 's/^.* //'
+}
+
+signature1=$(  hmac -sha1   <webhook-data.json)
+signature256=$(hmac -sha256 <webhook-data.json)
+
+curl \
+	-XPOST \
+	-w "\n\n%{http_code}\n" \
+	-H "X-GitHub-Event: $event" \
+	-H "X-Hub-Signature: sha1=$signature1" \
+	-H "X-Hub-Signature-256: sha256=$signature256" \
+	http://localhost:1979/hook/github \
+	--data-binary @webhook-data.json
