@@ -100,6 +100,15 @@ to simulate those:
 [Comment]: https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#issue_comment
 [build status]: https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
 
+The tests of Hoff are extensive, you may be able to get by just by running them
+when making changes to the code.  To run a specific test, you can temporarily
+add `(FOCUS)` to your test title and run the following:
+
+	$ nix run -c stack test --ta '--match "(FOCUS)"'
+
+The implementation uses free monads and some of the tests replace lower level
+functionality with mocks.
+
 
 ## Running on a server
 
