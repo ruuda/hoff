@@ -97,15 +97,15 @@ cat <<JSON
 JSON
 }
 
-secret=`get secret`
-owner=`get owner`
-repository=`get repository`
+secret=$(get secret)
+owner=$(get owner)
+repository=$(get repository)
 
 [ -n "$secret" ]     || errxit "could not parse secret from config.json"
 [ -n "$owner"  ]     || errxit "could not parse owner from config.json"
 [ -n "$repository" ] || errxit "could not parse repository from config.json"
 
-case "`basename $0`" in
+case "$(basename "$0")" in
 comment)
 	author="$1"
 	number="$2"
@@ -140,8 +140,8 @@ esac
 # is better for debugging purposes.
 # One can check the final payload after the fact.
 
-signature1=`cat webhook-data.json | openssl dgst -sha1 -hmac "$secret" | sed 's/^.* //'`
-signature256=`cat webhook-data.json | openssl dgst -sha256 -hmac "$secret" | sed 's/^.* //'`
+signature1=$(cat webhook-data.json | openssl dgst -sha1 -hmac "$secret" | sed 's/^.* //')
+signature256=$(cat webhook-data.json | openssl dgst -sha256 -hmac "$secret" | sed 's/^.* //')
 
 curl \
 	-XPOST \
