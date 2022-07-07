@@ -101,10 +101,10 @@ to simulate those:
 [build status]: https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
 
 The tests of Hoff are extensive, you may be able to get by just by running them
-when making changes to the code.  To run a specific test, you can temporarily
-add `(FOCUS)` to your test title and run the following:
+when making changes to the code.  To run a specific test, use `--match` giving
+part of the test title:
 
-	$ nix run -c stack test --ta '--match "(FOCUS)"'
+	$ nix run -c stack test --ta '--match "part of the test title"'
 
 The implementation uses free monads and some of the tests replace lower level
 functionality with mocks.
