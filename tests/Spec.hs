@@ -1048,7 +1048,7 @@ main = hspec $ do
           $ singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "f34") "sally"
         results = defaultResults
           { resultIntegrate = [Right (Sha "38c")]
-          , resultPush = [PushRejected]
+          , resultPush = [PushRejected "test"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
@@ -1069,7 +1069,7 @@ main = hspec $ do
             ] Project.emptyProjectState
         results = defaultResults
           { resultIntegrate = [Right (Sha "38c")]
-          , resultPush = [PushRejected]
+          , resultPush = [PushRejected "test"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
@@ -1223,7 +1223,7 @@ main = hspec $ do
         -- something was pushed in the mean time, for instance).
         results = defaultResults
           { resultIntegrate = [Right (Sha "38e")]
-          , resultPush = [PushRejected]
+          , resultPush = [PushRejected "test"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
@@ -1260,7 +1260,7 @@ main = hspec $ do
         -- something was pushed in the mean time, for instance).
         results = defaultResults
           { resultIntegrate = [Right (Sha "38e")]
-          , resultPush = [PushRejected]
+          , resultPush = [PushRejected "test"]
           , resultGetChangelog = [Just "changelog"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
@@ -1303,7 +1303,7 @@ main = hspec $ do
             [ Right $ Sha "b71"
             , Left $ Logic.IntegrationFailure masterBranch Git.MergeFailed
             ]
-          , resultPush = [ PushRejected ]
+          , resultPush = [ PushRejected "test" ]
           }
         (_state', actions) = runActionCustom results $ handleEventsTest events state
 

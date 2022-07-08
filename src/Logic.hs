@@ -173,9 +173,12 @@ runAction config = foldFree $ \case
 
   TryPromote prBranch sha cont -> do
     doGit $ ensureCloned config
-    doGit $ Git.forcePush sha prBranch
-    pushResult <- doGit $ Git.push sha (Git.Branch $ Config.branch config)
-    pure $ cont pushResult
+    forcePushResult <- doGit $ Git.forcePush sha prBranch
+    case forcePushResult of
+      PushRejected _ -> pure $ cont forcePushResult
+      PushOk -> do
+        pushResult <- doGit $ Git.push sha (Git.Branch $ Config.branch config)
+        pure $ cont pushResult
 
   TryPromoteWithTag prBranch sha newTagName newTagMessage cont -> doGit $
     ensureCloned config >>
@@ -706,7 +709,7 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       -- If something was pushed to the target branch while the candidate was
       -- being tested, try to integrate again and hope that next time the push
       -- succeeds.
-      PushRejected -> tryIntegratePullRequest pullRequestId state
+      PushRejected _why -> tryIntegratePullRequest pullRequestId state
 
 -- Keep doing a proceed step until the state doesn't change any more. For this
 -- to work properly, it is essential that "proceed" does not have any side

@@ -7,6 +7,7 @@ in
       pkgs.niv
       pkgs.dpkg
       pkgs.git
+      pkgs.haskellPackages.haskell-language-server
       pkgs.shellcheck
       pkgs.stack
     ];

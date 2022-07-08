@@ -306,7 +306,7 @@ withTestEnv' body = do
   uuid       <- Uuid.nextRandom
   tmpBaseDir <- FileSystem.getTemporaryDirectory
   let
-    testDir   = tmpBaseDir </> ("testsuite-" ++ (show uuid))
+    testDir   = tmpBaseDir </> ("testsuite-" ++ show uuid)
     originDir = testDir </> "repo-origin"
     repoDir   = testDir </> "repo-local"
     stateFile = testDir </> "state.json"
