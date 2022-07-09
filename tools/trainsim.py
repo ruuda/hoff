@@ -387,20 +387,6 @@ class Simulator:
         return np.array([dt for pr_id, dt in sorted(self.state.closed_prs.items())])
 
 
-def strategy_classic(state: State) -> Tuple[Commit, set[PrId]]:
-    """
-    The "classic" stategy implemented by Hoff. Only supported when
-    NUM_BUILD_SLOTS = 1, i.e. no build parallelism. This strategy builds
-    singleton trains, trying the lowest-numbered PR first.
-    """
-    assert (
-        len(state.builds_in_progress) == 0
-    ), "This strategy does not support parallelism."
-    base = state.master_tip
-    candidate = min(state.open_prs.keys())
-    return base, {candidate}
-
-
 def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> None:
     font = FontProperties()
     font.set_family("Source Serif Pro")
@@ -493,6 +479,47 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
     plt.savefig(f"out/{strategy_name}_{config.name}.png", dpi=400)
 
 
+def strategy_classic(state: State) -> Tuple[Commit, set[PrId]]:
+    """
+    The "classic" stategy implemented by Hoff. Only supported when
+    NUM_BUILD_SLOTS = 1, i.e. no build parallelism. This strategy builds
+    singleton trains, trying the lowest-numbered PR first.
+    """
+    assert (
+        len(state.builds_in_progress) == 0
+    ), "This strategy does not support parallelism."
+    base = state.master_tip
+    candidate = min(state.open_prs.keys())
+    return base, {candidate}
+
+
+def strategy_fifo(state: State) -> Tuple[Commit, set[PrId]]:
+    """
+    Like classic, but build the least recently approved pull request first. Only
+    builds one pull request at a time, does not support parallelism.
+    """
+    assert (
+        len(state.builds_in_progress) == 0
+    ), "This strategy does not support parallelism."
+    base = state.master_tip
+    candidates = sorted((pr.arrived_at, pr.id_) for pr in state.open_prs.values())
+    return base, {candidates[0][1]}
+
+
+def strategy_lifo(state: State) -> Tuple[Commit, set[PrId]]:
+    """
+    Similar to classic, but build the most recently approved pull request first.
+    I.e. keep a stack, not a queue. Most people consider this unfair, but it
+    makes many people happier at the cost of making a few very unhappy.
+    """
+    assert (
+        len(state.builds_in_progress) == 0
+    ), "This strategy does not support parallelism."
+    base = state.master_tip
+    candidates = sorted((-pr.arrived_at, pr.id_) for pr in state.open_prs.values())
+    return base, {candidates[0][1]}
+
+
 def main() -> None:
     cfgs = (Config.subcritical(), Config.critical(), Config.supercritical())
     for cfg in cfgs:
@@ -501,12 +528,12 @@ def main() -> None:
             sim = Simulator.new(
                 seed=seed,
                 config=cfg,
-                strategy=strategy_classic,
+                strategy=strategy_lifo,
             )
             sim.run_to_completion()
             runs.append(sim)
 
-        plot_results(cfg, "classic", runs)
+        plot_results(cfg, "lifo", runs)
 
 
 if __name__ == "__main__":
