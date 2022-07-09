@@ -401,7 +401,7 @@ def strategy_classic(state: State) -> Tuple[Commit, set[PrId]]:
     return base, {candidate}
 
 
-def plot_results(config: Config, runs: list[Simulator]) -> None:
+def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> None:
     font = FontProperties()
     font.set_family("Source Serif Pro")
     matplotlib.rcParams["font.family"] = font.get_name()
@@ -490,7 +490,7 @@ def plot_results(config: Config, runs: list[Simulator]) -> None:
     ax.legend()
 
     plt.tight_layout()
-    plt.savefig("trainsim.png", dpi=400)
+    plt.savefig(f"out/{strategy_name}_{config.name}.png", dpi=400)
 
 
 def main() -> None:
@@ -506,7 +506,7 @@ def main() -> None:
             sim.run_to_completion()
             runs.append(sim)
 
-        plot_results(cfg, runs)
+        plot_results(cfg, "classic", runs)
 
 
 if __name__ == "__main__":
