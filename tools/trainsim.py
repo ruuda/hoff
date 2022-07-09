@@ -12,11 +12,16 @@ import numpy as np
 import heapq
 
 from dataclasses import dataclass
-from matplotlib import pyplot as plt  # type: ignore
+from matplotlib import pyplot as plt
 from matplotlib.font_manager import FontProperties  # type: ignore
 from numpy.random import Generator
 from numpy.typing import ArrayLike
 from typing import Callable, NamedTuple, NewType, Tuple
+
+Time = NewType("Time", float)
+Commit = NewType("Commit", int)
+PrId = NewType("PrId", int)
+BuildId = NewType("BuildId", int)
 
 # When we set the mean build time to the average time between PRs, we are at
 # that critical point where on average the system can keep up and still merge
@@ -26,18 +31,40 @@ from typing import Callable, NamedTuple, NewType, Tuple
 # but it can't shrink below zero, so over time it does grow. So let's say we are
 # not yet at that point, and the time between PRs is a bit more than the build
 # time.
-AVG_TIME_BETWEEN_PRS = 15.0
-AVG_TIME_TO_APPROVE = 60.0
-AVG_BUILD_TIME = 10.0
-BUILD_TIME_STDDEV = 1.0
-PROBABILITY_PR_IS_GOOD = 0.9
-NUM_BUILD_SLOTS = 1
+class Config(NamedTuple):
+    name: str
+    avg_time_between_prs: Time
+    avg_time_to_approve: Time = Time(60.0)
+    avg_build_time: Time = Time(10.0)
+    build_time_stdev: Time = Time(1.0)
+    probability_pr_is_good: float = 0.9
+    num_prs: int = 200
+    num_build_slots: int = 1
 
+    @staticmethod
+    def subcritical() -> Config:
+        # In this case, the average time between PRs is greater than the build
+        # time, so the system should be able to keep up, and have an empty queue
+        # much of the time. There might be an occasional backlog, but we can
+        # process it quickly.
+        return Config(name="subcritical", avg_time_between_prs=Time(15.0))
 
-Time = NewType("Time", float)
-Commit = NewType("Commit", int)
-PrId = NewType("PrId", int)
-BuildId = NewType("BuildId", int)
+    @staticmethod
+    def critical() -> Config:
+        # In this case, the average time between PRs is equal to the build time.
+        # This means that rate of the "producer" and "consumer" are matched, so
+        # on average we can keep up. But in this regime, when a backlog is there
+        # because we were unlucky for some time, on average we don't clear it.
+        # And when we are lucky for a span of time, the backlog size can't fall
+        # below zero. So over time, the backlog still grows!
+        return Config(name="critical", avg_time_between_prs=Time(10.0))
+
+    @staticmethod
+    def supercritical() -> Config:
+        # In this case, the average time between PRs is smaller than the build
+        # time, so any strategy without parallelism or rollups will not be able
+        # to cope and cause an ever-growing backlog.
+        return Config(name="supercritical", avg_time_between_prs=Time(9.0))
 
 
 class PullRequest(NamedTuple):
@@ -52,14 +79,16 @@ class BuildResult(NamedTuple):
     did_succeed: bool
 
 
-def generate_pr_events(rng: Generator, num_prs: int) -> list[PullRequest]:
+def generate_pr_events(rng: Generator, config: Config) -> list[PullRequest]:
     """
     Generate arrival events for pull requests, in no particular order.
     """
 
     # We model incoming PRs as a Poisson process, which means the inter-arrival
     # times follow an exponential distribution.
-    times_between_open = rng.exponential(scale=AVG_TIME_BETWEEN_PRS, size=num_prs)
+    times_between_open = rng.exponential(
+        scale=config.avg_time_between_prs, size=config.num_prs
+    )
 
     # For the time to approve, let's assume that to approve a PR, three things
     # need to happen for which the delays all follow an exponential
@@ -71,10 +100,10 @@ def generate_pr_events(rng: Generator, num_prs: int) -> list[PullRequest]:
     # to be approved, but the longer it takes, the less likely that is.
     times_to_approve = rng.gamma(
         shape=3,
-        scale=AVG_TIME_TO_APPROVE / 3,
-        size=num_prs,
+        scale=config.avg_time_to_approve / 3,
+        size=config.num_prs,
     )
-    is_good = rng.uniform(size=num_prs) < PROBABILITY_PR_IS_GOOD
+    is_good = rng.uniform(size=config.num_prs) < config.probability_pr_is_good
 
     t_open = np.cumsum(times_between_open)
     t_approve = t_open + times_to_approve
@@ -85,7 +114,7 @@ def generate_pr_events(rng: Generator, num_prs: int) -> list[PullRequest]:
             id_=PrId(i),
             is_good=is_good[i],
         )
-        for i in range(0, num_prs)
+        for i in range(0, config.num_prs)
     ]
 
 
@@ -216,6 +245,7 @@ Strategy = Callable[[State], Tuple[Commit, set[PrId]]]
 
 @dataclass(frozen=False)
 class Simulator:
+    config: Config
     strategy: Strategy
     rng: Generator
     t: Time
@@ -227,13 +257,14 @@ class Simulator:
     next_available_build: BuildId
 
     @staticmethod
-    def new(seed: int, num_prs: int, strategy: Strategy) -> Simulator:
+    def new(seed: int, config: Config, strategy: Strategy) -> Simulator:
         rng = np.random.default_rng(seed=seed)
         events: list[PullRequest | BuildResult] = [
-            evt for evt in generate_pr_events(rng, num_prs)
+            evt for evt in generate_pr_events(rng, config)
         ]
         heapq.heapify(events)
         return Simulator(
+            config=config,
             strategy=strategy,
             rng=rng,
             t=Time(0.0),
@@ -257,7 +288,9 @@ class Simulator:
 
     def start_build_if_possible(self) -> None:
         has_anything_to_build = len(self.state.open_prs) > 0
-        has_capacity_to_build = len(self.state.builds_in_progress) < NUM_BUILD_SLOTS
+        has_capacity_to_build = (
+            len(self.state.builds_in_progress) < self.config.num_build_slots
+        )
         if not (has_anything_to_build and has_capacity_to_build):
             return
 
@@ -278,7 +311,9 @@ class Simulator:
         build_id = self.allocate_build_id()
         self.state = self.state.start_build(build_id, train)
         train_is_good = all(self.state.open_prs[pr].is_good for pr in train.prs)
-        build_duration = self.rng.normal(loc=AVG_BUILD_TIME, scale=BUILD_TIME_STDDEV)
+        build_duration = self.rng.normal(
+            loc=self.config.avg_build_time, scale=self.config.build_time_stdev
+        )
         completion = BuildResult(
             arrived_at=Time(self.t + build_duration),
             id_=build_id,
@@ -318,13 +353,14 @@ class Simulator:
         time-weighted average size over the intervals defined by `ts`. The times
         `ts` must be increasing.
         """
-        result = []
+        result: list[float] = []
         last_size = 0
         i = 0
         max_i = len(self.backlog_size_over_time)
         prev_t = 0.0
 
-        for t in np.nditer(ts):
+        for t in ts:  # type: ignore  # NumPy arrays are iterable just fine.
+            assert isinstance(t, float)
             window_sum = 0.0
             weight = 0.0
 
@@ -365,7 +401,7 @@ def strategy_classic(state: State) -> Tuple[Commit, set[PrId]]:
     return base, {candidate}
 
 
-def plot_results(runs: list[Simulator]) -> None:
+def plot_results(config: Config, runs: list[Simulator]) -> None:
     font = FontProperties()
     font.set_family("Source Serif Pro")
     matplotlib.rcParams["font.family"] = font.get_name()
@@ -418,7 +454,7 @@ def plot_results(runs: list[Simulator]) -> None:
     # The scale of the wait times is somewhat arbitrary because it depends on
     # the build time we chose. So normalize everything to the average build
     # time, then we can express time waiting roughly in "number of builds".
-    wait_times = wait_times / AVG_BUILD_TIME
+    wait_times = wait_times / config.avg_build_time
     mean_wait_time = np.mean(wait_times)
     p50, p90, p98 = np.quantile(wait_times, (0.5, 0.9, 0.98))
 
@@ -426,7 +462,9 @@ def plot_results(runs: list[Simulator]) -> None:
     max_x = math.floor(p98)
     ax.set_xticks(np.arange(max_x), minor=True)
     ax.grid(color="black", linestyle="dashed", axis="x", alpha=0.1, which="both")
-    ax.hist(wait_times, bins=np.arange(max_x * 2) * 0.5 - 0.25, color="black", alpha=0.2)
+    ax.hist(
+        wait_times, bins=np.arange(max_x * 2) * 0.5 - 0.25, color="black", alpha=0.2
+    )
 
     ax.axvline(
         x=mean_wait_time,
@@ -456,17 +494,19 @@ def plot_results(runs: list[Simulator]) -> None:
 
 
 def main() -> None:
-    runs = []
-    for seed in range(200):
-        sim = Simulator.new(
-            seed=seed,
-            num_prs=200,
-            strategy=strategy_classic,
-        )
-        sim.run_to_completion()
-        runs.append(sim)
+    cfgs = (Config.subcritical(), Config.critical(), Config.supercritical())
+    for cfg in cfgs:
+        runs = []
+        for seed in range(200):
+            sim = Simulator.new(
+                seed=seed,
+                config=cfg,
+                strategy=strategy_classic,
+            )
+            sim.run_to_completion()
+            runs.append(sim)
 
-    plot_results(runs)
+        plot_results(cfg, runs)
 
 
 if __name__ == "__main__":
