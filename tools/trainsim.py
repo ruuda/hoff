@@ -202,6 +202,7 @@ class State(NamedTuple):
 @dataclass(frozen=False)
 class Simulator:
     rng: Generator
+    t: Time
     state: State
     events: list[PullRequest | BuildResult]
     next_available_commit: Commit
@@ -216,17 +217,69 @@ class Simulator:
         heapq.heapify(events)
         return Simulator(
             rng=rng,
+            t=Time(0.0),
             state=State.new(),
             events=events,
             next_available_commit=Commit(1),
             next_available_build=BuildId(0),
         )
 
+    def allocate_commit(self) -> Commit:
+        result = self.next_available_commit
+        self.next_available_commit = Commit(self.next_available_commit + 1)
+        return result
+
+    def allocate_build_id(self) -> BuildId:
+        result = self.next_available_build
+        self.next_available_build = BuildId(self.next_available_build + 1)
+        return result
+
+    def get_best_train(self) -> Train:
+        raise NotImplementedError("Must be implemented in concrete strategy.")
+
+    def start_build_if_possible(self) -> None:
+        has_anything_to_build = len(self.state.open_prs) > 0
+        has_capacity_to_build = len(self.state.builds_in_progress) < NUM_BUILD_SLOTS
+        if not (has_anything_to_build and has_capacity_to_build):
+            return
+
+        train = self.get_best_train()
+        build_id = self.allocate_build_id()
+        self.state = self.state.start_build(build_id, train)
+        train_is_good = all(self.state.open_prs[pr].is_good for pr in train.prs)
+        build_duration = self.rng.normal(loc=AVG_BUILD_TIME, scale=BUILD_TIME_STDDEV)
+        completion = BuildResult(
+            arrived_at=Time(self.t + build_duration),
+            id_=build_id,
+            did_succeed=train_is_good,
+        )
+        heapq.heappush(self.events, completion)
+
+    def handle_single_event(self) -> None:
+        event = heapq.heappop(self.events)
+        self.t = event.arrived_at
+
+        print(event)
+
+        if isinstance(event, PullRequest):
+            self.state = self.state.insert_pr(event)
+
+        if isinstance(event, BuildResult):
+            if event.did_succeed:
+                self.state = self.state.complete_build_success(self.t, event.id_)
+            else:
+                self.state = self.state.complete_build_failure(self.t, event.id_)
+
+        self.start_build_if_possible()
+
+    def run_to_completion(self) -> None:
+        while len(self.events) > 0:
+            self.handle_single_event()
+
 
 def main() -> None:
     sim = Simulator.new(seed=0, num_prs=100)
-    for evt in sim.events:
-        print(evt.arrived_at, evt)
+    sim.run_to_completion()
 
 
 if __name__ == "__main__":
