@@ -216,6 +216,7 @@ class Simulator:
     strategy: Strategy
     rng: Generator
     t: Time
+    last_pr_received_at: Time
     state: State
     events: list[PullRequest | BuildResult]
     backlog_size_over_time: list[Tuple[Time, int]]
@@ -233,6 +234,7 @@ class Simulator:
             strategy=strategy,
             rng=rng,
             t=Time(0.0),
+            last_pr_received_at=Time(0.0),
             state=State.new(),
             events=events,
             backlog_size_over_time=[],
@@ -249,9 +251,6 @@ class Simulator:
         result = self.next_available_build
         self.next_available_build = BuildId(self.next_available_build + 1)
         return result
-
-    def get_best_train(self) -> Train:
-        raise NotImplementedError("Must be implemented in concrete strategy.")
 
     def start_build_if_possible(self) -> None:
         has_anything_to_build = len(self.state.open_prs) > 0
@@ -288,10 +287,11 @@ class Simulator:
         event = heapq.heappop(self.events)
         self.t = event.arrived_at
 
-        print(event)
+        print(event, "size: ", len(self.state.open_prs))
 
         if isinstance(event, PullRequest):
             self.state = self.state.insert_pr(event)
+            self.last_pr_received_at = event.arrived_at
 
         if isinstance(event, BuildResult):
             if event.did_succeed:
@@ -305,6 +305,9 @@ class Simulator:
     def run_to_completion(self) -> None:
         while len(self.events) > 0:
             self.handle_single_event()
+
+        assert len(self.state.open_prs) == 0
+        assert len(self.state.builds_in_progress) == 0
 
     def get_backlog_trace(self, ts: ArrayLike) -> ArrayLike:
         """
@@ -363,11 +366,14 @@ def plot_results(runs: list[Simulator]) -> None:
     fig, axes = plt.subplots(nrows=1, ncols=2)
     ax = axes[0]
 
-    mean_end_time = np.mean([
+    last_pr_received = np.quantile([
+        run.last_pr_received_at for run in runs
+    ], 0.05)
+    end_time = np.quantile([
         run.backlog_size_over_time[-1][0]
         for run in runs
-    ])
-    size_sample_times = np.linspace(0.0, mean_end_time, num=200)
+    ], 0.5)
+    size_sample_times = np.linspace(0.0, end_time, num=200)
 
     backlog_sizes = np.array([
         run.get_backlog_trace(size_sample_times) for run in runs
@@ -382,8 +388,25 @@ def plot_results(runs: list[Simulator]) -> None:
     size_sample_times = size_sample_times[window_len - 1:]
 
     p25, p50, p75 = np.quantile(backlog_sizes, (0.1, 0.5, 0.9), axis=0)
-    ax.fill_between(size_sample_times, p25, p75, alpha=0.2, label="p25–p75")
-    ax.plot(size_sample_times, p50, label="p50 backlog size")
+    ax.set_yticks(np.arange(10), minor=True)
+    ax.grid(color="black", linestyle="dashed", axis="y", alpha=0.1, which="both")
+    ax.fill_between(
+        size_sample_times, p25, p75,
+        alpha=0.2,
+        color="black",
+        label="p25–p75 backlog size"
+    )
+    ax.plot(
+        size_sample_times, p50,
+        color="black",
+        label="p50 backlog size",
+    )
+    ax.axvline(x=last_pr_received,
+            color="red",
+            label="p05 last PR received",
+    )
+    ax.set_xlabel("time")
+    ax.set_ylabel("number of approved pull requests not yet merged or failed")
     ax.legend()
 
     wait_times = np.concatenate([run.get_wait_times() for run in runs])
@@ -392,25 +415,30 @@ def plot_results(runs: list[Simulator]) -> None:
     # time, then we can express time waiting roughly in "number of builds".
     wait_times = wait_times / AVG_BUILD_TIME
     ax = axes[1]
-    ax.hist(wait_times, bins=np.arange(25) - 0.5, color="black", alpha=0.5)
+    ax.set_xticks(np.arange(25), minor=True)
+    ax.grid(color="black", linestyle="dashed", axis="x", alpha=0.1, which="both")
+    ax.hist(wait_times, bins=np.arange(50) * 0.5 - 0.25, color="black", alpha=0.2)
 
     mean_wait_time = np.mean(wait_times)
     ax.axvline(
         x=mean_wait_time,
-        color="orange",
+        color="red",
         label=f"mean wait time ({mean_wait_time:.2f})",
     )
     p50, p90 = np.quantile(wait_times, (0.5, 0.9))
     ax.axvline(
         x=p50,
-        color="green",
+        color="black",
         label=f"p50 wait time ({p50:.2f})",
     )
     ax.axvline(
         x=p90,
-        color="red",
+        color="black",
+        linestyle="dotted",
         label=f"p90 wait time ({p90:.2f})",
     )
+    ax.set_xlabel("wait time until merge or fail\n(normalized to build time, 1.0 = one build)")
+    ax.set_ylabel("number of pull requests")
     ax.legend()
 
     plt.tight_layout()
