@@ -11,9 +11,11 @@ import matplotlib  # type: ignore
 import numpy as np
 import heapq
 
+from textwrap import dedent
 from dataclasses import dataclass
 from matplotlib import pyplot as plt
 from matplotlib.font_manager import FontProperties  # type: ignore
+from matplotlib.ticker import MultipleLocator
 from numpy.random import Generator
 from numpy.typing import ArrayLike
 from typing import Callable, NamedTuple, NewType, Tuple
@@ -32,39 +34,42 @@ BuildId = NewType("BuildId", int)
 # not yet at that point, and the time between PRs is a bit more than the build
 # time.
 class Config(NamedTuple):
-    name: str
     avg_time_between_prs: Time
     avg_time_to_approve: Time = Time(60.0)
     avg_build_time: Time = Time(10.0)
     build_time_stdev: Time = Time(1.0)
-    probability_pr_is_good: float = 0.9
+    probability_pr_is_good: float = 0.85
     num_prs: int = 250
-    num_build_slots: int = 2
+    num_build_slots: int = 4
 
     @staticmethod
-    def subcritical() -> Config:
-        # In this case, the average time between PRs is greater than the build
-        # time, so the system should be able to keep up, and have an empty queue
-        # much of the time. There might be an occasional backlog, but we can
-        # process it quickly.
-        return Config(name="subcritical", avg_time_between_prs=Time(15.0))
+    def new(parallelism: int, criticality: float) -> Config:
+        """
+        Criticality has three regimes:
 
-    @staticmethod
-    def critical() -> Config:
-        # In this case, the average time between PRs is equal to the build time.
-        # This means that rate of the "producer" and "consumer" are matched, so
-        # on average we can keep up. But in this regime, when a backlog is there
-        # because we were unlucky for some time, on average we don't clear it.
-        # And when we are lucky for a span of time, the backlog size can't fall
-        # below zero. So over time, the backlog still grows!
-        return Config(name="critical", avg_time_between_prs=Time(10.0))
+        Subcritical.
+        In this case, the average time between PRs is greater than the build
+        time, so the system should be able to keep up, and have an empty queue
+        much of the time. There might be an occasional backlog, but we can
+        process it quickly.
 
-    @staticmethod
-    def supercritical() -> Config:
-        # In this case, the average time between PRs is smaller than the build
-        # time, so any strategy without parallelism or rollups will not be able
-        # to cope and cause an ever-growing backlog.
-        return Config(name="supercritical", avg_time_between_prs=Time(4.5))
+        Critical.
+        In this case, the average time between PRs is equal to the build time.
+        This means that rate of the "producer" and "consumer" are matched, so
+        on average we can keep up. But in this regime, when a backlog is there
+        because we were unlucky for some time, on average we don't clear it.
+        And when we are lucky for a span of time, the backlog size can't fall
+        below zero. So over time, the backlog still grows!
+
+        Supercritical.
+        In this case, the average time between PRs is smaller than the build
+        time, so any strategy without parallelism or rollups will not be able
+        to cope and cause an ever-growing backlog.
+        """
+        return Config(
+            avg_time_between_prs=Time(10.0 / (criticality * parallelism)),
+            num_build_slots=parallelism,
+        )
 
 
 class PullRequest(NamedTuple):
@@ -413,10 +418,11 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
 
     ax = axes[0]
 
-    # We cut off the graph once the first 5% of runs has finished, because when
-    # runs finish, there is no fresh data beyond that point for those runs, so
-    # continuing to plot quantiles based on that would be misleading.
-    end_time = np.quantile([run.backlog_size_over_time[-1][0] for run in runs], 0.05)
+    # We cut off the graph once the first few percent of runs has finished,
+    # because when runs finish, there is no fresh data beyond that point for
+    # those runs, so continuing to plot quantiles based on that would be
+    # misleading.
+    end_time = np.quantile([run.backlog_size_over_time[-1][0] for run in runs], 0.02)
     size_sample_times = np.linspace(0.0, end_time, num=200)
 
     backlog_sizes = np.array([run.get_backlog_trace(size_sample_times) for run in runs])
@@ -436,10 +442,24 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
     size_sample_times = size_sample_times / config.avg_build_time
     p25, p50, p75 = np.quantile(backlog_sizes, (0.1, 0.5, 0.9), axis=0)
 
-    if p50[-1] < 30:
-        ax.set_yticks(np.arange(40), minor=True)
-    else:
-        ax.set_yticks(np.arange(40) * 2, minor=True)
+    # Tweak the ticks a bit for some regions, NumPy's default have too little
+    # detail to make the grid lines useful, in my opinion.
+    if p75[-1] > 2.5:
+        if p75[-1] < 8.0:
+            ax.yaxis.set_major_locator(MultipleLocator(2.0))
+            ax.yaxis.set_minor_locator(MultipleLocator(0.5))
+        elif p75[-1] < 21.0:
+            ax.yaxis.set_major_locator(MultipleLocator(5.0))
+            ax.yaxis.set_minor_locator(MultipleLocator(1.0))
+        elif p75[-1] < 31.0:
+            ax.yaxis.set_major_locator(MultipleLocator(5.0))
+            ax.yaxis.set_minor_locator(MultipleLocator(1.0))
+        elif p75[-1] < 55.0:
+            ax.yaxis.set_major_locator(MultipleLocator(10.0))
+            ax.yaxis.set_minor_locator(MultipleLocator(2.0))
+        elif p75[-1] < 130.0:
+            ax.yaxis.set_major_locator(MultipleLocator(20.0))
+            ax.yaxis.set_minor_locator(MultipleLocator(10.0))
 
     ax.grid(color="black", linestyle="dashed", axis="y", alpha=0.1, which="both")
     ax.fill_between(
@@ -448,29 +468,29 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
         p75,
         alpha=0.2,
         color="black",
-        label="p25–p75 backlog size",
+        label="backlog size, p25–p75",
     )
     ax.plot(
         size_sample_times,
         p50,
         color="black",
-        label="p50 backlog size",
+        label="backlog size, p50",
     )
-    ax.set_xlabel("time\n(normalized to build time, 1.0 = one build)")
+    ax.set_xlabel("time, in average build durations")
     ax.set_ylabel("number of approved pull requests not yet merged or failed")
-    ax.legend()
+    ax.legend(loc="upper left")
+    ax.set_title("Backlog evolution")
 
     wait_times = np.concatenate([run.get_wait_times() for run in runs])
-    print(wait_times.shape, wait_times)
     # The scale of the wait times is somewhat arbitrary because it depends on
     # the build time we chose. So normalize everything to the average build
     # time, then we can express time waiting roughly in "number of builds".
     wait_times = wait_times / config.avg_build_time
     mean_wait_time = np.mean(wait_times)
-    p50, p90, p97 = np.quantile(wait_times, (0.5, 0.9, 0.97))
+    p50, p90, p98 = np.quantile(wait_times, (0.5, 0.9, 0.98))
 
     ax = axes[1]
-    max_x = max(math.ceil(p97), 3)
+    max_x = max(math.ceil(p98), 3)
     ax.set_xticks(np.arange(max_x), minor=True)
     bins = np.arange(max_x * 2 + 1) * 0.5 - 0.25
     if max_x < 8:
@@ -482,28 +502,43 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
     ax.axvline(
         x=mean_wait_time,
         color="red",
-        label=f"mean wait time ({mean_wait_time:.2f})",
+        label=f"wait time, mean ({mean_wait_time:.2f})",
     )
     p50, p90 = np.quantile(wait_times, (0.5, 0.9))
     ax.axvline(
         x=p50,
         color="black",
-        label=f"p50 wait time ({p50:.2f})",
+        label=f"wait time, p50 ({p50:.2f})",
     )
     ax.axvline(
         x=p90,
         color="black",
         linestyle="dotted",
-        label=f"p90 wait time ({p90:.2f})",
+        label=f"wait time, p90 ({p90:.2f})",
     )
     ax.set_xlabel(
-        "wait time until merge or fail\n(normalized to build time, 1.0 = one build)"
+        "wait time until merge or fail, in average build durations"
     )
     ax.set_ylabel("number of pull requests")
     ax.legend()
+    ax.set_title("Wait time distribution")
 
+    avg_time_between_prs = config.avg_time_between_prs / config.avg_build_time
+    criticality = 1 / (config.num_build_slots * avg_time_between_prs)
+    fig.suptitle(
+        f"{strategy_name}, "
+        f"{criticality:.1%} critical, "
+        f"{config.num_build_slots} parallel builds, "
+        f"{config.probability_pr_is_good:.0%} success rate"
+    )
     plt.tight_layout()
-    plt.savefig(f"out/{config.name}_{strategy_name}.png", dpi=400)
+    fname = (
+        f"out/par{config.num_build_slots}_"
+        f"crit{criticality:05.3f}_"
+        f"succ{config.probability_pr_is_good:.2f}_"
+        f"{strategy_name}.png"
+    )
+    plt.savefig(fname, dpi=400)
 
 
 def strategy_classic(state: State) -> Tuple[Commit, set[PrId]]:
@@ -566,26 +601,39 @@ def strategy_classic_parallel(state: State) -> Tuple[Commit, set[PrId]]:
             base = train.tip
 
     if len(candidates) == 0:
-        return base, {}
+        return base, set()
 
     return base, {min(candidates)}
 
 
 def main() -> None:
-    cfgs = (Config.subcritical(), Config.critical(), Config.supercritical())
-    # cfgs = (Config.subcritical(),)
-    for cfg in cfgs:
+    configs = [
+        Config.new(parallelism=1, criticality=0.15),
+        Config.new(parallelism=1, criticality=0.80),
+        Config.new(parallelism=1, criticality=1.00),
+        Config.new(parallelism=1, criticality=1.10),
+        Config.new(parallelism=1, criticality=2.0),
+
+        Config.new(parallelism=2, criticality=0.15),
+        Config.new(parallelism=2, criticality=0.80),
+        Config.new(parallelism=2, criticality=1.05),
+
+        Config.new(parallelism=4, criticality=0.15),
+        Config.new(parallelism=4, criticality=0.60),
+        Config.new(parallelism=4, criticality=1.01),
+    ]
+    for config in configs:
         runs = []
-        for seed in range(200):
+        for seed in range(250):
             sim = Simulator.new(
                 seed=seed,
-                config=cfg,
+                config=config,
                 strategy=strategy_classic_parallel,
             )
             sim.run_to_last_pr()
             runs.append(sim)
 
-        plot_results(cfg, "classic_parallel", runs)
+        plot_results(config, "classic_parallel", runs)
 
 
 if __name__ == "__main__":
