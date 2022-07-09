@@ -6,14 +6,16 @@ For testing https://github.com/channable/hoff/issues/77#issuecomment-1179430191
 
 from __future__ import annotations
 
+import matplotlib  # type: ignore
 import numpy as np
 import heapq
 
 from dataclasses import dataclass
+from matplotlib import pyplot as plt  # type: ignore
+from matplotlib.font_manager import FontProperties  # type: ignore
+from numpy.random import Generator
 from numpy.typing import ArrayLike
 from typing import Callable, NamedTuple, NewType, Tuple
-from numpy.random import Generator
-from matplotlib import pyplot as plt  # type: ignore
 
 # When we set the mean build time to the average time between PRs, we are at
 # that critical point where on average the system can keep up and still merge
@@ -363,7 +365,12 @@ def strategy_classic(state: State) -> Tuple[Commit, set[PrId]]:
 
 
 def plot_results(runs: list[Simulator]) -> None:
-    fig, axes = plt.subplots(nrows=1, ncols=2)
+    font = FontProperties()
+    font.set_family("Source Serif Pro")
+    matplotlib.rcParams["font.family"] = font.get_name()
+
+    fig, axes = plt.subplots(nrows=1, ncols=2, tight_layout=True, figsize=(15, 5))
+
     ax = axes[0]
 
     last_pr_received = np.quantile([
@@ -442,7 +449,7 @@ def plot_results(runs: list[Simulator]) -> None:
     ax.legend()
 
     plt.tight_layout()
-    plt.show()
+    plt.savefig("trainsim.png", dpi=400)
 
 
 def main() -> None:
