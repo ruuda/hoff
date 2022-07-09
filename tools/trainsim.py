@@ -10,7 +10,7 @@ import numpy as np
 import heapq
 
 from dataclasses import dataclass
-from typing import NamedTuple, NewType
+from typing import Callable, NamedTuple, NewType, Tuple
 from numpy.random import Generator
 
 # When we set the mean build time to the average time between PRs, we are at
@@ -199,27 +199,37 @@ class State(NamedTuple):
         )
 
 
+# A strategy is a function that, given the current state, proposes a new train
+# to start a build for. The train is specified by the PRs to include, and the
+# commit to build it on top of.
+Strategy = Callable[[State], Tuple[Commit, set[PrId]]]
+
+
 @dataclass(frozen=False)
 class Simulator:
+    strategy: Strategy
     rng: Generator
     t: Time
     state: State
     events: list[PullRequest | BuildResult]
+    backlog_size_over_time: list[Tuple[Time, int]]
     next_available_commit: Commit
     next_available_build: BuildId
 
     @staticmethod
-    def new(seed: int, num_prs: int) -> Simulator:
+    def new(seed: int, num_prs: int, strategy: Strategy) -> Simulator:
         rng = np.random.default_rng(seed=seed)
         events: list[PullRequest | BuildResult] = [
             evt for evt in generate_pr_events(rng, num_prs)
         ]
         heapq.heapify(events)
         return Simulator(
+            strategy=strategy,
             rng=rng,
             t=Time(0.0),
             state=State.new(),
             events=events,
+            backlog_size_over_time=[],
             next_available_commit=Commit(1),
             next_available_build=BuildId(0),
         )
@@ -243,7 +253,20 @@ class Simulator:
         if not (has_anything_to_build and has_capacity_to_build):
             return
 
-        train = self.get_best_train()
+        base, prs_in_train = self.strategy(self.state)
+        train = Train(
+            base=base,
+            tip=self.allocate_commit(),
+            prs=prs_in_train,
+        )
+        assert all(
+            pr in self.state.open_prs for pr in prs_in_train
+        ), "Train must consist of currently open PRs."
+        assert len(prs_in_train) > 0, "Train must build at least one PR."
+        assert base == self.state.master_tip or any(
+            build.tip == base for build in self.state.builds_in_progress.values()
+        ), "Train must build atop master or any currently running build."
+
         build_id = self.allocate_build_id()
         self.state = self.state.start_build(build_id, train)
         train_is_good = all(self.state.open_prs[pr].is_good for pr in train.prs)
@@ -270,6 +293,7 @@ class Simulator:
             else:
                 self.state = self.state.complete_build_failure(self.t, event.id_)
 
+        self.backlog_size_over_time.append((self.t, len(self.state.open_prs)))
         self.start_build_if_possible()
 
     def run_to_completion(self) -> None:
@@ -277,9 +301,31 @@ class Simulator:
             self.handle_single_event()
 
 
+def strategy_classic(state: State) -> Tuple[Commit, set[PrId]]:
+    """
+    The "classic" stategy implemented by Hoff. Only supported when
+    NUM_BUILD_SLOTS = 1, i.e. no build parallelism. This strategy builds
+    singleton trains, trying the lowest-numbered PR first.
+    """
+    assert (
+        len(state.builds_in_progress) == 0
+    ), "This strategy does not support parallelism."
+    base = state.master_tip
+    candidate = min(state.open_prs.keys())
+    return base, {candidate}
+
+
 def main() -> None:
-    sim = Simulator.new(seed=0, num_prs=100)
+    sim = Simulator.new(
+        seed=0,
+        num_prs=100,
+        strategy=strategy_classic,
+    )
     sim.run_to_completion()
+    for pr, dt in sim.state.closed_prs.items():
+        print(pr, dt)
+    for t, sz in sim.backlog_size_over_time:
+        print(t, sz)
 
 
 if __name__ == "__main__":
