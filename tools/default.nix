@@ -1,12 +1,12 @@
 let
-  pkgs = import ../nixpkgs-pinned.nix {};
+  pkgs = import ./nixpkgs-pinned.nix {};
 
-  ghc = pkgs.haskellPackages.ghcWithPackages (p: [
-    p.containers
-    p.unordered-containers
+  python = pkgs.python310.withPackages (p: [
+    p.numpy
+    p.matplotlib
   ]);
 in
   pkgs.buildEnv {
     name = "hoff-tools-devenv";
-    paths = [ pkgs.glibcLocales ghc ];
+    paths = [ pkgs.glibcLocales python ];
   }
