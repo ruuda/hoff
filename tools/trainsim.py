@@ -10,8 +10,10 @@ import numpy as np
 import heapq
 
 from dataclasses import dataclass
+from numpy.typing import ArrayLike
 from typing import Callable, NamedTuple, NewType, Tuple
 from numpy.random import Generator
+from matplotlib import pyplot as plt  # type: ignore
 
 # When we set the mean build time to the average time between PRs, we are at
 # that critical point where on average the system can keep up and still merge
@@ -300,6 +302,21 @@ class Simulator:
         while len(self.events) > 0:
             self.handle_single_event()
 
+    def get_backlog_trace(self) -> ArrayLike:
+        """
+        Convert backlog size over time to a NumPy array with time times in axis
+        0 and sizes in axis 1.
+        """
+        xs = np.array([t for t, sz in self.backlog_size_over_time])
+        ys = np.array([sz for t, sz in self.backlog_size_over_time])
+        return np.array([xs, ys])
+
+    def get_wait_times(self) -> ArrayLike:
+        """
+        Return wait times by PR id as a NumPy array.
+        """
+        return np.array([dt for pr_id, dt in sorted(self.state.closed_prs.items())])
+
 
 def strategy_classic(state: State) -> Tuple[Commit, set[PrId]]:
     """
@@ -315,17 +332,53 @@ def strategy_classic(state: State) -> Tuple[Commit, set[PrId]]:
     return base, {candidate}
 
 
-def main() -> None:
-    sim = Simulator.new(
-        seed=0,
-        num_prs=100,
-        strategy=strategy_classic,
+def plot_results(runs: list[Simulator]) -> None:
+    fig, axes = plt.subplots(nrows=1, ncols=2)
+    ax = axes[0]
+
+    for run in runs:
+        data = run.get_backlog_trace()
+        ax.plot(data[0], data[1], color="blue", alpha=0.1)
+
+    wait_times = np.concatenate([run.get_wait_times() for run in runs])
+    ax = axes[1]
+    ax.hist(wait_times, bins=50, color="black", alpha=0.5)
+
+    mean_wait_time = np.mean(wait_times)
+    ax.axvline(
+        x=mean_wait_time,
+        color="orange",
+        label=f"mean wait time ({mean_wait_time:.1f})",
     )
-    sim.run_to_completion()
-    for pr, dt in sim.state.closed_prs.items():
-        print(pr, dt)
-    for t, sz in sim.backlog_size_over_time:
-        print(t, sz)
+    p50 = np.quantile(wait_times, 0.5)
+    ax.axvline(
+        x=p50,
+        color="green",
+        label=f"p50 wait time ({mean_wait_time:.1f})",
+    )
+    p90 = np.quantile(wait_times, 0.9)
+    ax.axvline(
+        x=p90,
+        color="red",
+        label=f"p90 wait time ({mean_wait_time:.1f})",
+    )
+
+    plt.tight_layout()
+    plt.show()
+
+
+def main() -> None:
+    runs = []
+    for seed in range(100):
+        sim = Simulator.new(
+            seed=seed,
+            num_prs=200,
+            strategy=strategy_classic,
+        )
+        sim.run_to_completion()
+        runs.append(sim)
+
+    plot_results(runs)
 
 
 if __name__ == "__main__":
