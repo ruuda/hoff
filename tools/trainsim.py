@@ -516,9 +516,7 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
         linestyle="dotted",
         label=f"wait time, p90 ({p90:.2f})",
     )
-    ax.set_xlabel(
-        "wait time until merge or fail, in average build durations"
-    )
+    ax.set_xlabel("wait time until merge or fail, in average build durations")
     ax.set_ylabel("number of pull requests")
     ax.legend()
     ax.set_title("Wait time distribution")
@@ -541,52 +539,13 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
     plt.savefig(fname, dpi=400)
 
 
-def strategy_classic(state: State) -> Tuple[Commit, set[PrId]]:
+def strategy_optimistic_parallel(
+    state: State, select: Callable[[set[PullRequest]], PrId]
+) -> Tuple[Commit, set[PrId]]:
     """
-    The "classic" stategy implemented by Hoff. Only supported when
-    NUM_BUILD_SLOTS = 1, i.e. no build parallelism. This strategy builds
-    singleton trains, trying the lowest-numbered PR first.
-    """
-    assert (
-        len(state.builds_in_progress) == 0
-    ), "This strategy does not support parallelism."
-    base = state.master_tip
-    candidate = min(state.open_prs.keys())
-    return base, {candidate}
-
-
-def strategy_fifo(state: State) -> Tuple[Commit, set[PrId]]:
-    """
-    Like classic, but build the least recently approved pull request first. Only
-    builds one pull request at a time, does not support parallelism.
-    """
-    assert (
-        len(state.builds_in_progress) == 0
-    ), "This strategy does not support parallelism."
-    base = state.master_tip
-    candidates = sorted((pr.arrived_at, pr.id_) for pr in state.open_prs.values())
-    return base, {candidates[0][1]}
-
-
-def strategy_lifo(state: State) -> Tuple[Commit, set[PrId]]:
-    """
-    Similar to classic, but build the most recently approved pull request first.
-    I.e. keep a stack, not a queue. Most people consider this unfair, but it
-    makes many people happier at the cost of making a few very unhappy.
-    """
-    assert (
-        len(state.builds_in_progress) == 0
-    ), "This strategy does not support parallelism."
-    base = state.master_tip
-    candidates = sorted((-pr.arrived_at, pr.id_) for pr in state.open_prs.values())
-    return base, {candidates[0][1]}
-
-
-def strategy_classic_parallel(state: State) -> Tuple[Commit, set[PrId]]:
-    """
-    Build the pull request with the lowest PR id first. If there are builds in
-    progress, optimistically try to build on top, but only one PR at a time,
-    i.e. no rollups.
+    Meta-strategy for optimistic concurrency but without rollups. The selector
+    should designate a signle PR to build, and this strategy will build them in
+    that order, speculatively starting new builds on top of the existing train.
     """
     base = state.master_tip
     candidates = set(state.open_prs.keys())
@@ -603,7 +562,46 @@ def strategy_classic_parallel(state: State) -> Tuple[Commit, set[PrId]]:
     if len(candidates) == 0:
         return base, set()
 
-    return base, {min(candidates)}
+    candidate = select(
+        {pr for pr_id, pr in state.open_prs.items() if pr_id in candidates}
+    )
+    return base, {candidate}
+
+
+def strategy_classic(state: State) -> Tuple[Commit, set[PrId]]:
+    """
+    Build pull requests in pull request id order. Does not do rollups. In case
+    of parallel builds, this optimistically assumes all builds pass, and it
+    builds upon any existing builds.
+    """
+    return strategy_optimistic_parallel(
+        state,
+        lambda candidates: min(pr.id_ for pr in candidates),
+    )
+
+
+def strategy_fifo(state: State) -> Tuple[Commit, set[PrId]]:
+    """
+    Build pull requests in approval order. Does not do rollups. In case
+    of parallel builds, this optimistically assumes all builds pass, and it
+    builds upon any existing builds.
+    """
+    return strategy_optimistic_parallel(
+        state,
+        lambda candidates: sorted((pr.arrived_at, pr.id_) for pr in candidates)[0][1],
+    )
+
+
+def strategy_lifo(state: State) -> Tuple[Commit, set[PrId]]:
+    """
+    Build pull requests in reverse approval order. Does not do rollups. In case
+    of parallel builds, this optimistically assumes all builds pass, and it
+    builds upon any existing builds.
+    """
+    return strategy_optimistic_parallel(
+        state,
+        lambda candidates: sorted((-pr.arrived_at, pr.id_) for pr in candidates)[0][1],
+    )
 
 
 def main() -> None:
@@ -613,27 +611,31 @@ def main() -> None:
         Config.new(parallelism=1, criticality=1.00),
         Config.new(parallelism=1, criticality=1.10),
         Config.new(parallelism=1, criticality=2.0),
-
         Config.new(parallelism=2, criticality=0.15),
         Config.new(parallelism=2, criticality=0.80),
         Config.new(parallelism=2, criticality=1.05),
-
         Config.new(parallelism=4, criticality=0.15),
         Config.new(parallelism=4, criticality=0.60),
         Config.new(parallelism=4, criticality=1.01),
     ]
+    strategies = [
+        ("classic", strategy_classic),
+        ("fifo", strategy_fifo),
+        ("lifo", strategy_lifo),
+    ]
     for config in configs:
-        runs = []
-        for seed in range(250):
-            sim = Simulator.new(
-                seed=seed,
-                config=config,
-                strategy=strategy_classic_parallel,
-            )
-            sim.run_to_last_pr()
-            runs.append(sim)
+        for strategy_name, strategy in strategies:
+            runs = []
+            for seed in range(250):
+                sim = Simulator.new(
+                    seed=seed,
+                    config=config,
+                    strategy=strategy,
+                )
+                sim.run_to_last_pr()
+                runs.append(sim)
 
-        plot_results(config, "classic_parallel", runs)
+            plot_results(config, strategy_name, runs)
 
 
 if __name__ == "__main__":
