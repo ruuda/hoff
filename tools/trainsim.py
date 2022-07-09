@@ -387,25 +387,29 @@ def plot_results(runs: list[Simulator]) -> None:
     ax.legend()
 
     wait_times = np.concatenate([run.get_wait_times() for run in runs])
+    # The scale of the wait times is somewhat arbitrary because it depends on
+    # the build time we chose. So normalize everything to the average build
+    # time, then we can express time waiting roughly in "number of builds".
+    wait_times = wait_times / AVG_BUILD_TIME
     ax = axes[1]
-    ax.hist(wait_times, bins=50, color="black", alpha=0.5)
+    ax.hist(wait_times, bins=np.arange(25) - 0.5, color="black", alpha=0.5)
 
     mean_wait_time = np.mean(wait_times)
     ax.axvline(
         x=mean_wait_time,
         color="orange",
-        label=f"mean wait time ({mean_wait_time:.1f})",
+        label=f"mean wait time ({mean_wait_time:.2f})",
     )
     p50, p90 = np.quantile(wait_times, (0.5, 0.9))
     ax.axvline(
         x=p50,
         color="green",
-        label=f"p50 wait time ({p50:.1f})",
+        label=f"p50 wait time ({p50:.2f})",
     )
     ax.axvline(
         x=p90,
         color="red",
-        label=f"p90 wait time ({p90:.1f})",
+        label=f"p90 wait time ({p90:.2f})",
     )
     ax.legend()
 
