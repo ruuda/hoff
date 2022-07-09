@@ -415,6 +415,12 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
     backlog_sizes = tmp[:, window_len - 1 :] / window_len
     size_sample_times = size_sample_times[window_len - 1 :]
 
+    # The scale of the timeline is somewhat arbitrary, and the build times
+    # themselves never show up in absolute units. So let's normalize everything
+    # to the average build time, then the timeline counts roughly "number of
+    # builds".
+    size_sample_times = size_sample_times / config.avg_build_time
+
     p25, p50, p75 = np.quantile(backlog_sizes, (0.1, 0.5, 0.9), axis=0)
     ax.set_yticks(np.arange(40), minor=True)
     ax.grid(color="black", linestyle="dashed", axis="y", alpha=0.1, which="both")
@@ -432,7 +438,7 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
         color="black",
         label="p50 backlog size",
     )
-    ax.set_xlabel("time")
+    ax.set_xlabel("time\n(normalized to build time, 1.0 = one build)")
     ax.set_ylabel("number of approved pull requests not yet merged or failed")
     ax.legend()
 
