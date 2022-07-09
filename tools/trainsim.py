@@ -249,7 +249,6 @@ class Simulator:
     strategy: Strategy
     rng: Generator
     t: Time
-    last_pr_received_at: Time
     state: State
     events: list[PullRequest | BuildResult]
     backlog_size_over_time: list[Tuple[Time, int]]
@@ -268,7 +267,6 @@ class Simulator:
             strategy=strategy,
             rng=rng,
             t=Time(0.0),
-            last_pr_received_at=Time(0.0),
             state=State.new(),
             events=events,
             backlog_size_over_time=[],
@@ -329,7 +327,6 @@ class Simulator:
 
         if isinstance(event, PullRequest):
             self.state = self.state.insert_pr(event)
-            self.last_pr_received_at = event.arrived_at
 
         if isinstance(event, BuildResult):
             if event.did_succeed:
@@ -340,12 +337,18 @@ class Simulator:
         self.backlog_size_over_time.append((self.t, len(self.state.open_prs)))
         self.start_build_if_possible()
 
-    def run_to_completion(self) -> None:
+    def run_to_last_pr(self) -> None:
         while len(self.events) > 0:
             self.handle_single_event()
 
-        assert len(self.state.open_prs) == 0
-        assert len(self.state.builds_in_progress) == 0
+            # We don't run until the last event is handled, we run until the
+            # last PR is enqueued. Because we don't continue enqueueing PRs
+            # forever, if we would wait for the last event, there is an atypical
+            # period at the end where we clear the backlog, and we don't want
+            # that to affect the delay statistics.
+            prs_handled = len(self.state.open_prs) + len(self.state.closed_prs)
+            if prs_handled == self.config.num_prs:
+                break
 
     def get_backlog_trace(self, ts: ArrayLike) -> ArrayLike:
         """
@@ -396,8 +399,10 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
 
     ax = axes[0]
 
-    last_pr_received = np.quantile([run.last_pr_received_at for run in runs], 0.05)
-    end_time = np.quantile([run.backlog_size_over_time[-1][0] for run in runs], 0.5)
+    # We cut off the graph once the first 5% of runs has finished, because when
+    # runs finish, there is no fresh data beyond that point for those runs, so
+    # continuing to plot quantiles based on that would be misleading.
+    end_time = np.quantile([run.backlog_size_over_time[-1][0] for run in runs], 0.05)
     size_sample_times = np.linspace(0.0, end_time, num=200)
 
     backlog_sizes = np.array([run.get_backlog_trace(size_sample_times) for run in runs])
@@ -427,11 +432,6 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
         color="black",
         label="p50 backlog size",
     )
-    ax.axvline(
-        x=last_pr_received,
-        color="red",
-        label="p05 last PR received",
-    )
     ax.set_xlabel("time")
     ax.set_ylabel("number of approved pull requests not yet merged or failed")
     ax.legend()
@@ -442,10 +442,10 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
     # time, then we can express time waiting roughly in "number of builds".
     wait_times = wait_times / config.avg_build_time
     mean_wait_time = np.mean(wait_times)
-    p50, p90, p98 = np.quantile(wait_times, (0.5, 0.9, 0.98))
+    p50, p90, p96 = np.quantile(wait_times, (0.5, 0.9, 0.96))
 
     ax = axes[1]
-    max_x = math.floor(p98)
+    max_x = math.floor(p96)
     ax.set_xticks(np.arange(max_x), minor=True)
     ax.grid(color="black", linestyle="dashed", axis="x", alpha=0.1, which="both")
     ax.hist(
@@ -530,7 +530,7 @@ def main() -> None:
                 config=cfg,
                 strategy=strategy_lifo,
             )
-            sim.run_to_completion()
+            sim.run_to_last_pr()
             runs.append(sim)
 
         plot_results(cfg, "lifo", runs)
