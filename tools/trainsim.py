@@ -18,10 +18,14 @@ from matplotlib import pyplot as plt  # type: ignore
 # When we set the mean build time to the average time between PRs, we are at
 # that critical point where on average the system can keep up and still merge
 # everything, but there will be spans of time where we are unlucky and a backlog
-# builds up.
+# builds up. Being *right* at that critical point is bad because once there is
+# some backlog, it has as much probability of growing as it has of shrinking,
+# but it can't shrink below zero, so over time it does grow. So let's say we are
+# not yet at that point, and the time between PRs is a bit more than the build
+# time.
 AVG_TIME_BETWEEN_PRS = 10.0
 AVG_TIME_TO_APPROVE = 60.0
-AVG_BUILD_TIME = 10.0
+AVG_BUILD_TIME = 9.0
 BUILD_TIME_STDDEV = 1.0
 PROBABILITY_PR_IS_GOOD = 0.9
 NUM_BUILD_SLOTS = 1
@@ -302,14 +306,37 @@ class Simulator:
         while len(self.events) > 0:
             self.handle_single_event()
 
-    def get_backlog_trace(self) -> ArrayLike:
+    def get_backlog_trace(self, ts: ArrayLike) -> ArrayLike:
         """
-        Convert backlog size over time to a NumPy array with time times in axis
-        0 and sizes in axis 1.
+        Sample the size of the backlog at the given times. This computes the
+        time-weighted average size over the intervals defined by `ts`. The times
+        `ts` must be increasing.
         """
-        xs = np.array([t for t, sz in self.backlog_size_over_time])
-        ys = np.array([sz for t, sz in self.backlog_size_over_time])
-        return np.array([xs, ys])
+        result = []
+        last_size = 0
+        i = 0
+        max_i = len(self.backlog_size_over_time)
+        prev_t = 0.0
+
+        for t in np.nditer(ts):
+            window_sum = 0.0
+            weight = 0.0
+
+            while i < max_i and self.backlog_size_over_time[i][0] < Time(t):
+                elem_t = self.backlog_size_over_time[i][0]
+                dt = elem_t - prev_t
+                size = self.backlog_size_over_time[i][1]
+                window_sum += dt * size
+                weight += dt
+                i += 1
+                last_size = size
+
+            if weight > 0.0:
+                result.append(window_sum / weight)
+            else:
+                result.append(last_size)
+
+        return np.array(result)
 
     def get_wait_times(self) -> ArrayLike:
         """
@@ -336,9 +363,28 @@ def plot_results(runs: list[Simulator]) -> None:
     fig, axes = plt.subplots(nrows=1, ncols=2)
     ax = axes[0]
 
-    for run in runs:
-        data = run.get_backlog_trace()
-        ax.plot(data[0], data[1], color="blue", alpha=0.1)
+    mean_end_time = np.mean([
+        run.backlog_size_over_time[-1][0]
+        for run in runs
+    ])
+    size_sample_times = np.linspace(0.0, mean_end_time, num=200)
+
+    backlog_sizes = np.array([
+        run.get_backlog_trace(size_sample_times) for run in runs
+    ])
+    # Even after we sample the backlog as a time-weighted value in the buckets,
+    # the lines still look quite noisy, smooth that out a bit by averaging over
+    # some time steps.
+    window_len = 10
+    tmp = np.cumsum(backlog_sizes, axis=1)
+    tmp[:, window_len:] = tmp[:, window_len:] - tmp[:, :-window_len]
+    backlog_sizes = tmp[:, window_len - 1:] / window_len
+    size_sample_times = size_sample_times[window_len - 1:]
+
+    p25, p50, p75 = np.quantile(backlog_sizes, (0.1, 0.5, 0.9), axis=0)
+    ax.fill_between(size_sample_times, p25, p75, alpha=0.2, label="p25–p75")
+    ax.plot(size_sample_times, p50, label="p50 backlog size")
+    ax.legend()
 
     wait_times = np.concatenate([run.get_wait_times() for run in runs])
     ax = axes[1]
@@ -350,18 +396,18 @@ def plot_results(runs: list[Simulator]) -> None:
         color="orange",
         label=f"mean wait time ({mean_wait_time:.1f})",
     )
-    p50 = np.quantile(wait_times, 0.5)
+    p50, p90 = np.quantile(wait_times, (0.5, 0.9))
     ax.axvline(
         x=p50,
         color="green",
-        label=f"p50 wait time ({mean_wait_time:.1f})",
+        label=f"p50 wait time ({p50:.1f})",
     )
-    p90 = np.quantile(wait_times, 0.9)
     ax.axvline(
         x=p90,
         color="red",
-        label=f"p90 wait time ({mean_wait_time:.1f})",
+        label=f"p90 wait time ({p90:.1f})",
     )
+    ax.legend()
 
     plt.tight_layout()
     plt.show()
@@ -369,7 +415,7 @@ def plot_results(runs: list[Simulator]) -> None:
 
 def main() -> None:
     runs = []
-    for seed in range(100):
+    for seed in range(200):
         sim = Simulator.new(
             seed=seed,
             num_prs=200,
