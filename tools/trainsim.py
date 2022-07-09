@@ -38,8 +38,8 @@ class Config(NamedTuple):
     avg_build_time: Time = Time(10.0)
     build_time_stdev: Time = Time(1.0)
     probability_pr_is_good: float = 0.9
-    num_prs: int = 200
-    num_build_slots: int = 1
+    num_prs: int = 250
+    num_build_slots: int = 2
 
     @staticmethod
     def subcritical() -> Config:
@@ -64,7 +64,7 @@ class Config(NamedTuple):
         # In this case, the average time between PRs is smaller than the build
         # time, so any strategy without parallelism or rollups will not be able
         # to cope and cause an ever-growing backlog.
-        return Config(name="supercritical", avg_time_between_prs=Time(9.0))
+        return Config(name="supercritical", avg_time_between_prs=Time(4.5))
 
 
 class PullRequest(NamedTuple):
@@ -202,6 +202,14 @@ class State(NamedTuple):
         # probabilities, we mark that PR as failed.
         if len(train.prs) == 1:
             pr_id = next(iter(train.prs))
+
+            if pr_id not in self.open_prs:
+                # We might have a stale build result; possibly a different build
+                # already concluded that this PR failed to build. Then there is
+                # nothing to change.
+                assert pr_id in self.closed_prs
+                return self._replace(builds_in_progress=new_builds)
+
             pr = self.open_prs[pr_id]
             dt = Time(t - pr.arrived_at)
             assert dt > Time(0.0)
@@ -293,6 +301,13 @@ class Simulator:
             return
 
         base, prs_in_train = self.strategy(self.state)
+
+        if len(prs_in_train) == 0:
+            # Some strategies might conclude they have nothing to do at some
+            # point, even if there are open pull requests. For example, because
+            # the pull request is already being built.
+            return
+
         train = Train(
             base=base,
             tip=self.allocate_commit(),
@@ -301,7 +316,6 @@ class Simulator:
         assert all(
             pr in self.state.open_prs for pr in prs_in_train
         ), "Train must consist of currently open PRs."
-        assert len(prs_in_train) > 0, "Train must build at least one PR."
         assert base == self.state.master_tip or any(
             build.tip == base for build in self.state.builds_in_progress.values()
         ), "Train must build atop master or any currently running build."
@@ -420,9 +434,13 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
     # to the average build time, then the timeline counts roughly "number of
     # builds".
     size_sample_times = size_sample_times / config.avg_build_time
-
     p25, p50, p75 = np.quantile(backlog_sizes, (0.1, 0.5, 0.9), axis=0)
-    ax.set_yticks(np.arange(40), minor=True)
+
+    if p50[-1] < 30:
+        ax.set_yticks(np.arange(40), minor=True)
+    else:
+        ax.set_yticks(np.arange(40) * 2, minor=True)
+
     ax.grid(color="black", linestyle="dashed", axis="y", alpha=0.1, which="both")
     ax.fill_between(
         size_sample_times,
@@ -443,20 +461,23 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
     ax.legend()
 
     wait_times = np.concatenate([run.get_wait_times() for run in runs])
+    print(wait_times.shape, wait_times)
     # The scale of the wait times is somewhat arbitrary because it depends on
     # the build time we chose. So normalize everything to the average build
     # time, then we can express time waiting roughly in "number of builds".
     wait_times = wait_times / config.avg_build_time
     mean_wait_time = np.mean(wait_times)
-    p50, p90, p96 = np.quantile(wait_times, (0.5, 0.9, 0.96))
+    p50, p90, p97 = np.quantile(wait_times, (0.5, 0.9, 0.97))
 
     ax = axes[1]
-    max_x = math.floor(p96)
+    max_x = max(math.ceil(p97), 3)
     ax.set_xticks(np.arange(max_x), minor=True)
+    bins = np.arange(max_x * 2 + 1) * 0.5 - 0.25
+    if max_x < 8:
+        bins = np.arange(max_x * 4 + 1) * 0.25 - 0.125
+
     ax.grid(color="black", linestyle="dashed", axis="x", alpha=0.1, which="both")
-    ax.hist(
-        wait_times, bins=np.arange(max_x * 2) * 0.5 - 0.25, color="black", alpha=0.2
-    )
+    ax.hist(wait_times, bins=bins, color="black", alpha=0.2)
 
     ax.axvline(
         x=mean_wait_time,
@@ -482,7 +503,7 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
     ax.legend()
 
     plt.tight_layout()
-    plt.savefig(f"out/{strategy_name}_{config.name}.png", dpi=400)
+    plt.savefig(f"out/{config.name}_{strategy_name}.png", dpi=400)
 
 
 def strategy_classic(state: State) -> Tuple[Commit, set[PrId]]:
@@ -526,20 +547,45 @@ def strategy_lifo(state: State) -> Tuple[Commit, set[PrId]]:
     return base, {candidates[0][1]}
 
 
+def strategy_classic_parallel(state: State) -> Tuple[Commit, set[PrId]]:
+    """
+    Build the pull request with the lowest PR id first. If there are builds in
+    progress, optimistically try to build on top, but only one PR at a time,
+    i.e. no rollups.
+    """
+    base = state.master_tip
+    candidates = set(state.open_prs.keys())
+
+    # We build on top of the largest train that builds on top of the current
+    # master. This assumes that the in-progress builds are ordered by "height"
+    # on top of master, at least those that are grounded in the current master.
+    # But they should be, by induction, because we extend like this.
+    for train in state.builds_in_progress.values():
+        if train.base == base:
+            candidates = candidates - train.prs
+            base = train.tip
+
+    if len(candidates) == 0:
+        return base, {}
+
+    return base, {min(candidates)}
+
+
 def main() -> None:
     cfgs = (Config.subcritical(), Config.critical(), Config.supercritical())
+    # cfgs = (Config.subcritical(),)
     for cfg in cfgs:
         runs = []
         for seed in range(200):
             sim = Simulator.new(
                 seed=seed,
                 config=cfg,
-                strategy=strategy_lifo,
+                strategy=strategy_classic_parallel,
             )
             sim.run_to_last_pr()
             runs.append(sim)
 
-        plot_results(cfg, "lifo", runs)
+        plot_results(cfg, "classic_parallel", runs)
 
 
 if __name__ == "__main__":
