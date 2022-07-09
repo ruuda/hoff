@@ -6,6 +6,7 @@ For testing https://github.com/channable/hoff/issues/77#issuecomment-1179430191
 
 from __future__ import annotations
 
+import math
 import matplotlib  # type: ignore
 import numpy as np
 import heapq
@@ -25,9 +26,9 @@ from typing import Callable, NamedTuple, NewType, Tuple
 # but it can't shrink below zero, so over time it does grow. So let's say we are
 # not yet at that point, and the time between PRs is a bit more than the build
 # time.
-AVG_TIME_BETWEEN_PRS = 10.0
+AVG_TIME_BETWEEN_PRS = 15.0
 AVG_TIME_TO_APPROVE = 60.0
-AVG_BUILD_TIME = 9.0
+AVG_BUILD_TIME = 10.0
 BUILD_TIME_STDDEV = 1.0
 PROBABILITY_PR_IS_GOOD = 0.9
 NUM_BUILD_SLOTS = 1
@@ -388,7 +389,7 @@ def plot_results(runs: list[Simulator]) -> None:
     size_sample_times = size_sample_times[window_len - 1 :]
 
     p25, p50, p75 = np.quantile(backlog_sizes, (0.1, 0.5, 0.9), axis=0)
-    ax.set_yticks(np.arange(10), minor=True)
+    ax.set_yticks(np.arange(40), minor=True)
     ax.grid(color="black", linestyle="dashed", axis="y", alpha=0.1, which="both")
     ax.fill_between(
         size_sample_times,
@@ -418,12 +419,15 @@ def plot_results(runs: list[Simulator]) -> None:
     # the build time we chose. So normalize everything to the average build
     # time, then we can express time waiting roughly in "number of builds".
     wait_times = wait_times / AVG_BUILD_TIME
-    ax = axes[1]
-    ax.set_xticks(np.arange(25), minor=True)
-    ax.grid(color="black", linestyle="dashed", axis="x", alpha=0.1, which="both")
-    ax.hist(wait_times, bins=np.arange(50) * 0.5 - 0.25, color="black", alpha=0.2)
-
     mean_wait_time = np.mean(wait_times)
+    p50, p90, p98 = np.quantile(wait_times, (0.5, 0.9, 0.98))
+
+    ax = axes[1]
+    max_x = math.floor(p98)
+    ax.set_xticks(np.arange(max_x), minor=True)
+    ax.grid(color="black", linestyle="dashed", axis="x", alpha=0.1, which="both")
+    ax.hist(wait_times, bins=np.arange(max_x * 2) * 0.5 - 0.25, color="black", alpha=0.2)
+
     ax.axvline(
         x=mean_wait_time,
         color="red",
