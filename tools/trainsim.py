@@ -373,44 +373,41 @@ def plot_results(runs: list[Simulator]) -> None:
 
     ax = axes[0]
 
-    last_pr_received = np.quantile([
-        run.last_pr_received_at for run in runs
-    ], 0.05)
-    end_time = np.quantile([
-        run.backlog_size_over_time[-1][0]
-        for run in runs
-    ], 0.5)
+    last_pr_received = np.quantile([run.last_pr_received_at for run in runs], 0.05)
+    end_time = np.quantile([run.backlog_size_over_time[-1][0] for run in runs], 0.5)
     size_sample_times = np.linspace(0.0, end_time, num=200)
 
-    backlog_sizes = np.array([
-        run.get_backlog_trace(size_sample_times) for run in runs
-    ])
+    backlog_sizes = np.array([run.get_backlog_trace(size_sample_times) for run in runs])
     # Even after we sample the backlog as a time-weighted value in the buckets,
     # the lines still look quite noisy, smooth that out a bit by averaging over
     # some time steps.
     window_len = 10
     tmp = np.cumsum(backlog_sizes, axis=1)
     tmp[:, window_len:] = tmp[:, window_len:] - tmp[:, :-window_len]
-    backlog_sizes = tmp[:, window_len - 1:] / window_len
-    size_sample_times = size_sample_times[window_len - 1:]
+    backlog_sizes = tmp[:, window_len - 1 :] / window_len
+    size_sample_times = size_sample_times[window_len - 1 :]
 
     p25, p50, p75 = np.quantile(backlog_sizes, (0.1, 0.5, 0.9), axis=0)
     ax.set_yticks(np.arange(10), minor=True)
     ax.grid(color="black", linestyle="dashed", axis="y", alpha=0.1, which="both")
     ax.fill_between(
-        size_sample_times, p25, p75,
+        size_sample_times,
+        p25,
+        p75,
         alpha=0.2,
         color="black",
-        label="p25–p75 backlog size"
+        label="p25–p75 backlog size",
     )
     ax.plot(
-        size_sample_times, p50,
+        size_sample_times,
+        p50,
         color="black",
         label="p50 backlog size",
     )
-    ax.axvline(x=last_pr_received,
-            color="red",
-            label="p05 last PR received",
+    ax.axvline(
+        x=last_pr_received,
+        color="red",
+        label="p05 last PR received",
     )
     ax.set_xlabel("time")
     ax.set_ylabel("number of approved pull requests not yet merged or failed")
@@ -444,7 +441,9 @@ def plot_results(runs: list[Simulator]) -> None:
         linestyle="dotted",
         label=f"p90 wait time ({p90:.2f})",
     )
-    ax.set_xlabel("wait time until merge or fail\n(normalized to build time, 1.0 = one build)")
+    ax.set_xlabel(
+        "wait time until merge or fail\n(normalized to build time, 1.0 = one build)"
+    )
     ax.set_ylabel("number of pull requests")
     ax.legend()
 
