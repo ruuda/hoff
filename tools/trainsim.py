@@ -143,9 +143,37 @@ class Build(NamedTuple):
     # Ids of the pull requests included in base..tip.
     prs: set[PrId]
 
+    def get_root(self) -> Commit:
+        """
+        Return the latest known-good commit that this build builds on top of.
+        """
+        root, _prs_since_root = next(iter(self.root_path.items()))
+        return root
+
     def prs_since_root(self) -> set[PrId]:
-        root, prs_since_root = next(iter(self.root_path.items()))
+        _root, prs_since_root = next(iter(self.root_path.items()))
         return prs_since_root
+
+    def trim_root_path(self, new_tip: Commit) -> Build:
+        """
+        When we advance master to `new_tip`, that affects the root path of all
+        PRs that have `new_tip` on their path. This trims the root path to
+        remove everything before `new_tip`.
+        """
+        if new_tip not in self.root_path:
+            return self
+
+        still_pending_prs = self.root_path[new_tip]
+        new_root_path = {
+            base: prs
+            for base, prs in self.root_path.items()
+            # As we walk from the root to the tip, the next set of PRs we
+            # encounter should be a strict subset of the current one, which
+            # means we can figure out where to make the cut based on just the
+            # size of the set.
+            if len(prs) <= len(still_pending_prs)
+        }
+        return self._replace(root_path=new_root_path)
 
 
 class State(NamedTuple):
@@ -194,6 +222,13 @@ class State(NamedTuple):
             # This success was not on top of master, so it was not useful,
             # ignore it. TODO: We could still update the probabilities though.
             return self._replace(builds_in_progress=new_builds)
+
+        # If we merge the tip of this build, then that means that some other
+        # builds that were previously speculative, might now be directly on top
+        # of master, so update their root paths.
+        new_builds = {
+            bid: b.trim_root_path(new_tip=build.tip) for bid, b in new_builds.items()
+        }
 
         prs_since_tip = build.root_path[tip]
 
@@ -268,16 +303,25 @@ class State(NamedTuple):
 
         new_ps = dict(self.is_good_probabilities.items())
 
+        # Our prior estimate of the probability that a given pull request that
+        # we have never tried to build before, is good.
+        prior_is_good = 0.9
+
         # Perform the Bayesian update for the is-good probabilities of the PRs
         # involved in this failed build.
+
         p_train_fails = 1.0 - np.product(
-            [self.is_good_probabilities[y] for y in bad_prs]
+            [self.is_good_probabilities.get(y, prior_is_good) for y in bad_prs]
         )
         for x in bad_prs:
             p_train_fails_given_x_is_good = np.product(
-                [self.is_good_probabilities[y] for y in bad_prs if y != x]
+                [
+                    self.is_good_probabilities.get(y, prior_is_good)
+                    for y in bad_prs
+                    if y != x
+                ]
             )
-            p_x_is_good = self.is_good_probabilities[x]
+            p_x_is_good = self.is_good_probabilities.get(x, prior_is_good)
             p_x_is_good_given_train_failed = (
                 p_train_fails_given_x_is_good * p_x_is_good / p_train_fails
             )
@@ -364,6 +408,11 @@ class Simulator:
             other = builds_by_tip[base]
             root_path = {k: prs | prs_in_train for k, prs in other.root_path.items()}
             root_path[base] = prs_in_train
+            assert other.get_root() == self.state.get_tip(), (
+                "If we build atop another build, then that build must be on "
+                "top of master, we shouldn't build on top of something that is "
+                "already known to be obsolete."
+            )
         elif base == self.state.get_tip():
             root_path = {base: prs_in_train}
         else:
@@ -375,8 +424,12 @@ class Simulator:
             prs=prs_in_train,
             root_path=root_path,
         )
-
         build_id = self.allocate_build_id()
+
+        print(
+            f"Start build {build_id}: strategy={self.strategy} master[-5:]={self.state.heads[-5:]} {build=}"
+        )
+
         self.state = self.state.start_build(build_id, build)
         train_is_good = all(
             self.state.open_prs[pr].is_good for pr in build.prs_since_root()
@@ -659,15 +712,15 @@ def strategy_lifo(state: State) -> Tuple[Commit, set[PrId]]:
 
 def main() -> None:
     configs = [
-        Config.new(parallelism=1, criticality=0.15),
-        Config.new(parallelism=1, criticality=0.80),
-        Config.new(parallelism=1, criticality=1.00),
-        Config.new(parallelism=1, criticality=1.10),
-        Config.new(parallelism=1, criticality=2.0),
-        Config.new(parallelism=2, criticality=0.15),
-        Config.new(parallelism=2, criticality=0.80),
-        Config.new(parallelism=2, criticality=1.05),
-        Config.new(parallelism=4, criticality=0.15),
+        # Config.new(parallelism=1, criticality=0.15),
+        # Config.new(parallelism=1, criticality=0.80),
+        # Config.new(parallelism=1, criticality=1.00),
+        # Config.new(parallelism=1, criticality=1.10),
+        # Config.new(parallelism=1, criticality=2.0),
+        # Config.new(parallelism=2, criticality=0.15),
+        # Config.new(parallelism=2, criticality=0.80),
+        # Config.new(parallelism=2, criticality=1.05),
+        # Config.new(parallelism=4, criticality=0.15),
         Config.new(parallelism=4, criticality=0.60),
         Config.new(parallelism=4, criticality=1.01),
     ]
