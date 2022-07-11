@@ -748,15 +748,23 @@ def strategy_bayesian(state: State) -> Tuple[Commit, set[PrId]]:
         else:
             break
 
+    # If we build a single pull request, we are guaranteed to reduce the size of
+    # the backlog by one. So if all of the trains we can build are quite bad,
+    # then instead, we can confirm a likely-bad PR.
+    if best_expected_len < 1.0:
+        p_pr_is_good, _, pr_id = candidates[-1]
+        print(f" + Opting to confirm the worst candidate ({pr_id}) instead, {p_pr_is_good=:.3f}")
+        return state.get_tip(), {pr_id}
+
     return state.get_tip(), includes
 
 
 def main() -> None:
     configs = [
-        # Config.new(parallelism=1, criticality=0.15),
-        # Config.new(parallelism=1, criticality=0.80),
-        # Config.new(parallelism=1, criticality=1.00),
-        # Config.new(parallelism=1, criticality=1.10),
+        Config.new(parallelism=1, criticality=0.15),
+        Config.new(parallelism=1, criticality=0.80),
+        Config.new(parallelism=1, criticality=1.00),
+        Config.new(parallelism=1, criticality=1.10),
         Config.new(parallelism=1, criticality=2.0),
         # Config.new(parallelism=2, criticality=0.15),
         # Config.new(parallelism=2, criticality=0.80),
@@ -766,7 +774,7 @@ def main() -> None:
         # Config.new(parallelism=4, criticality=1.01),
     ]
     strategies = [
-        ("bayesian", strategy_bayesian),
+        ("bayesian++", strategy_bayesian),
         # ("classic", strategy_classic),
         # ("fifo", strategy_fifo),
         # ("lifo", strategy_lifo),
