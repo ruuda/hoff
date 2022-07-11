@@ -15,10 +15,10 @@ from textwrap import dedent
 from dataclasses import dataclass
 from matplotlib import pyplot as plt
 from matplotlib.font_manager import FontProperties  # type: ignore
-from matplotlib.ticker import MultipleLocator
+from matplotlib.ticker import MultipleLocator  # type: ignore
 from numpy.random import Generator
 from numpy.typing import ArrayLike
-from typing import Callable, NamedTuple, NewType, Tuple
+from typing import Callable, NamedTuple, NewType, Optional, Tuple
 
 Time = NewType("Time", float)
 Commit = NewType("Commit", int)
@@ -123,7 +123,7 @@ def generate_pr_events(rng: Generator, config: Config) -> list[PullRequest]:
     ]
 
 
-class Train(NamedTuple):
+class Build(NamedTuple):
     # Commit that this train was built on top of.
     base: Commit
 
@@ -131,8 +131,21 @@ class Train(NamedTuple):
     # branch if we merged this train.
     tip: Commit
 
-    # Ids of the included pull requests.
+    # For a chain of builds, each on top of one another, ending at the current
+    # build, this lists all pull requests included in base..tip. For example,
+    # if this build is a train directly on top of master, it would contain one
+    # entry {master: prs} with all PRs in this pull request. If this build
+    # instead is on top of another build A, then we would have
+    # {A.base: self.prs | A.prs, A.tip: self.prs}. This dict should be ordered
+    # with the root first, and builds on top later.
+    root_path: dict[Commit, set[PrId]]
+
+    # Ids of the pull requests included in base..tip.
     prs: set[PrId]
+
+    def prs_since_root(self) -> set[PrId]:
+        root, prs_since_root = next(iter(self.root_path.items()))
+        return prs_since_root
 
 
 class State(NamedTuple):
@@ -140,8 +153,10 @@ class State(NamedTuple):
     # Per merged or failed PR, the time from arrival until it got merged.
     closed_prs: dict[PrId, Time]
     is_good_probabilities: dict[PrId, float]
-    builds_in_progress: dict[BuildId, Train]
-    master_tip: Commit
+    builds_in_progress: dict[BuildId, Build]
+
+    # The successive commits that the master branch pointed to.
+    heads: list[Commit]
 
     @staticmethod
     def new() -> State:
@@ -150,14 +165,18 @@ class State(NamedTuple):
             closed_prs={},
             is_good_probabilities={},
             builds_in_progress={},
-            master_tip=Commit(0),
+            heads=[Commit(0)],
         )
+
+    def get_tip(self) -> Commit:
+        """Return the current tip of the master branch."""
+        return self.heads[-1]
 
     def insert_pr(self, pr: PullRequest) -> State:
         return self._replace(open_prs=self.open_prs | {pr.id_: pr})
 
-    def start_build(self, id_: BuildId, train: Train) -> State:
-        return self._replace(builds_in_progress=self.builds_in_progress | {id_: train})
+    def start_build(self, id_: BuildId, build: Build) -> State:
+        return self._replace(builds_in_progress=self.builds_in_progress | {id_: build})
 
     def complete_build_success(self, t: Time, id_: BuildId) -> State:
         """
@@ -165,20 +184,24 @@ class State(NamedTuple):
         remove any merged PRs from the state, and record the time elapsed since
         the PR arrived for all merged PRs, in addition to the new state.
         """
-        train = self.builds_in_progress[id_]
+        build = self.builds_in_progress[id_]
         new_builds = {
             bid: b for bid, b in self.builds_in_progress.items() if bid != id_
         }
 
-        if train.base != self.master_tip:
-            # This success was not useful, ignore it.
-            # TODO: We could still update the probabilities though.
+        tip = self.get_tip()
+        if tip not in build.root_path:
+            # This success was not on top of master, so it was not useful,
+            # ignore it. TODO: We could still update the probabilities though.
             return self._replace(builds_in_progress=new_builds)
+
+        prs_since_tip = build.root_path[tip]
 
         new_open_prs = dict(self.open_prs.items())
         new_closed_prs = dict(self.closed_prs.items())
+        new_heads = self.heads + [build.tip]
 
-        for pr_id in train.prs:
+        for pr_id in prs_since_tip:
             pr = new_open_prs[pr_id]
             del new_open_prs[pr_id]
             dt = Time(t - pr.arrived_at)
@@ -190,7 +213,7 @@ class State(NamedTuple):
             open_prs=new_open_prs,
             closed_prs=new_closed_prs,
             builds_in_progress=new_builds,
-            master_tip=train.tip,
+            heads=new_heads,
         )
 
     def complete_build_failure(self, t: Time, id_: BuildId) -> State:
@@ -198,15 +221,31 @@ class State(NamedTuple):
         Complete the build, update the is-good probabilities for the PRs
         involved, or if the train was a singleton, mark that PR as failed.
         """
-        train = self.builds_in_progress[id_]
+        build = self.builds_in_progress[id_]
         new_builds = {
             bid: b for bid, b in self.builds_in_progress.items() if bid != id_
         }
 
-        # If the train contained a single PR, then instead of updating the
+        # Find the minimal set of PRs that contains a bad one, based on what's
+        # included in this build and what got merged. I.e. if this build failed,
+        # but it was on top of another build, and that other build passed in the
+        # meantime but now this one fails, we can say that the failure was in
+        # our build. On the other hand, if the other build is still pending,
+        # then the entire range since master is potentially bad.
+        bad_prs: set[PrId] = set()
+        was_rooted = False
+        for head in reversed(self.heads):
+            if head in build.root_path:
+                bad_prs = build.root_path[head]
+                was_rooted = True
+                break
+
+        assert was_rooted, "A build must eventually be traceable to a succeeding build."
+
+        # If the build contained a single PR, then instead of updating the
         # probabilities, we mark that PR as failed.
-        if len(train.prs) == 1:
-            pr_id = next(iter(train.prs))
+        if len(bad_prs) == 1:
+            pr_id = next(iter(bad_prs))
 
             if pr_id not in self.open_prs:
                 # We might have a stale build result; possibly a different build
@@ -230,13 +269,13 @@ class State(NamedTuple):
         new_ps = dict(self.is_good_probabilities.items())
 
         # Perform the Bayesian update for the is-good probabilities of the PRs
-        # involved in this failed train.
+        # involved in this failed build.
         p_train_fails = 1.0 - np.product(
-            [self.is_good_probabilities[y] for y in train.prs]
+            [self.is_good_probabilities[y] for y in bad_prs]
         )
-        for x in train.prs:
+        for x in bad_prs:
             p_train_fails_given_x_is_good = np.product(
-                [self.is_good_probabilities[y] for y in train.prs if y != x]
+                [self.is_good_probabilities[y] for y in bad_prs if y != x]
             )
             p_x_is_good = self.is_good_probabilities[x]
             p_x_is_good_given_train_failed = (
@@ -313,21 +352,35 @@ class Simulator:
             # the pull request is already being built.
             return
 
-        train = Train(
+        assert all(
+            pr in self.state.open_prs for pr in prs_in_train
+        ), "Build must consist of currently open PRs."
+
+        builds_by_tip = {
+            other.tip: other for other in self.state.builds_in_progress.values()
+        }
+        root_path: dict[Commit, set[PrId]]
+        if base in builds_by_tip:
+            other = builds_by_tip[base]
+            root_path = {k: prs | prs_in_train for k, prs in other.root_path.items()}
+            root_path[base] = prs_in_train
+        elif base == self.state.get_tip():
+            root_path = {base: prs_in_train}
+        else:
+            raise Exception("Must build on top of master or a currently running build.")
+
+        build = Build(
             base=base,
             tip=self.allocate_commit(),
             prs=prs_in_train,
+            root_path=root_path,
         )
-        assert all(
-            pr in self.state.open_prs for pr in prs_in_train
-        ), "Train must consist of currently open PRs."
-        assert base == self.state.master_tip or any(
-            build.tip == base for build in self.state.builds_in_progress.values()
-        ), "Train must build atop master or any currently running build."
 
         build_id = self.allocate_build_id()
-        self.state = self.state.start_build(build_id, train)
-        train_is_good = all(self.state.open_prs[pr].is_good for pr in train.prs)
+        self.state = self.state.start_build(build_id, build)
+        train_is_good = all(
+            self.state.open_prs[pr].is_good for pr in build.prs_since_root()
+        )
         build_duration = self.rng.normal(
             loc=self.config.avg_build_time, scale=self.config.build_time_stdev
         )
@@ -547,7 +600,7 @@ def strategy_optimistic_parallel(
     should designate a signle PR to build, and this strategy will build them in
     that order, speculatively starting new builds on top of the existing train.
     """
-    base = state.master_tip
+    base = state.get_tip()
     candidates = set(state.open_prs.keys())
 
     # We build on top of the largest train that builds on top of the current
