@@ -314,7 +314,7 @@ class State(NamedTuple):
             [self.is_good_probabilities.get(y, prior_is_good) for y in bad_prs]
         )
         for x in bad_prs:
-            p_train_fails_given_x_is_good = np.product(
+            p_train_fails_given_x_is_good = 1.0 - np.product(
                 [
                     self.is_good_probabilities.get(y, prior_is_good)
                     for y in bad_prs
@@ -325,7 +325,10 @@ class State(NamedTuple):
             p_x_is_good_given_train_failed = (
                 p_train_fails_given_x_is_good * p_x_is_good / p_train_fails
             )
+            print(f"is_good({x}): {p_x_is_good:.3f} -> {p_x_is_good_given_train_failed:.3f}")
             new_ps[x] = p_x_is_good_given_train_failed
+
+        assert all(0.0 < p < 1.0 for p in new_ps.values())
 
         return self._replace(
             builds_in_progress=new_builds,
