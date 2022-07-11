@@ -11,6 +11,7 @@ import matplotlib  # type: ignore
 import numpy as np
 import heapq
 
+from collections import defaultdict
 from textwrap import dedent
 from dataclasses import dataclass
 from matplotlib import pyplot as plt
@@ -38,7 +39,12 @@ class Config(NamedTuple):
     avg_time_to_approve: Time = Time(60.0)
     avg_build_time: Time = Time(10.0)
     build_time_stdev: Time = Time(1.0)
+    # When generating PRs, the probability that one is *actually* good.
     probability_pr_is_good: float = 0.85
+    # For the Bayesian update that the state keeps of the probability that a
+    # given PR is good, the initial probability, which does not have to match
+    # the real probability defined above.
+    prior_is_good_probability: float = 0.9
     num_prs: int = 250
     num_build_slots: int = 4
 
@@ -187,11 +193,11 @@ class State(NamedTuple):
     heads: list[Commit]
 
     @staticmethod
-    def new() -> State:
+    def new(prior_is_good_probability: float) -> State:
         return State(
             open_prs={},
             closed_prs={},
-            is_good_probabilities={},
+            is_good_probabilities=defaultdict(lambda: prior_is_good_probability),
             builds_in_progress={},
             heads=[Commit(0)],
         )
@@ -301,27 +307,23 @@ class State(NamedTuple):
                 closed_prs=new_closed_prs,
             )
 
-        new_ps = dict(self.is_good_probabilities.items())
-
-        # Our prior estimate of the probability that a given pull request that
-        # we have never tried to build before, is good.
-        prior_is_good = 0.9
+        new_ps = self.is_good_probabilities.copy()
 
         # Perform the Bayesian update for the is-good probabilities of the PRs
         # involved in this failed build.
 
         p_train_fails = 1.0 - np.product(
-            [self.is_good_probabilities.get(y, prior_is_good) for y in bad_prs]
+            [self.is_good_probabilities[y] for y in bad_prs]
         )
         for x in bad_prs:
             p_train_fails_given_x_is_good = 1.0 - np.product(
                 [
-                    self.is_good_probabilities.get(y, prior_is_good)
+                    self.is_good_probabilities[y]
                     for y in bad_prs
                     if y != x
                 ]
             )
-            p_x_is_good = self.is_good_probabilities.get(x, prior_is_good)
+            p_x_is_good = self.is_good_probabilities[x]
             p_x_is_good_given_train_failed = (
                 p_train_fails_given_x_is_good * p_x_is_good / p_train_fails
             )
@@ -366,7 +368,7 @@ class Simulator:
             strategy=strategy,
             rng=rng,
             t=Time(0.0),
-            state=State.new(),
+            state=State.new(config.prior_is_good_probability),
             events=events,
             backlog_size_over_time=[],
             next_available_commit=Commit(1),
@@ -713,24 +715,61 @@ def strategy_lifo(state: State) -> Tuple[Commit, set[PrId]]:
     )
 
 
+def strategy_bayesian(state: State) -> Tuple[Commit, set[PrId]]:
+    """
+    Tries to maximize the expected number of PRs it will merge. Does not support
+    parallelism.
+    """
+    if len(state.builds_in_progress) > 0:
+        return state.get_tip(), set()
+
+    # Sort first by descending is_good probability, and when two PRs have equal
+    # is_good probability (because they are new, let's say) order by PR id.
+    # TODO: Here we could order by reverse arrival time, to get the stack-like
+    # behavior.
+    candidates = sorted(
+        ((state.is_good_probabilities[pr_id], -pr_id, pr_id)
+        for pr_id in state.open_prs.keys()),
+        reverse=True,
+    )
+
+    includes: set[PrId] = set()
+    p_train_is_good = 1.0
+    best_expected_len = 0.0
+
+    for p_pr_is_good, _, pr_id in candidates:
+        p_success = p_train_is_good * p_pr_is_good
+        expected_len = (len(includes) + 1) * p_success
+        if expected_len > best_expected_len:
+            print(f" - include={pr_id} {p_success=:.3f} {expected_len=:.3f} {p_pr_is_good=:.3f}")
+            includes.add(pr_id)
+            best_expected_len = expected_len
+            p_train_is_good = p_success
+        else:
+            break
+
+    return state.get_tip(), includes
+
+
 def main() -> None:
     configs = [
         # Config.new(parallelism=1, criticality=0.15),
         # Config.new(parallelism=1, criticality=0.80),
         # Config.new(parallelism=1, criticality=1.00),
         # Config.new(parallelism=1, criticality=1.10),
-        # Config.new(parallelism=1, criticality=2.0),
+        Config.new(parallelism=1, criticality=2.0),
         # Config.new(parallelism=2, criticality=0.15),
         # Config.new(parallelism=2, criticality=0.80),
         # Config.new(parallelism=2, criticality=1.05),
         # Config.new(parallelism=4, criticality=0.15),
-        Config.new(parallelism=4, criticality=0.60),
-        Config.new(parallelism=4, criticality=1.01),
+        # Config.new(parallelism=4, criticality=0.60),
+        # Config.new(parallelism=4, criticality=1.01),
     ]
     strategies = [
-        ("classic", strategy_classic),
-        ("fifo", strategy_fifo),
-        ("lifo", strategy_lifo),
+        ("bayesian", strategy_bayesian),
+        # ("classic", strategy_classic),
+        # ("fifo", strategy_fifo),
+        # ("lifo", strategy_lifo),
     ]
     for config in configs:
         for strategy_name, strategy in strategies:
