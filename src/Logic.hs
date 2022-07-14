@@ -43,7 +43,7 @@ import Data.Bifunctor (first)
 import Data.Either.Extra (maybeToEither)
 import Data.Functor.Sum (Sum (InL, InR))
 import Data.IntSet (IntSet)
-import Data.Maybe (fromJust, isJust, listToMaybe)
+import Data.Maybe (fromJust, isJust, isNothing, listToMaybe)
 import Data.Text (Text)
 import Data.Text.Lazy (toStrict)
 import GHC.Natural (Natural)
@@ -353,12 +353,12 @@ handlePullRequestClosedByUser :: PullRequestId -> ProjectState -> Action Project
 handlePullRequestClosedByUser = handlePullRequestClosed User
 
 handlePullRequestClosed :: PRCloseCause -> PullRequestId -> ProjectState -> Action ProjectState
-handlePullRequestClosed closingReason pr state = Pr.deletePullRequest pr <$>
-    case Pr.integrationCandidate state of
-      Just candidatePr | candidatePr == pr -> do
-        leaveComment pr $ prClosingMessage closingReason
-        pure state { Pr.integrationCandidate = Nothing }
-      _notCandidatePr -> pure state
+handlePullRequestClosed closingReason pr state = do
+  when (pr `elem` Pr.integrationCandidates state) $
+    leaveComment pr $ prClosingMessage closingReason
+  pure . Pr.deletePullRequest pr
+       . Pr.deleteIntegrationCandidate pr
+       $ state
 
 handlePullRequestEdited :: PullRequestId -> Text -> BaseBranch -> ProjectState -> Action ProjectState
 handlePullRequestEdited prId newTitle newBaseBranch state =
@@ -535,13 +535,14 @@ handleBuildStatusChanged buildSha newStatus state =
   -- do nothing.
   let
     setBuildStatus pullRequest = case Pr.integrationStatus pullRequest of
-      Integrated candidateSha _oldStatus | candidateSha == buildSha ->
-        pullRequest { Pr.integrationStatus = Integrated buildSha newStatus }
+      Integrated candidateSha _oldStatus parent | candidateSha == buildSha ->
+        pullRequest { Pr.integrationStatus = Integrated buildSha newStatus parent }
       _ -> pullRequest
+    setBuildStatuses = map (\candidateId -> Pr.updatePullRequest candidateId setBuildStatus)
+                           (Pr.candidatePullRequests state)
+    compose = foldr (.) id
   in
-    case Pr.integrationCandidate state of
-      Just candidateId -> Pr.updatePullRequest candidateId setBuildStatus state
-      Nothing          -> state
+    compose setBuildStatuses state
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
 synchronizeState :: ProjectState -> Action ProjectState
@@ -585,14 +586,21 @@ synchronizeState stateInitial =
 proceed :: ProjectState -> Action ProjectState
 proceed state = do
   state' <- provideFeedback state
-  case Pr.getIntegrationCandidate state' of
-    Just candidate -> proceedCandidate candidate state'
+  case Pr.getIntegrationCandidates state' of
     -- No current integration candidate, find the next one.
-    Nothing -> case Pr.candidatePullRequests state' of
+    [] -> case Pr.candidatePullRequests state' of
       -- No pull requests eligible, do nothing.
       []     -> return state'
       -- Found a new candidate, try to integrate it.
       pr : _ -> tryIntegratePullRequest pr state'
+    -- A list of candidates, iterate
+    candidates -> proceedCandidates candidates state'
+
+proceedCandidates :: [(PullRequestId, PullRequest)] -> ProjectState -> Action ProjectState
+proceedCandidates [] state = pure state
+proceedCandidates (c:cs) state = do
+  state' <- proceedCandidate c state
+  proceedCandidates cs state'
 
 -- TODO: Get rid of the tuple; just pass the ID and do the lookup with fromJust.
 proceedCandidate :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
@@ -604,18 +612,20 @@ proceedCandidate (pullRequestId, pullRequest) state =
     IncorrectBaseBranch ->
       -- It shouldn't come to this point; a PR with an incorrect base branch is
       -- never considered as a candidate.
-      pure $ Pr.setIntegrationCandidate Nothing state
+      pure $ Pr.deleteIntegrationCandidate pullRequestId state
 
     Conflicted _branch _ ->
       -- If it conflicted, it should no longer be the integration candidate.
-      pure $ Pr.setIntegrationCandidate Nothing state
+      pure $ Pr.deleteIntegrationCandidate pullRequestId state
 
-    Integrated sha buildStatus -> case buildStatus of
+    Integrated sha buildStatus parent -> case buildStatus of
       BuildPending   -> pure state
-      BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) sha state
+      BuildSucceeded -> if isNothing parent
+                        then pushCandidate (pullRequestId, pullRequest) sha state
+                        else pure state
       BuildFailed _  -> do
         -- If the build failed, this is no longer a candidate.
-        pure $ Pr.setIntegrationCandidate Nothing $
+        pure $ Pr.deleteIntegrationCandidate pullRequestId $
           Pr.setNeedsFeedback pullRequestId True state
 
 -- Given a pull request id, returns the name of the GitHub ref for that pull
@@ -655,8 +665,8 @@ tryIntegratePullRequest pr state =
         -- If it succeeded, update the integration candidate, and set the build
         -- to pending, as pushing should have triggered a build.
         pure
-          $ Pr.setIntegrationStatus pr (Integrated (Sha sha) BuildPending)
-          $ Pr.setIntegrationCandidate (Just pr)
+          $ Pr.setIntegrationStatus pr (Integrated (Sha sha) BuildPending Nothing) -- TODO: find out parent
+          $ Pr.addIntegrationCandidate pr
           $ Pr.setNeedsFeedback pr True
           $ state
 
@@ -705,7 +715,7 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       -- GitHub will mark the pull request as closed, and when we receive that
       -- event, we delete the pull request from the state. Until then, reset
       -- the integration candidate, so we proceed with the next pull request.
-      PushOk -> pure $ Pr.setIntegrationCandidate Nothing state
+      PushOk -> pure $ Pr.deleteIntegrationCandidate pullRequestId state
       -- If something was pushed to the target branch while the candidate was
       -- being tested, try to integrate again and hope that next time the push
       -- succeeds.
@@ -761,8 +771,8 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
     getIntegrationSha :: PullRequest -> Maybe Sha
     getIntegrationSha pullRequest =
       case Pr.integrationStatus pullRequest of
-        Integrated sha _ -> Just sha
-        _                -> Nothing
+        Integrated sha _ _ -> Just sha
+        _                  -> Nothing
 
 -- Leave a comment with the feedback from 'describeStatus' and set the
 -- 'needsFeedback' flag to 'False'.

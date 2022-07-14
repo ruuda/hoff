@@ -28,6 +28,7 @@ module Project
   emptyProjectState,
   existsPullRequest,
   getIntegrationCandidate,
+  getIntegrationCandidates,
   getQueuePosition,
   insertPullRequest,
   loadProjectState,
@@ -39,7 +40,10 @@ module Project
   displayApproval,
   setApproval,
   newApprovalOrder,
-  setIntegrationCandidate,
+  addIntegrationCandidate,
+  deleteIntegrationCandidate,
+  modifyIntegrationCandidates,
+  setIntegrationCandidates,
   setIntegrationStatus,
   setNeedsFeedback,
   updatePullRequest,
@@ -52,8 +56,8 @@ import Data.Aeson (FromJSON, ToJSON)
 import Data.ByteString (readFile)
 import Data.ByteString.Lazy (writeFile)
 import Data.IntMap.Strict (IntMap)
-import Data.List (intersect, nub, sortBy)
-import Data.Maybe (isJust)
+import Data.List (delete, intersect, nub, sortBy)
+import Data.Maybe (isJust, listToMaybe)
 import Data.Text (Text)
 import GHC.Generics
 import Git (Branch (..), BaseBranch (..), Sha (..), GitIntegrationFailure (..))
@@ -81,7 +85,7 @@ data BuildStatus
 -- but it wasn't successful.
 data IntegrationStatus
   = NotIntegrated
-  | Integrated Sha BuildStatus
+  | Integrated Sha BuildStatus (Maybe PullRequestId)
   | Conflicted BaseBranch GitIntegrationFailure
   | IncorrectBaseBranch
   deriving (Eq, Show, Generic)
@@ -133,7 +137,7 @@ data PullRequest = PullRequest
 
 data ProjectState = ProjectState
   { pullRequests              :: IntMap PullRequest
-  , integrationCandidate      :: Maybe PullRequestId
+  , integrationCandidates     :: [PullRequestId] -- ^ integration candidates in train order
   , pullRequestApprovalIndex  :: Int
   }
   deriving (Eq, Show, Generic)
@@ -186,8 +190,8 @@ saveProjectState fname state = do
 
 emptyProjectState :: ProjectState
 emptyProjectState = ProjectState {
-  pullRequests         = IntMap.empty,
-  integrationCandidate = Nothing,
+  pullRequests             = IntMap.empty,
+  integrationCandidates    = [],
   pullRequestApprovalIndex = 0
 }
 
@@ -254,22 +258,33 @@ setIntegrationStatus pr newStatus = updatePullRequest pr changeIntegrationStatus
     -- ignore push webhook events for that commit (we probably pushed it
     -- ourselves, in any case it should not clear approval status).
     changeIntegrationStatus pullRequest = case integrationStatus pullRequest of
-      Integrated oldSha _buildStatus -> pullRequest
+      Integrated oldSha _buildStatus _parent -> pullRequest
         { integrationStatus = newStatus
         , integrationAttempts = oldSha : (integrationAttempts pullRequest)
         }
       _notIntegrated -> pullRequest { integrationStatus = newStatus }
 
 getIntegrationCandidate :: ProjectState -> Maybe (PullRequestId, PullRequest)
-getIntegrationCandidate state = do
-  pullRequestId <- integrationCandidate state
-  candidate     <- lookupPullRequest pullRequestId state
-  return (pullRequestId, candidate)
+getIntegrationCandidate = listToMaybe . getIntegrationCandidates
 
-setIntegrationCandidate :: Maybe PullRequestId -> ProjectState -> ProjectState
-setIntegrationCandidate pr state = state {
-  integrationCandidate = pr
-}
+getIntegrationCandidates :: ProjectState -> [(PullRequestId, PullRequest)]
+getIntegrationCandidates state =
+  [ (pullRequestId, candidate)
+  | pullRequestId <- integrationCandidates state
+  , Just candidate <- [lookupPullRequest pullRequestId state]
+  ]
+
+addIntegrationCandidate :: PullRequestId -> ProjectState -> ProjectState
+addIntegrationCandidate pr = modifyIntegrationCandidates (++ [pr])
+
+deleteIntegrationCandidate :: PullRequestId -> ProjectState -> ProjectState
+deleteIntegrationCandidate = modifyIntegrationCandidates . delete
+
+modifyIntegrationCandidates :: ([PullRequestId] -> [PullRequestId]) -> ProjectState -> ProjectState
+modifyIntegrationCandidates f state = setIntegrationCandidates (f $ integrationCandidates state) state
+
+setIntegrationCandidates :: [PullRequestId] -> ProjectState -> ProjectState
+setIntegrationCandidates prs state = state{integrationCandidates = prs}
 
 setNeedsFeedback :: PullRequestId -> Bool -> ProjectState -> ProjectState
 setNeedsFeedback pr value = updatePullRequest pr (\pullRequest -> pullRequest { needsFeedback = value })
@@ -283,9 +298,11 @@ classifyPullRequest pr = case approval pr of
     Conflicted _ WrongFixups -> PrStatusWrongFixups
     Conflicted _ EmptyRebase -> PrStatusEmptyRebase
     Conflicted _ _  -> PrStatusFailedConflict
-    Integrated _ buildStatus -> case buildStatus of
+    Integrated _ buildStatus parent -> case buildStatus of
       BuildPending    -> PrStatusBuildPending
-      BuildSucceeded  -> PrStatusIntegrated
+      BuildSucceeded  -> case parent of
+                         Nothing -> PrStatusIntegrated
+                         Just _ -> PrStatusBuildPending -- TODO: is this correct? (leap of faith)
       BuildFailed url -> PrStatusFailedBuild url
 
 -- Classify every pull request into one status. Orders pull requests by id in
@@ -340,7 +357,7 @@ isQueued pr = case approval pr of
     NotIntegrated  -> True
     IncorrectBaseBranch -> False
     Conflicted _ _ -> False
-    Integrated _ _ -> False
+    Integrated _ _ _ -> False
 
 -- Returns whether a pull request is in the process of being integrated (pending
 -- build results).
@@ -351,7 +368,7 @@ isInProgress pr = case approval pr of
     NotIntegrated -> False
     IncorrectBaseBranch -> False
     Conflicted _ _ -> False
-    Integrated _ buildStatus -> case buildStatus of
+    Integrated _ buildStatus _ -> case buildStatus of -- TODO: check correctness
       BuildPending   -> True
       BuildSucceeded -> False
       BuildFailed _  -> False
@@ -360,8 +377,8 @@ isInProgress pr = case approval pr of
 -- integration candidate of this pull request.
 wasIntegrationAttemptFor :: Sha -> PullRequest -> Bool
 wasIntegrationAttemptFor commit pr = case integrationStatus pr of
-  Integrated candidate _buildStatus -> commit `elem` (candidate : integrationAttempts pr)
-  _                                 -> commit `elem` (integrationAttempts pr)
+  Integrated candidate _ _ -> commit `elem` (candidate : integrationAttempts pr)
+  _                        -> commit `elem` (integrationAttempts pr)
 
 -- Returns the pull requests that have not been integrated yet, in order of
 -- ascending id.
