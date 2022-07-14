@@ -739,7 +739,9 @@ def strategy_bayesian(state: State) -> Tuple[Commit, set[PrId]]:
 
     # Sort first by descending is_good probability, and when two PRs have equal
     # is_good probability (because they are new, let's say) order by PR id.
-    # TODO: Here we could order by reverse arrival time, to get the stack-like
+    # NOTE: Here we still have a choice to make, how to order PRs that have the
+    # same probability of passing. We go for the "classic" strategy of ordering
+    # by id, but we could order by reverse arrival time, to get the stack-like
     # behavior.
     candidates = sorted(
         ((state.is_good_probabilities[pr_id], -pr_id, pr_id)
@@ -850,7 +852,7 @@ def main() -> None:
         Config.new(parallelism=4, criticality=1.01),
     ]
     strategies = [
-        ("bayesian++", strategy_bayesian),
+        ("bayesian", strategy_bayesian),
         ("bayesian_par", strategy_bayesian_parallel),
         ("classic", strategy_classic),
         ("fifo", strategy_fifo),
