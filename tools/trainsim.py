@@ -603,10 +603,26 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
 
     ax = axes[1]
     max_x = max(math.ceil(p98), 3)
-    ax.set_xticks(np.arange(max_x), minor=True)
     bins = np.arange(max_x * 2 + 1) * 0.5 - 0.25
     if max_x < 8:
         bins = np.arange(max_x * 4 + 1) * 0.25 - 0.125
+
+    # Tweak NumPy's default ticks here too to make the grid more useful.
+    if max_x <= 4:
+        ax.xaxis.set_major_locator(MultipleLocator(0.5))
+        ax.xaxis.set_minor_locator(MultipleLocator(0.25))
+    elif max_x <= 11:
+        ax.xaxis.set_major_locator(MultipleLocator(1.0))
+        ax.xaxis.set_minor_locator(MultipleLocator(1.0))
+    elif max_x <= 21:
+        ax.xaxis.set_major_locator(MultipleLocator(2.0))
+        ax.xaxis.set_minor_locator(MultipleLocator(1.0))
+    elif max_x <= 31:
+        ax.xaxis.set_major_locator(MultipleLocator(5.0))
+        ax.xaxis.set_minor_locator(MultipleLocator(1.0))
+    else:
+        ax.xaxis.set_major_locator(MultipleLocator(10.0))
+        ax.xaxis.set_minor_locator(MultipleLocator(2.0))
 
     ax.grid(color="black", linestyle="dashed", axis="x", alpha=0.1, which="both")
     ax.hist(wait_times, bins=bins, color="black", alpha=0.2)
@@ -639,7 +655,7 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
         ax.text(
             0.5, 0.5,
             "Be careful when interpreting this histogram, it only shows\n"
-            "wait times for pull requests that got merged or failed, but\n"
+            "wait times for pull requests that failed or got merged, but\n"
             f"{prs_pending/total_prs:.1%} of pull requests never got to that "
             "point.",
             transform=ax.transAxes,
