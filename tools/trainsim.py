@@ -208,9 +208,7 @@ class State(NamedTuple):
 
     def probability_all_good(self, prs: Iterable[PrId]) -> float:
         """Return the probability that all PRs in the sequence are good."""
-        return np.product(
-            [self.is_good_probabilities[y] for y in prs]
-        )
+        return np.product([self.is_good_probabilities[y] for y in prs])
 
     def insert_pr(self, pr: PullRequest) -> State:
         return self._replace(open_prs=self.open_prs | {pr.id_: pr})
@@ -327,7 +325,9 @@ class State(NamedTuple):
             p_x_is_good_given_train_failed = (
                 p_train_fails_given_x_is_good * p_x_is_good / p_train_fails
             )
-            print(f"is_good({x}): {p_x_is_good:.3f} -> {p_x_is_good_given_train_failed:.3f}")
+            print(
+                f"is_good({x}): {p_x_is_good:.3f} -> {p_x_is_good_given_train_failed:.3f}"
+            )
             new_ps[x] = p_x_is_good_given_train_failed
 
         assert all(0.0 < p < 1.0 for p in new_ps.values())
@@ -432,7 +432,8 @@ class Simulator:
         build_id = self.allocate_build_id()
 
         print(
-            f"Start build {build_id}: strategy={self.strategy} master[-5:]={self.state.heads[-5:]} {build=}"
+            f"Start build {build_id}: strategy={self.strategy} "
+            f"master[-5:]={self.state.heads[-5:]} {build=}"
         )
 
         self.state = self.state.start_build(build_id, build)
@@ -744,8 +745,10 @@ def strategy_bayesian(state: State) -> Tuple[Commit, set[PrId]]:
     # by id, but we could order by reverse arrival time, to get the stack-like
     # behavior.
     candidates = sorted(
-        ((state.is_good_probabilities[pr_id], -pr_id, pr_id)
-        for pr_id in state.open_prs.keys()),
+        (
+            (state.is_good_probabilities[pr_id], -pr_id, pr_id)
+            for pr_id in state.open_prs.keys()
+        ),
         reverse=True,
     )
 
@@ -757,7 +760,10 @@ def strategy_bayesian(state: State) -> Tuple[Commit, set[PrId]]:
         p_success = p_train_is_good * p_pr_is_good
         expected_len = (len(includes) + 1) * p_success
         if expected_len > best_expected_len:
-            print(f" - include={pr_id} {p_success=:.3f} {expected_len=:.3f} {p_pr_is_good=:.3f}")
+            print(
+                f" - include={pr_id} {p_success=:.3f} "
+                f"{expected_len=:.3f} {p_pr_is_good=:.3f}"
+            )
             includes.add(pr_id)
             best_expected_len = expected_len
             p_train_is_good = p_success
@@ -769,7 +775,10 @@ def strategy_bayesian(state: State) -> Tuple[Commit, set[PrId]]:
     # then instead, we can confirm a likely-bad PR.
     if best_expected_len < 1.0:
         p_pr_is_good, _, pr_id = candidates[-1]
-        print(f" + Opting to confirm the worst candidate ({pr_id}) instead, {p_pr_is_good=:.3f}")
+        print(
+            f" - Opting to confirm the worst candidate ({pr_id}) instead, "
+            f"{p_pr_is_good=:.3f}"
+        )
         return state.get_tip(), {pr_id}
 
     return state.get_tip(), includes
@@ -806,8 +815,12 @@ def strategy_bayesian_parallel(state: State) -> Tuple[Commit, set[PrId]]:
             continue
 
         p_build_succeeds = state.probability_all_good(prs_in_build)
-        state_success = state.complete_build_success(dummy_time, bid)._replace(builds_in_progress={})
-        state_failure = state.complete_build_failure(dummy_time, bid)._replace(builds_in_progress={})
+        state_success = state.complete_build_success(dummy_time, bid)._replace(
+            builds_in_progress={}
+        )
+        state_failure = state.complete_build_failure(dummy_time, bid)._replace(
+            builds_in_progress={}
+        )
 
         if len(state_success.open_prs) > 0:
             base_succ, prs_succ = strategy_bayesian(state_success)
@@ -816,8 +829,13 @@ def strategy_bayesian_parallel(state: State) -> Tuple[Commit, set[PrId]]:
             # are interested in how much *this* additional build that we are
             # constructing would shrink the backlog, so contributions from the
             # parent do not count.
-            len_succ = p_build_succeeds * expected_num_processed(state_success, prs_succ)
-            print(f" > Succ: expected_len={len_succ:.3f} p={p_build_succeeds:.3f} base={base_succ} prs={prs_succ}")
+            len_succ = p_build_succeeds * expected_num_processed(
+                state_success, prs_succ
+            )
+            print(
+                f" > Success: expected_len={len_succ:.3f} "
+                f"p={p_build_succeeds:.3f} base={base_succ} prs={prs_succ}"
+            )
 
             if len_succ > best_len:
                 best_len = len_succ
@@ -826,8 +844,14 @@ def strategy_bayesian_parallel(state: State) -> Tuple[Commit, set[PrId]]:
 
         if len(state_failure.open_prs) > 0:
             base_fail, prs_fail = strategy_bayesian(state_failure)
-            len_fail = (1.0 - p_build_succeeds) * expected_num_processed(state_failure, prs_fail)
-            print(f" > Fail: expected_len={len_fail:.3f} p={1.0 - p_build_succeeds:.3f} base={base_fail} prs={prs_fail}")
+            len_fail = (1.0 - p_build_succeeds) * expected_num_processed(
+                state_failure, prs_fail
+            )
+            print(
+                f" > Failure: expected_len={len_fail:.3f} "
+                f"p={1.0 - p_build_succeeds:.3f} "
+                f"base={base_fail} prs={prs_fail}"
+            )
 
             if len_fail > best_len:
                 best_len = len_fail
