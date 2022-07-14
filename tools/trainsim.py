@@ -385,13 +385,16 @@ class Simulator:
         self.next_available_build = BuildId(self.next_available_build + 1)
         return result
 
-    def start_build_if_possible(self) -> None:
+    def start_build_if_possible(self) -> bool:
+        """
+        Start a build if possible, return whether we started the build.
+        """
         has_anything_to_build = len(self.state.open_prs) > 0
         has_capacity_to_build = (
             len(self.state.builds_in_progress) < self.config.num_build_slots
         )
         if not (has_anything_to_build and has_capacity_to_build):
-            return
+            return False
 
         base, prs_in_train = self.strategy(self.state)
 
@@ -399,7 +402,7 @@ class Simulator:
             # Some strategies might conclude they have nothing to do at some
             # point, even if there are open pull requests. For example, because
             # the pull request is already being built.
-            return
+            return False
 
         assert all(
             pr in self.state.open_prs for pr in prs_in_train
@@ -449,6 +452,7 @@ class Simulator:
             did_succeed=train_is_good,
         )
         heapq.heappush(self.events, completion)
+        return True
 
     def handle_single_event(self) -> None:
         event = heapq.heappop(self.events)
@@ -466,7 +470,8 @@ class Simulator:
                 self.state = self.state.complete_build_failure(self.t, event.id_)
 
         self.backlog_size_over_time.append((self.t, len(self.state.open_prs)))
-        self.start_build_if_possible()
+        while self.start_build_if_possible():
+            pass
 
     def run_to_last_pr(self) -> None:
         while len(self.events) > 0:
