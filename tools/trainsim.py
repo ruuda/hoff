@@ -633,6 +633,24 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
     ax.legend()
     ax.set_title("Wait time distribution")
 
+    total_prs = sum(run.config.num_prs for run in runs)
+    prs_pending = total_prs - len(wait_times)
+    if prs_pending / total_prs > 0.20:
+        ax.text(
+            0.5, 0.5,
+            "Be careful when interpreting this histogram, it only shows\n"
+            "wait times for pull requests that got merged or failed, but\n"
+            f"{prs_pending/total_prs:.1%} of pull requests never got to that "
+            "point.",
+            transform=ax.transAxes,
+            horizontalalignment="center",
+            bbox={
+                "boxstyle": "round",
+                "facecolor": "white",
+                "alpha": 0.8,
+            }
+        )
+
     avg_time_between_prs = config.avg_time_between_prs / config.avg_build_time
     criticality = 1 / (config.num_build_slots * avg_time_between_prs)
     fig.suptitle(
@@ -877,7 +895,7 @@ def main() -> None:
     ]
     strategies = [
         ("bayesian", strategy_bayesian),
-        ("bayesian_par", strategy_bayesian_parallel),
+        ("bayesian_parallel", strategy_bayesian_parallel),
         ("classic", strategy_classic),
         ("fifo", strategy_fifo),
         ("lifo", strategy_lifo),
