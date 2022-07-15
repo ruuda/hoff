@@ -208,7 +208,8 @@ class State(NamedTuple):
 
     def probability_all_good(self, prs: Iterable[PrId]) -> float:
         """Return the probability that all PRs in the sequence are good."""
-        return np.product([self.is_good_probabilities[y] for y in prs])
+        p: float = np.product([self.is_good_probabilities[y] for y in prs])
+        return p
 
     def insert_pr(self, pr: PullRequest) -> State:
         return self._replace(open_prs=self.open_prs | {pr.id_: pr})
@@ -658,7 +659,8 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
     prs_pending = total_prs - len(wait_times)
     if prs_pending / total_prs > 0.20:
         ax.text(
-            0.5, 0.5,
+            0.5,
+            0.5,
             "Be careful when interpreting this histogram, it only shows\n"
             "wait times for pull requests that failed or got merged, but\n"
             f"{prs_pending/total_prs:.1%} of pull requests never got to that "
@@ -669,7 +671,7 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
                 "boxstyle": "round",
                 "facecolor": "white",
                 "alpha": 0.8,
-            }
+            },
         )
 
     avg_time_between_prs = config.avg_time_between_prs / config.avg_build_time
@@ -755,20 +757,6 @@ def strategy_lifo(state: State) -> Tuple[Commit, set[PrId]]:
     )
 
 
-def expected_num_processed(state: State, prs: set[PrId]) -> float:
-    """
-    Return the expected number of pull requests that the backlog will shrink
-    after we learn the outcome of building `prs` all together.
-    """
-    if len(prs) == 1:
-        # For a single PR, the backlog shrinks by 1 with certainty. Either it
-        # succeeds and we merge it, or the build fails and we fail the PR.
-        return 1.0
-
-    # Otherwise, we merge all of them with P(all good), otherwise we merge zero.
-    return state.probability_all_good(prs) * len(prs)
-
-
 def strategy_bayesian(state: State) -> Tuple[Commit, set[PrId]]:
     """
     Tries to maximize the expected number of PRs it will merge. Does not support
@@ -821,6 +809,150 @@ def strategy_bayesian(state: State) -> Tuple[Commit, set[PrId]]:
         return state.get_tip(), {pr_id}
 
     return state.get_tip(), includes
+
+
+def expected_num_processed(state: State, prs: set[PrId]) -> float:
+    """
+    Return the expected number of pull requests that the backlog will shrink
+    after we learn the outcome of building `prs` all together.
+    """
+    if len(prs) == 1:
+        # For a single PR, the backlog shrinks by 1 with certainty. Either it
+        # succeeds and we merge it, or the build fails and we fail the PR.
+        return 1.0
+
+    # Otherwise, we merge all of them with P(all good), otherwise we merge zero.
+    return state.probability_all_good(prs) * len(prs)
+
+
+def maximize_num_processed(
+    state: State,
+    includes: set[PrId],
+    candidates: Iterable[PrId],
+) -> Tuple[set[PrId], float, float]:
+    """
+    Return the set of pull requests to build, which is a superset of `includes`,
+    and which maximizes the expected number of pull requests processed. Also
+    return the probability that this set will build successfully, and the
+    expected number of pull requests merged after the build completes (assuming
+    that `includes` are already being built).
+    """
+    # Sort first by descending is_good probability, and when two PRs have equal
+    # is_good probability (because they are new, let's say) order by PR id.
+    # NOTE: Here we still have a choice to make, how to order PRs that have the
+    # same probability of passing. We go for the "classic" strategy of ordering
+    # by id, but we could order by reverse arrival time, to get the stack-like
+    # behavior.
+    candidates_ranked = sorted(
+        ((state.is_good_probabilities[pr_id], -pr_id, pr_id) for pr_id in candidates),
+        reverse=True,
+    )
+    prs = includes
+    p_all_good = state.probability_all_good(prs)
+    expected_len = p_all_good * len(prs)
+    expected_len_includes = expected_len
+
+    for p_is_good, _, pr in candidates_ranked:
+        if pr in prs:
+            continue
+
+        new_prs = prs | {pr}
+        new_p_all_good = p_all_good * p_is_good
+
+        # The new expected amount of PRs processed can be broken down in two
+        # cases. If the train succeeds, then processed len(prs). But if the
+        # build fails, we don't process zero: the base train with the `includes`
+        # PRs can still succeed, so we should count its expected number of PRs
+        # processed too.
+        new_expected_len = (
+            new_p_all_good * len(new_prs)
+            + (1.0 - new_p_all_good) * expected_len_includes
+        )
+
+        if new_expected_len < expected_len:
+            return prs, p_all_good, expected_len
+
+        prs = new_prs
+        p_all_good = new_p_all_good
+        expected_len = new_expected_len
+
+    return prs, p_all_good, expected_len
+
+
+def strategy_bayesian_mkii(state: State) -> Tuple[Commit, set[PrId]]:
+    """
+    Tries to minimize the remaining total waiting time.
+    """
+    best_alternative_expected_len = 0.0
+
+    prs_not_being_built = set(state.open_prs.keys())
+    for build in state.builds_in_progress.values():
+        prs_not_being_built = prs_not_being_built - build.prs_since_root()
+
+    if len(prs_not_being_built) == 0:
+        # If everything is already building, we have no new builds to start.
+        # TODO: Potentially we could make one of the existing builds more fine-
+        # grained though.
+        return state.get_tip(), set()
+
+    # We can always try to build on top of the current tip.
+    base = state.get_tip()
+    prs, p_all_good, expected_len = maximize_num_processed(
+        state,
+        includes=set(),
+        candidates=prs_not_being_built,
+    )
+    print(f" - Main candidate: {expected_len=:.3f} {p_all_good=:.3f} {base=} {prs=}")
+
+    # If there are builds in progress, we can also try building on top of them.
+    for build in state.builds_in_progress.values():
+        if build.get_root() != state.get_tip():
+            # We only want to build on top of builds that build on master, not
+            # on builds that are no longer relevant.
+            continue
+
+        base_prs = build.prs_since_root()
+        best_alternative_expected_len = max(
+            best_alternative_expected_len,
+            expected_num_processed(state, base_prs),
+        )
+
+        new_prs, p_all_good, new_expected_len = maximize_num_processed(
+            state,
+            includes=base_prs,
+            # We consider all PRs again here, not only the ones that are not
+            # being built already, because we are extending a chain, so we
+            # believe that chain would succeed, and any other competing builds
+            # would not get merged.
+            candidates=state.open_prs.keys(),
+        )
+
+        if new_expected_len > expected_len:
+            prs = new_prs - base_prs
+            expected_len = new_expected_len
+            base = build.tip
+            print(
+                f" - Better candidate: {expected_len=:.3f} {p_all_good=:.3f} {base=} {prs=}"
+            )
+
+    # TODO: Implement the "split if build slots left"-trick.
+
+    # As an alternative to trying to continue extending master, we can try to
+    # confirm a likely-bad pull request.
+    p_is_good, worst_pr = min(
+        (state.is_good_probabilities[pr_id], pr_id) for pr_id in prs_not_being_built
+    )
+    p_fail_confirmed = 1.0 - p_is_good
+    new_expected_len = best_alternative_expected_len + p_fail_confirmed
+    if new_expected_len > expected_len:
+        base = state.get_tip()
+        prs = {worst_pr}
+        print(
+            f" - Opting to confirm bad pull request {worst_pr}: "
+            f"expected_len={new_expected_len:.3f} {p_fail_confirmed=:.3f}"
+        )
+
+    return base, prs
 
 
 def strategy_bayesian_parallel(state: State) -> Tuple[Commit, set[PrId]]:
@@ -915,11 +1047,12 @@ def main() -> None:
         Config.new(parallelism=4, criticality=1.01),
     ]
     strategies = [
-        ("bayesian", strategy_bayesian),
-        ("bayesian_parallel", strategy_bayesian_parallel),
-        ("classic", strategy_classic),
-        ("fifo", strategy_fifo),
-        ("lifo", strategy_lifo),
+        ("bayesian_mkii", strategy_bayesian_mkii),
+        # ("bayesian", strategy_bayesian),
+        # ("bayesian_parallel", strategy_bayesian_parallel),
+        # ("classic", strategy_classic),
+        # ("fifo", strategy_fifo),
+        # ("lifo", strategy_lifo),
     ]
     for config in configs:
         for strategy_name, strategy in strategies:
