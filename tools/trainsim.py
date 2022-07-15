@@ -322,8 +322,9 @@ class State(NamedTuple):
             # Also still update the probability to virtually zero, so that if
             # other trains involving this PR are still in progress, their
             # failure will be blamed on this PR. Don't quite set it to zero to
-            # avoid division by zero problems.
-            new_ps[pr_id] = 0.0001
+            # avoid division by zero problems, but also, to still cause a slight
+            # update for other trains, in case they contain multiple bad PRs.
+            new_ps[pr_id] = 0.01
             return self._replace(
                 builds_in_progress=new_builds,
                 open_prs=new_open_prs,
@@ -909,11 +910,12 @@ def strategy_bayesian_mkii(state: State) -> Tuple[Commit, set[PrId]]:
     """
     best_alternative_expected_len = 0.0
 
-    prs_not_being_built = set(state.open_prs.keys())
+    prs_not_being_built_exclusively = set(state.open_prs.keys())
     for build in state.builds_in_progress.values():
-        prs_not_being_built = prs_not_being_built - build.prs_since_root()
+        if len(build.prs) == 1:
+            prs_not_being_built_exclusively = prs_not_being_built_exclusively - build.prs
 
-    if len(prs_not_being_built) == 0:
+    if len(prs_not_being_built_exclusively) == 0:
         # If everything is already building, we have no new builds to start.
         # TODO: Potentially we could make one of the existing builds more fine-
         # grained though.
@@ -924,7 +926,7 @@ def strategy_bayesian_mkii(state: State) -> Tuple[Commit, set[PrId]]:
     prs, p_all_good, expected_len = maximize_num_processed(
         state,
         includes=set(),
-        candidates=prs_not_being_built,
+        candidates=prs_not_being_built_exclusively,
     )
     print(f" - Main candidate: {expected_len=:.3f} {p_all_good=:.3f} {base=} {prs=}")
 
@@ -970,7 +972,7 @@ def strategy_bayesian_mkii(state: State) -> Tuple[Commit, set[PrId]]:
     # As an alternative to trying to continue extending master, we can try to
     # confirm a likely-bad pull request.
     p_is_good, worst_pr = min(
-        (state.is_good_probabilities[pr_id], pr_id) for pr_id in prs_not_being_built
+        (state.is_good_probabilities[pr_id], pr_id) for pr_id in prs_not_being_built_exclusively
     )
     p_fail_confirmed = 1.0 - p_is_good
     new_expected_len = best_alternative_expected_len + p_fail_confirmed
@@ -1064,17 +1066,17 @@ def strategy_bayesian_parallel(state: State) -> Tuple[Commit, set[PrId]]:
 
 def main() -> None:
     configs = [
-        #Config.new(parallelism=1, criticality=0.15),
-        #Config.new(parallelism=1, criticality=0.80),
-        #Config.new(parallelism=1, criticality=1.00),
-        #Config.new(parallelism=1, criticality=1.10),
-        # Config.new(parallelism=1, criticality=2.0),
-        # Config.new(parallelism=2, criticality=0.15),
-        #Config.new(parallelism=2, criticality=0.80),
-        #Config.new(parallelism=2, criticality=1.05),
-        #Config.new(parallelism=4, criticality=0.15),
+        Config.new(parallelism=1, criticality=0.15),
+        Config.new(parallelism=1, criticality=0.80),
+        Config.new(parallelism=1, criticality=1.00),
+        Config.new(parallelism=1, criticality=1.10),
+        Config.new(parallelism=1, criticality=2.0),
+        Config.new(parallelism=2, criticality=0.15),
+        Config.new(parallelism=2, criticality=0.80),
+        Config.new(parallelism=2, criticality=1.05),
+        Config.new(parallelism=4, criticality=0.15),
         Config.new(parallelism=4, criticality=0.60),
-        #Config.new(parallelism=4, criticality=1.01),
+        Config.new(parallelism=4, criticality=1.01),
     ]
     strategies = [
         ("bayesian_mkii", strategy_bayesian_mkii),
