@@ -427,6 +427,13 @@ class Simulator:
         else:
             raise Exception("Must build on top of master or a currently running build.")
 
+        assert next(iter(root_path.keys())) == self.state.get_tip(), (
+            "Build must directly or indirectly build upon the current tip."
+        )
+        assert all(pr in self.state.open_prs for pr in next(iter(root_path.values()))), (
+            "Build must build upon a train which is not guaranteed to fail."
+        )
+
         build = Build(
             base=base,
             tip=self.allocate_commit(),
@@ -912,6 +919,12 @@ def strategy_bayesian_mkii(state: State) -> Tuple[Commit, set[PrId]]:
             continue
 
         base_prs = build.prs_since_root()
+
+        if any(pr not in state.open_prs for pr in base_prs):
+            # We also don't want to build on top of builds that are guaranteed
+            # to fail.
+            continue
+
         best_alternative_expected_len = max(
             best_alternative_expected_len,
             expected_num_processed(state, base_prs),
@@ -1034,17 +1047,17 @@ def strategy_bayesian_parallel(state: State) -> Tuple[Commit, set[PrId]]:
 
 def main() -> None:
     configs = [
-        Config.new(parallelism=1, criticality=0.15),
-        Config.new(parallelism=1, criticality=0.80),
-        Config.new(parallelism=1, criticality=1.00),
-        Config.new(parallelism=1, criticality=1.10),
-        Config.new(parallelism=1, criticality=2.0),
-        Config.new(parallelism=2, criticality=0.15),
-        Config.new(parallelism=2, criticality=0.80),
-        Config.new(parallelism=2, criticality=1.05),
-        Config.new(parallelism=4, criticality=0.15),
+        #Config.new(parallelism=1, criticality=0.15),
+        #Config.new(parallelism=1, criticality=0.80),
+        #Config.new(parallelism=1, criticality=1.00),
+        #Config.new(parallelism=1, criticality=1.10),
+        # Config.new(parallelism=1, criticality=2.0),
+        # Config.new(parallelism=2, criticality=0.15),
+        #Config.new(parallelism=2, criticality=0.80),
+        #Config.new(parallelism=2, criticality=1.05),
+        #Config.new(parallelism=4, criticality=0.15),
         Config.new(parallelism=4, criticality=0.60),
-        Config.new(parallelism=4, criticality=1.01),
+        #Config.new(parallelism=4, criticality=1.01),
     ]
     strategies = [
         ("bayesian_mkii", strategy_bayesian_mkii),
