@@ -44,7 +44,7 @@ class Config(NamedTuple):
     # For the Bayesian update that the state keeps of the probability that a
     # given PR is good, the initial probability, which does not have to match
     # the real probability defined above.
-    prior_is_good_probability: float = 0.9
+    prior_is_good_probability: float = 0.7
     num_prs: int = 250
     num_build_slots: int = 4
 
@@ -1079,7 +1079,7 @@ def main() -> None:
         Config.new(parallelism=4, criticality=1.01),
     ]
     strategies = [
-        ("bayesian_mkii", strategy_bayesian_mkii),
+        ("bayesian_mkii_0.7_prior", strategy_bayesian_mkii),
         # ("bayesian", strategy_bayesian),
         # ("bayesian_parallel", strategy_bayesian_parallel),
         # ("classic", strategy_classic),
