@@ -157,14 +157,14 @@ getDateTime = liftF $ GetDateTime id
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
 runAction config = foldFree $ \case
-  TryIntegrate message (PullRequestId _, ref, sha) alwaysAddMergeCommit cont -> do
+  TryIntegrate message (pr, ref, sha) alwaysAddMergeCommit cont -> do
     doGit $ ensureCloned config
     shaOrFailed <- doGit $ Git.tryIntegrate
       message
       ref
       sha
       (Git.RemoteBranch $ Config.branch config)
-      (Git.Branch $ Config.testBranch config) -- TODO: use PullRequestId here
+      (Git.Branch $ Config.testBranch config <> "/" <> pullRequestIdToText pr)
       alwaysAddMergeCommit
 
     case shaOrFailed of
@@ -792,3 +792,6 @@ messageForTag :: TagName -> ApprovedFor -> Text -> TagMessage
 messageForTag (TagName tagName) tagOrDeploy changelog =
   TagMessage $ tagName <> mark <> "\n\n" <> changelog
   where mark = if Pr.needsDeploy tagOrDeploy then " (autodeploy)" else ""
+
+pullRequestIdToText :: PullRequestId -> Text
+pullRequestIdToText (PullRequestId prid) = Text.pack $ show prid
