@@ -228,11 +228,21 @@ class State(NamedTuple):
             bid: b for bid, b in self.builds_in_progress.items() if bid != id_
         }
 
+        new_ps = self.is_good_probabilities.copy()
+        for pr in build.prs_since_root():
+            # We now know that this pull request was good. Don't set it quite to
+            # 1.0 to avoid division by zero problems.
+            new_ps[pr] = 0.9999
+
         tip = self.get_tip()
         if tip not in build.root_path:
-            # This success was not on top of master, so it was not useful,
-            # ignore it. TODO: We could still update the probabilities though.
-            return self._replace(builds_in_progress=new_builds)
+            # This success was not on top of master, so it was not that useful,
+            # though the new probabilities can still help to get these prs
+            # prioritized next.
+            return self._replace(
+                builds_in_progress=new_builds,
+                is_good_probabilities=new_ps,
+            )
 
         # If we merge the tip of this build, then that means that some other
         # builds that were previously speculative, might now be directly on top
@@ -260,6 +270,7 @@ class State(NamedTuple):
             closed_prs=new_closed_prs,
             builds_in_progress=new_builds,
             heads=new_heads,
+            is_good_probabilities=new_ps,
         )
 
     def complete_build_failure(self, t: Time, id_: BuildId) -> State:
@@ -288,6 +299,8 @@ class State(NamedTuple):
 
         assert was_rooted, "A build must eventually be traceable to a succeeding build."
 
+        new_ps = self.is_good_probabilities.copy()
+
         # If the build contained a single PR, then instead of updating the
         # probabilities, we mark that PR as failed.
         if len(bad_prs) == 1:
@@ -306,13 +319,17 @@ class State(NamedTuple):
             assert pr_id not in self.closed_prs
             new_open_prs = {k: v for k, v in self.open_prs.items() if k != pr_id}
             new_closed_prs = self.closed_prs | {pr_id: dt}
+            # Also still update the probability to virtually zero, so that if
+            # other trains involving this PR are still in progress, their
+            # failure will be blamed on this PR. Don't quite set it to zero to
+            # avoid division by zero problems.
+            new_ps[pr_id] = 0.0001
             return self._replace(
                 builds_in_progress=new_builds,
                 open_prs=new_open_prs,
                 closed_prs=new_closed_prs,
+                is_good_probabilities=new_ps,
             )
-
-        new_ps = self.is_good_probabilities.copy()
 
         # Perform the Bayesian update for the is-good probabilities of the PRs
         # involved in this failed build.
