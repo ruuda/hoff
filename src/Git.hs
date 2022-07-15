@@ -35,6 +35,7 @@ module Git
   callGit,
   clone,
   deleteTag,
+  deleteBranch,
   doesGitDirectoryExist,
   fetchBranch,
   fetchBranchWithTags,
@@ -200,6 +201,7 @@ data GitOperationFree a
   | ShortLog SomeRefSpec SomeRefSpec (Maybe Text -> a)
   | Tag Sha TagName TagMessage (TagResult -> a)
   | DeleteTag TagName a
+  | DeleteBranch Branch (PushResult -> a)
   | CheckOrphanFixups Sha RemoteBranch (Bool -> a)
   deriving (Functor)
 
@@ -259,6 +261,9 @@ tag' sha t@(TagName name) = tag sha t (TagMessage name)
 
 deleteTag :: TagName -> GitOperation ()
 deleteTag t = liftF $ DeleteTag t ()
+
+deleteBranch :: Branch -> GitOperation PushResult
+deleteBranch branch = liftF $ DeleteBranch branch id
 
 checkOrphanFixups :: Sha -> RemoteBranch -> GitOperation Bool
 checkOrphanFixups sha branch = liftF $ CheckOrphanFixups sha branch id
@@ -354,6 +359,14 @@ runGit userConfig repoDir operation =
           logInfoN $ "warning: git push failed. Reason: " <> message
           pure . cont $ PushRejected message
         Right _ -> pure $ cont PushOk
+
+    DeleteBranch branch cont -> do
+      gitResult <- callGitInRepo ["push", "-d", refSpec branch]
+      case gitResult of
+        Right _ -> pure $ cont PushOk
+        Left (_, message) -> do
+          logWarnN $ "error: git push -d failed. Reason: " <> message
+          pure $ cont $ PushRejected message
 
     Rebase sha remoteBranch cont -> do
       -- Do an interactive rebase with editor set to /usr/bin/true, so we just
@@ -533,6 +546,10 @@ runGitReadOnly userConfig repoDir operation =
         pure $ cont PushOk
       Push (Sha sha) (Branch branch) cont -> do
         let errorMsg = Text.concat ["Would have pushed ", sha, " to ", branch]
+        logInfoN errorMsg
+        pure . cont $ PushRejected errorMsg
+      DeleteBranch (Branch branch) cont -> do
+        let errorMsg = Text.concat ["Would have deleted remote branch ", branch]
         logInfoN errorMsg
         pure . cont $ PushRejected errorMsg
       PushAtomic refs cont -> do
