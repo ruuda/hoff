@@ -78,7 +78,7 @@ data ActionFree a
   = TryIntegrate
     -- This is a record type, but the names are currently only used for documentation.
     { _mergeCommitMessage   :: Text
-    , _integrationCandidate :: (Branch, Sha)
+    , _integrationCandidate :: (PullRequestId, Branch, Sha)
     , _alwaysAddMergeCommit :: Bool
     , _cont                 :: Either IntegrationFailure Sha -> a
     }
@@ -117,7 +117,7 @@ doGit = hoistFree (InR . InL)
 doGithub :: GithubOperation a -> Operation a
 doGithub = hoistFree (InR . InR)
 
-tryIntegrate :: Text -> (Branch, Sha) -> Bool -> Action (Either IntegrationFailure Sha)
+tryIntegrate :: Text -> (PullRequestId, Branch, Sha) -> Bool -> Action (Either IntegrationFailure Sha)
 tryIntegrate mergeMessage candidate alwaysAddMergeCommit = liftF $ TryIntegrate mergeMessage candidate alwaysAddMergeCommit id
 
 -- Try to fast-forward the remote target branch (usually master) to the new sha.
@@ -157,14 +157,14 @@ getDateTime = liftF $ GetDateTime id
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
 runAction config = foldFree $ \case
-  TryIntegrate message (ref, sha) alwaysAddMergeCommit cont -> do
+  TryIntegrate message (PullRequestId _, ref, sha) alwaysAddMergeCommit cont -> do
     doGit $ ensureCloned config
     shaOrFailed <- doGit $ Git.tryIntegrate
       message
       ref
       sha
       (Git.RemoteBranch $ Config.branch config)
-      (Git.Branch $ Config.testBranch config)
+      (Git.Branch $ Config.testBranch config) -- TODO: use PullRequestId here
       alwaysAddMergeCommit
 
     case shaOrFailed of
@@ -617,7 +617,7 @@ tryIntegratePullRequest pr state =
     Approval (Username approvedBy) approvalType _prOrder = fromJust $ Pr.approval pullRequest
     candidateSha = Pr.sha pullRequest
     candidateRef = getPullRequestRef pr
-    candidate = (candidateRef, candidateSha)
+    candidate = (pr, candidateRef, candidateSha)
     mergeMessageLines =
       [ format "Merge #{}: {}" (prNumber, title)
       , ""
