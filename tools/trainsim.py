@@ -44,7 +44,7 @@ class Config(NamedTuple):
     # For the Bayesian update that the state keeps of the probability that a
     # given PR is good, the initial probability, which does not have to match
     # the real probability defined above.
-    prior_is_good_probability: float = 0.7
+    prior_is_good_probability: float = 0.8
     num_prs: int = 250
     num_build_slots: int = 4
 
@@ -987,104 +987,26 @@ def strategy_bayesian_mkii(state: State) -> Tuple[Commit, set[PrId]]:
     return base, prs
 
 
-def strategy_bayesian_parallel(state: State) -> Tuple[Commit, set[PrId]]:
-    """
-    Tries to maximize the expected number of PRs it will merge.
-    """
-    if len(state.builds_in_progress) == 0:
-        return strategy_bayesian(state)
-
-    dummy_time = Time(max(pr.arrived_at + 10.0 for pr in state.open_prs.values()))
-
-    best_len = 0.0
-    best_prs = set()
-    best_base = state.get_tip()
-
-    for bid, build in state.builds_in_progress.items():
-        print(f" > Bayesian parallel, base={build}")
-
-        if build.get_root() != state.get_tip():
-            # If this in-progress build is no longer on top of master (because
-            # something conflicting was merged since that build was started)
-            # then we should not build on top of it.
-            continue
-
-        prs_in_build = build.prs_since_root()
-        if not all(p in state.open_prs for p in prs_in_build):
-            # It could also be that the in-progress build is on top of master,
-            # but it includes PRs that have failed in the meantime. In that case
-            # we can no longer investigate the hypothetical case where it
-            # succeeds, so for simplicity we skip this build entirely.
-            continue
-
-        p_build_succeeds = state.probability_all_good(prs_in_build)
-        state_success = state.complete_build_success(dummy_time, bid)._replace(
-            builds_in_progress={}
-        )
-        state_failure = state.complete_build_failure(dummy_time, bid)._replace(
-            builds_in_progress={}
-        )
-
-        if len(state_success.open_prs) > 0:
-            base_succ, prs_succ = strategy_bayesian(state_success)
-            # NB: The expected number of PRs we merge here does *not* include
-            # the PRs from the parent build that we assume succeeded here. We
-            # are interested in how much *this* additional build that we are
-            # constructing would shrink the backlog, so contributions from the
-            # parent do not count.
-            len_succ = p_build_succeeds * expected_num_processed(
-                state_success, prs_succ
-            )
-            print(
-                f" > Success: expected_len={len_succ:.3f} "
-                f"p={p_build_succeeds:.3f} base={base_succ} prs={prs_succ}"
-            )
-
-            if len_succ > best_len:
-                best_len = len_succ
-                best_prs = prs_succ
-                best_base = base_succ
-
-        if len(state_failure.open_prs) > 0:
-            base_fail, prs_fail = strategy_bayesian(state_failure)
-            len_fail = (1.0 - p_build_succeeds) * expected_num_processed(
-                state_failure, prs_fail
-            )
-            print(
-                f" > Failure: expected_len={len_fail:.3f} "
-                f"p={1.0 - p_build_succeeds:.3f} "
-                f"base={base_fail} prs={prs_fail}"
-            )
-
-            if len_fail > best_len:
-                best_len = len_fail
-                best_prs = prs_fail
-                best_base = base_fail
-
-    return best_base, best_prs
-
-
 def main() -> None:
     configs = [
-        Config.new(parallelism=1, criticality=0.15),
-        Config.new(parallelism=1, criticality=0.80),
+        Config.new(parallelism=1, criticality=0.25),
+        Config.new(parallelism=1, criticality=0.50),
         Config.new(parallelism=1, criticality=1.00),
-        Config.new(parallelism=1, criticality=1.10),
-        Config.new(parallelism=1, criticality=2.0),
-        Config.new(parallelism=2, criticality=0.15),
-        Config.new(parallelism=2, criticality=0.80),
-        Config.new(parallelism=2, criticality=1.05),
-        Config.new(parallelism=4, criticality=0.15),
-        Config.new(parallelism=4, criticality=0.60),
-        Config.new(parallelism=4, criticality=1.01),
+
+        Config.new(parallelism=2, criticality=0.25),
+        Config.new(parallelism=2, criticality=0.50),
+        Config.new(parallelism=2, criticality=1.00),
+
+        Config.new(parallelism=4, criticality=0.25),
+        Config.new(parallelism=4, criticality=0.50),
+        Config.new(parallelism=4, criticality=1.00),
     ]
     strategies = [
-        ("bayesian_mkii_0.7_prior", strategy_bayesian_mkii),
-        # ("bayesian", strategy_bayesian),
-        # ("bayesian_parallel", strategy_bayesian_parallel),
-        # ("classic", strategy_classic),
-        # ("fifo", strategy_fifo),
-        # ("lifo", strategy_lifo),
+        ("bayesian_mkii", strategy_bayesian_mkii),
+        ("bayesian", strategy_bayesian),
+        ("classic", strategy_classic),
+        ("fifo", strategy_fifo),
+        ("lifo", strategy_lifo),
     ]
     for config in configs:
         for strategy_name, strategy in strategies:
