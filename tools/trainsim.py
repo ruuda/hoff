@@ -557,7 +557,15 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
     font.set_family("Source Serif Pro")
     matplotlib.rcParams["font.family"] = font.get_name()
 
-    fig, axes = plt.subplots(nrows=1, ncols=2, tight_layout=True, figsize=(15, 5))
+    fig, axes = plt.subplots(
+        nrows=1,
+        ncols=3,
+        tight_layout=True,
+        figsize=(15, 5),
+        gridspec_kw={
+            "width_ratios": [6, 6, 1],
+        },
+    )
 
     ax = axes[0]
 
@@ -711,6 +719,35 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
                 "alpha": 0.8,
             },
         )
+
+    ax = axes[2]
+    prs_closed = np.array([len(run.state.closed_prs) for run in runs])
+    prs_open = np.array([len(run.state.open_prs) for run in runs])
+    completions = prs_closed / (prs_closed + prs_open)
+    completion = np.mean(completions)
+    bar = ax.bar(
+        0,
+        completion,
+        width=0.45,
+        color="black",
+        alpha=0.2,
+    )
+    ax.bar_label(bar, labels=[f"{completion:0.3f}"], padding=-14)
+    ax.set_xlim(-0.5, 0.5)
+    ax.set_xticks([])
+
+    if completion > 0.9:
+        ax.set_ylim(0.9, 1.0)
+        ax.set_yticks(np.linspace(0.9, 1.0, 11))
+    elif completion > 0.5:
+        ax.set_ylim(0.5, 1.0)
+        ax.set_yticks(np.linspace(0.5, 1.0, 11))
+    else:
+        ax.set_ylim(0.0, 1.0)
+        ax.set_yticks(np.linspace(0.0, 1.0, 11))
+
+    ax.set_ylabel("fraction of pull requests merged or failed")
+    ax.set_title("Completion")
 
     avg_time_between_prs = config.avg_time_between_prs / config.avg_build_time
     criticality = 1 / (config.num_build_slots * avg_time_between_prs)
