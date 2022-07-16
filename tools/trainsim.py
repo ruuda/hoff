@@ -445,12 +445,12 @@ class Simulator:
         else:
             raise Exception("Must build on top of master or a currently running build.")
 
-        assert next(iter(root_path.keys())) == self.state.get_tip(), (
-            "Build must directly or indirectly build upon the current tip."
-        )
-        assert all(pr in self.state.open_prs for pr in next(iter(root_path.values()))), (
-            "Build must build upon a train which is not guaranteed to fail."
-        )
+        assert (
+            next(iter(root_path.keys())) == self.state.get_tip()
+        ), "Build must directly or indirectly build upon the current tip."
+        assert all(
+            pr in self.state.open_prs for pr in next(iter(root_path.values()))
+        ), "Build must build upon a train which is not guaranteed to fail."
 
         build = Build(
             base=base,
@@ -583,35 +583,51 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
     # to the average build time, then the timeline counts roughly "number of
     # builds".
     size_sample_times = size_sample_times / config.avg_build_time
-    p25, p50, p75 = np.quantile(backlog_sizes, (0.1, 0.5, 0.9), axis=0)
+    p10, p50, p90 = np.quantile(backlog_sizes, (0.1, 0.5, 0.9), axis=0)
+
+    # Fit a line through the tail of the graph, so we can see if the queue size
+    # is growing or steady.
+    trend_index = len(size_sample_times) // 3
+    fit_xs = np.tile(size_sample_times[trend_index:], backlog_sizes.shape[0])
+    fit_ys = backlog_sizes[:, trend_index:].flatten()
+    slope, intercept = np.polyfit(fit_xs, fit_ys, deg=1)
+    trend = slope * size_sample_times[trend_index:] + intercept
 
     # Tweak the ticks a bit for some regions, NumPy's default have too little
     # detail to make the grid lines useful, in my opinion.
-    if p75[-1] > 2.5:
-        if p75[-1] < 8.0:
+    if p90[-1] > 2.5:
+        if p90[-1] < 8.0:
             ax.yaxis.set_major_locator(MultipleLocator(2.0))
             ax.yaxis.set_minor_locator(MultipleLocator(0.5))
-        elif p75[-1] < 21.0:
+        elif p90[-1] < 21.0:
             ax.yaxis.set_major_locator(MultipleLocator(5.0))
             ax.yaxis.set_minor_locator(MultipleLocator(1.0))
-        elif p75[-1] < 31.0:
+        elif p90[-1] < 31.0:
             ax.yaxis.set_major_locator(MultipleLocator(5.0))
             ax.yaxis.set_minor_locator(MultipleLocator(1.0))
-        elif p75[-1] < 55.0:
+        elif p90[-1] < 55.0:
             ax.yaxis.set_major_locator(MultipleLocator(10.0))
             ax.yaxis.set_minor_locator(MultipleLocator(2.0))
-        elif p75[-1] < 130.0:
+        elif p90[-1] < 130.0:
             ax.yaxis.set_major_locator(MultipleLocator(20.0))
             ax.yaxis.set_minor_locator(MultipleLocator(10.0))
 
     ax.grid(color="black", linestyle="dashed", axis="y", alpha=0.1, which="both")
     ax.fill_between(
         size_sample_times,
-        p25,
-        p75,
+        p10,
+        p90,
         alpha=0.2,
         color="black",
-        label="backlog size, p25–p75",
+        label="backlog size, p10–p90",
+    )
+    ax.plot(
+        size_sample_times[trend_index:],
+        trend,
+        color="red",
+        alpha=0.5,
+        linewidth=2.0,
+        label="backlog size, linear fit on tail",
     )
     ax.plot(
         size_sample_times,
@@ -680,16 +696,13 @@ def plot_results(config: Config, strategy_name: str, runs: list[Simulator]) -> N
     ax.legend()
     ax.set_title("Wait time distribution")
 
-    total_prs = sum(run.config.num_prs for run in runs)
-    prs_pending = total_prs - len(wait_times)
-    if prs_pending / total_prs > 0.20:
+    if slope > 0.02:
         ax.text(
             0.5,
             0.5,
-            "Be careful when interpreting this histogram, it only shows\n"
-            "wait times for pull requests that failed or got merged, but\n"
-            f"{prs_pending/total_prs:.1%} of pull requests never got to that "
-            "point.",
+            "Be careful when interpreting this histogram.\n"
+            "It only shows wait times for pull requests that failed\n"
+            "or got merged, but the backlog is growing over time.",
             transform=ax.transAxes,
             horizontalalignment="center",
             bbox={
@@ -913,7 +926,9 @@ def strategy_bayesian_mkii(state: State) -> Tuple[Commit, set[PrId]]:
     prs_not_being_built_exclusively = set(state.open_prs.keys())
     for build in state.builds_in_progress.values():
         if len(build.prs) == 1:
-            prs_not_being_built_exclusively = prs_not_being_built_exclusively - build.prs
+            prs_not_being_built_exclusively = (
+                prs_not_being_built_exclusively - build.prs
+            )
 
     if len(prs_not_being_built_exclusively) == 0:
         # If everything is already building, we have no new builds to start.
@@ -972,7 +987,8 @@ def strategy_bayesian_mkii(state: State) -> Tuple[Commit, set[PrId]]:
     # As an alternative to trying to continue extending master, we can try to
     # confirm a likely-bad pull request.
     p_is_good, worst_pr = min(
-        (state.is_good_probabilities[pr_id], pr_id) for pr_id in prs_not_being_built_exclusively
+        (state.is_good_probabilities[pr_id], pr_id)
+        for pr_id in prs_not_being_built_exclusively
     )
     p_fail_confirmed = 1.0 - p_is_good
     new_expected_len = best_alternative_expected_len + p_fail_confirmed
@@ -992,11 +1008,9 @@ def main() -> None:
         Config.new(parallelism=1, criticality=0.25),
         Config.new(parallelism=1, criticality=0.50),
         Config.new(parallelism=1, criticality=1.00),
-
         Config.new(parallelism=2, criticality=0.25),
         Config.new(parallelism=2, criticality=0.50),
         Config.new(parallelism=2, criticality=1.00),
-
         Config.new(parallelism=4, criticality=0.25),
         Config.new(parallelism=4, criticality=0.50),
         Config.new(parallelism=4, criticality=1.00),
