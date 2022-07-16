@@ -188,17 +188,19 @@ class State(NamedTuple):
     closed_prs: dict[PrId, Time]
     is_good_probabilities: dict[PrId, float]
     builds_in_progress: dict[BuildId, Build]
+    num_build_slots: int
 
     # The successive commits that the master branch pointed to.
     heads: list[Commit]
 
     @staticmethod
-    def new(prior_is_good_probability: float) -> State:
+    def new(prior_is_good_probability: float, num_build_slots: int) -> State:
         return State(
             open_prs={},
             closed_prs={},
             is_good_probabilities=defaultdict(lambda: prior_is_good_probability),
             builds_in_progress={},
+            num_build_slots=num_build_slots,
             heads=[Commit(0)],
         )
 
@@ -387,7 +389,10 @@ class Simulator:
             strategy=strategy,
             rng=rng,
             t=Time(0.0),
-            state=State.new(config.prior_is_good_probability),
+            state=State.new(
+                config.prior_is_good_probability,
+                num_build_slots=config.num_build_slots,
+            ),
             events=events,
             backlog_size_over_time=[],
             next_available_commit=Commit(1),
