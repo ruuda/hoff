@@ -229,10 +229,10 @@ class State(NamedTuple):
         }
 
         new_ps = self.is_good_probabilities.copy()
-        for pr in build.prs_since_root():
+        for pr_id in build.prs_since_root():
             # We now know that this pull request was good. Don't set it quite to
             # 1.0 to avoid division by zero problems.
-            new_ps[pr] = 0.9999
+            new_ps[pr_id] = 0.9999
 
         tip = self.get_tip()
         if tip not in build.root_path:
