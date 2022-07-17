@@ -255,34 +255,43 @@ class State(NamedTuple):
         failed builds or good prs.
         """
         ps_old = self.probabilities_good.copy()
+
+        # Start again from a clean slate without any evidence (aside from that
+        # for the pull requests that succeeded), and then apply all evidence at
+        # once from that state using Bayes' rule. This is only one possible way
+        # of doing this, we could also apply e.g. every failed build one by one,
+        # and we would get a different outcome. One thing I like about this
+        # formulation below, is that it does not depend on the order in which
+        # the evidence came in, while the other one does. A downside is that it
+        # leads to less extreme estimates about pull requests. I asked about
+        # this on Stack Exchange: https://stats.stackexchange.com/q/582275/140869.
         self.probabilities_good.clear()
+        bad_prs = {x for fails in self.builds_failed for x in fails}
+        trains_per_pr = {
+            x: [fails for fails in self.builds_failed if x in fails] for x in bad_prs
+        }
+        updates = {}
+        for x, trains in trains_per_pr.items():
+            # Perform the Bayesian update for the is-good probability of this
+            # pull request, given that it was involved in all those failing
+            # builds.
+            p_train_fails = [1.0 - self.probability_all_good(train) for train in trains]
+            p_all_trains_fail = np.product(p_train_fails)
 
-        # Start from scratch, and re-apply all evidence in the order that we
-        # received it. Note, the outcome depends on the order in which we visit
-        # the evidence! Consider this: if we build a large set of PRs first, the
-        # is-pood probability of all of them should go down a little. If we then
-        # build a subset of two prs and it fails, the is-good probability of
-        # those two will go down a lot. But in the reverse case, the is-good
-        # probability will go down a lot first, and then when we visit the large
-        # set, it’s no surprise that it failed if we already suspect two of its
-        # PRs to be bad, so we hardly update on the remaining ones.
-        for bad_prs in self.builds_failed:
-            # Perform the Bayesian update for the is-good probabilities of the
-            # PRs involved in this failed build.
-            updates = {}
+            p_train_fails_given_x_is_good = [
+                1.0 - self.probability_all_good(y for y in train if y != x)
+                for train in trains
+            ]
+            p_all_trains_fail_given_x_is_good = np.product(
+                p_train_fails_given_x_is_good
+            )
+            p_x_is_good = self.probability_good(x)
+            p_x_is_good_given_all_trains_failed = (
+                p_all_trains_fail_given_x_is_good * p_x_is_good / p_all_trains_fail
+            )
+            updates[x] = p_x_is_good_given_all_trains_failed
 
-            p_train_fails = 1.0 - self.probability_all_good(bad_prs)
-            for x in bad_prs:
-                p_train_fails_given_x_is_good = 1.0 - self.probability_all_good(
-                    y for y in bad_prs if y != x
-                )
-                p_x_is_good = self.probability_good(x)
-                p_x_is_good_given_train_failed = (
-                    p_train_fails_given_x_is_good * p_x_is_good / p_train_fails
-                )
-                updates[x] = p_x_is_good_given_train_failed
-
-            self.probabilities_good.update(updates)
+        self.probabilities_good.update(updates)
 
         assert all(0.0 <= p <= 1.0 for p in self.probabilities_good.values())
 
@@ -1127,9 +1136,9 @@ def strategy_bayesian_mkiv(state: State) -> Tuple[Commit, set[PrId]]:
 
 def main() -> None:
     configs = [
-        #Config.new(parallelism=1, criticality=0.25),
-        #Config.new(parallelism=1, criticality=0.50),
-        #Config.new(parallelism=1, criticality=1.00),
+        # Config.new(parallelism=1, criticality=0.25),
+        # Config.new(parallelism=1, criticality=0.50),
+        # Config.new(parallelism=1, criticality=1.00),
         Config.new(parallelism=2, criticality=0.25),
         Config.new(parallelism=2, criticality=0.50),
         Config.new(parallelism=2, criticality=1.00),
@@ -1139,10 +1148,10 @@ def main() -> None:
     ]
     strategies = [
         ("bayesian_mkiv", strategy_bayesian_mkiv),
-        #("bayesian", strategy_bayesian),
-        #("classic", strategy_classic),
-        #("fifo", strategy_fifo),
-        #("lifo", strategy_lifo),
+        # ("bayesian", strategy_bayesian),
+        # ("classic", strategy_classic),
+        # ("fifo", strategy_fifo),
+        # ("lifo", strategy_lifo),
     ]
     for config in configs:
         for strategy_name, strategy in strategies:
