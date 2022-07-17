@@ -257,10 +257,16 @@ class State(NamedTuple):
         ps_old = self.probabilities_good.copy()
         self.probabilities_good.clear()
 
-        # Order failed builds by the number of pull requests in the build first.
-        # TODO: Check if order matters.
-        fails = sorted(self.builds_failed, key=lambda prs: len(prs))
-        for bad_prs in fails:
+        # Start from scratch, and re-apply all evidence in the order that we
+        # received it. Note, the outcome depends on the order in which we visit
+        # the evidence! Consider this: if we build a large set of PRs first, the
+        # is-pood probability of all of them should go down a little. If we then
+        # build a subset of two prs and it fails, the is-good probability of
+        # those two will go down a lot. But in the reverse case, the is-good
+        # probability will go down a lot first, and then when we visit the large
+        # set, it’s no surprise that it failed if we already suspect two of its
+        # PRs to be bad, so we hardly update on the remaining ones.
+        for bad_prs in self.builds_failed:
             # Perform the Bayesian update for the is-good probabilities of the
             # PRs involved in this failed build.
             updates = {}
