@@ -186,7 +186,21 @@ class State(NamedTuple):
     open_prs: dict[PrId, PullRequest]
     # Per merged or failed PR, the time from arrival until it got merged.
     closed_prs: dict[PrId, Time]
+
+    # Pull requests that have been confirmed to be good. Note that that does not
+    # necessarily mean that they got merged, they might have been built upon the
+    # wrong head.
+    good_prs: set[PrId]
+
     is_good_probabilities: dict[PrId, float]
+
+    # Builds that failed, and the pull requests that they contained. After a
+    # pull request was built successfully, we removed it from all sets here, so
+    # every individual set shrinks over time. This also allows us to confirm
+    # pull requests as bad without building them in isolation by confirming that
+    # the complement is good.
+    builds_failed: list[set[PrId]]
+
     builds_in_progress: dict[BuildId, Build]
     num_build_slots: int
 
@@ -198,7 +212,9 @@ class State(NamedTuple):
         return State(
             open_prs={},
             closed_prs={},
+            good_prs=set(),
             is_good_probabilities=defaultdict(lambda: prior_is_good_probability),
+            builds_failed=[],
             builds_in_progress={},
             num_build_slots=num_build_slots,
             heads=[Commit(0)],
@@ -231,10 +247,40 @@ class State(NamedTuple):
         }
 
         new_ps = self.is_good_probabilities.copy()
-        for pr_id in build.prs_since_root():
+        good_prs = build.prs_since_root()
+        new_good_prs = self.good_prs | good_prs
+
+        # TODO: This should no longer be needed later.
+        for pr_id in good_prs:
             # We now know that this pull request was good. Don't set it quite to
             # 1.0 to avoid division by zero problems.
             new_ps[pr_id] = 0.9999
+
+        new_builds_failed = [
+            prs - good_prs for prs in self.builds_failed
+        ]
+
+        new_open_prs = dict(self.open_prs.items())
+        new_closed_prs = dict(self.closed_prs.items())
+
+        def close_pr(pr_id: PrId) -> None:
+            pr = new_open_prs[pr_id]
+            del new_open_prs[pr_id]
+            dt = Time(t - pr.arrived_at)
+            assert dt > Time(0.0)
+            assert pr_id not in new_closed_prs
+            new_closed_prs[pr_id] = dt
+
+        # When we learn that some pull requests are good, we might also learn
+        # that some other pull requests are bad: when they were part of a
+        # failing build and all pull requests except for a single one were good,
+        # the remaining one must be bad.
+        for failed_prs in new_builds_failed:
+            if len(failed_prs) == 1:
+                pr_id = next(iter(failed_prs))
+                if pr_id in new_open_prs:
+                    print(f"Confirmed bad indirectly: {pr_id}")
+                    close_pr(pr_id)
 
         tip = self.get_tip()
         if tip not in build.root_path:
@@ -242,7 +288,11 @@ class State(NamedTuple):
             # though the new probabilities can still help to get these prs
             # prioritized next.
             return self._replace(
+                open_prs=new_open_prs,
+                closed_prs=new_closed_prs,
+                good_prs=new_good_prs,
                 builds_in_progress=new_builds,
+                builds_failed=new_builds_failed,
                 is_good_probabilities=new_ps,
             )
 
@@ -254,23 +304,17 @@ class State(NamedTuple):
         }
 
         prs_since_tip = build.root_path[tip]
-
-        new_open_prs = dict(self.open_prs.items())
-        new_closed_prs = dict(self.closed_prs.items())
         new_heads = self.heads + [build.tip]
 
         for pr_id in prs_since_tip:
-            pr = new_open_prs[pr_id]
-            del new_open_prs[pr_id]
-            dt = Time(t - pr.arrived_at)
-            assert dt > Time(0.0)
-            assert pr_id not in new_closed_prs
-            new_closed_prs[pr_id] = dt
+            close_pr(pr_id)
 
         return self._replace(
             open_prs=new_open_prs,
             closed_prs=new_closed_prs,
+            good_prs=new_good_prs,
             builds_in_progress=new_builds,
+            builds_failed=new_builds_failed,
             heads=new_heads,
             is_good_probabilities=new_ps,
         )
@@ -303,7 +347,7 @@ class State(NamedTuple):
 
         new_ps = self.is_good_probabilities.copy()
 
-        # If the build contained a single PR, then instead of updating the
+        # If the build contained a single PR, then in addition to updating the
         # probabilities, we mark that PR as failed.
         if len(bad_prs) == 1:
             pr_id = next(iter(bad_prs))
@@ -334,8 +378,14 @@ class State(NamedTuple):
                 is_good_probabilities=new_ps,
             )
 
+        if len(bad_prs) > 1:
+            new_builds_failed = self.builds_failed + [bad_prs]
+        else:
+            new_builds_failed = self.builds_failed
+
         # Perform the Bayesian update for the is-good probabilities of the PRs
         # involved in this failed build.
+        # TODO: Migrate this out.
 
         p_train_fails = 1.0 - self.probability_all_good(bad_prs)
         for x in bad_prs:
@@ -355,6 +405,7 @@ class State(NamedTuple):
 
         return self._replace(
             builds_in_progress=new_builds,
+            builds_failed=new_builds_failed,
             is_good_probabilities=new_ps,
         )
 
@@ -959,7 +1010,7 @@ def maximize_num_processed(
     return prs, p_all_good, expected_len
 
 
-def strategy_bayesian_mkii(state: State) -> Tuple[Commit, set[PrId]]:
+def strategy_bayesian_mkiv(state: State) -> Tuple[Commit, set[PrId]]:
     """
     Tries to minimize the remaining total waiting time.
     """
@@ -1047,9 +1098,9 @@ def strategy_bayesian_mkii(state: State) -> Tuple[Commit, set[PrId]]:
 
 def main() -> None:
     configs = [
-        Config.new(parallelism=1, criticality=0.25),
-        Config.new(parallelism=1, criticality=0.50),
-        Config.new(parallelism=1, criticality=1.00),
+        #Config.new(parallelism=1, criticality=0.25),
+        #Config.new(parallelism=1, criticality=0.50),
+        #Config.new(parallelism=1, criticality=1.00),
         Config.new(parallelism=2, criticality=0.25),
         Config.new(parallelism=2, criticality=0.50),
         Config.new(parallelism=2, criticality=1.00),
@@ -1058,11 +1109,11 @@ def main() -> None:
         Config.new(parallelism=4, criticality=1.00),
     ]
     strategies = [
-        ("bayesian_mkii", strategy_bayesian_mkii),
-        ("bayesian", strategy_bayesian),
-        ("classic", strategy_classic),
-        ("fifo", strategy_fifo),
-        ("lifo", strategy_lifo),
+        ("bayesian_mkiv", strategy_bayesian_mkiv),
+        #("bayesian", strategy_bayesian),
+        #("classic", strategy_classic),
+        #("fifo", strategy_fifo),
+        #("lifo", strategy_lifo),
     ]
     for config in configs:
         for strategy_name, strategy in strategies:
