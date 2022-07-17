@@ -247,7 +247,7 @@ class State(NamedTuple):
         p: float = np.product([self.probability_good(y) for y in prs])
         return p
 
-    def _recompute_probabilities_good(self) -> None:
+    def _recompute_probabilities_good(self, print_update: bool) -> None:
         """
         Recompute the is-good probabilities based on the set of good prs and the
         list of failed builds. Note, this method mutates the instance! It should
@@ -295,10 +295,11 @@ class State(NamedTuple):
 
         assert all(0.0 <= p <= 1.0 for p in self.probabilities_good.values())
 
-        for x, p_old in ps_old.items():
-            p_new = self.probability_good(x)
-            if p_new != p_old:
-                print(f"is_good({x}): {p_old:.3f} -> {p_new:.3f}")
+        if print_update:
+            for x, p_old in ps_old.items():
+                p_new = self.probability_good(x)
+                if p_new != p_old and p_new != 1.0:
+                    print(f"is_good({x}): {p_old:.3f} -> {p_new:.3f}")
 
     def insert_pr(self, pr: PullRequest) -> State:
         return self._replace(open_prs=self.open_prs | {pr.id_: pr})
@@ -355,7 +356,7 @@ class State(NamedTuple):
                 builds_in_progress=new_builds,
                 builds_failed=new_builds_failed,
             )
-            result._recompute_probabilities_good()
+            result._recompute_probabilities_good(print_update=True)
             return result
 
         # If we merge the tip of this build, then that means that some other
@@ -368,6 +369,8 @@ class State(NamedTuple):
         prs_since_tip = build.root_path[tip]
         new_heads = self.heads + [build.tip]
 
+        print(f"Merge: new_tip={build.tip} {prs_since_tip=}")
+
         for pr_id in prs_since_tip:
             close_pr(pr_id)
 
@@ -379,35 +382,14 @@ class State(NamedTuple):
             builds_failed=new_builds_failed,
             heads=new_heads,
         )
-        result._recompute_probabilities_good()
+        result._recompute_probabilities_good(print_update=True)
         return result
 
-    def complete_build_failure(self, t: Time, id_: BuildId) -> State:
+    def assume_failed(self, t: Time, bad_prs: set[PrId], print_update: bool) -> State:
         """
-        Complete the build, update the is-good probabilities for the PRs
-        involved, or if the train was a singleton, mark that PR as failed.
+        Hypothetically assume that a build with the given pull requests in it
+        failed. Note, to finish a build, use `complete_build_failure` below.
         """
-        build = self.builds_in_progress[id_]
-        new_builds = {
-            bid: b for bid, b in self.builds_in_progress.items() if bid != id_
-        }
-
-        # Find the minimal set of PRs that contains a bad one, based on what's
-        # included in this build and what got merged. I.e. if this build failed,
-        # but it was on top of another build, and that other build passed in the
-        # meantime but now this one fails, we can say that the failure was in
-        # our build. On the other hand, if the other build is still pending,
-        # then the entire range since master is potentially bad.
-        bad_prs: set[PrId] = set()
-        was_rooted = False
-        for head in reversed(self.heads):
-            if head in build.root_path:
-                bad_prs = build.root_path[head]
-                was_rooted = True
-                break
-
-        assert was_rooted, "A build must eventually be traceable to a succeeding build."
-
         new_open_prs = self.open_prs
         new_closed_prs = self.closed_prs
 
@@ -441,11 +423,38 @@ class State(NamedTuple):
         result = self._replace(
             open_prs=new_open_prs,
             closed_prs=new_closed_prs,
-            builds_in_progress=new_builds,
             builds_failed=new_builds_failed,
         )
-        result._recompute_probabilities_good()
+        result._recompute_probabilities_good(print_update=print_update)
         return result
+
+    def complete_build_failure(self, t: Time, id_: BuildId) -> State:
+        """
+        Complete the build, update the is-good probabilities for the PRs
+        involved, or if the train was a singleton, mark that PR as failed.
+        """
+        build = self.builds_in_progress[id_]
+        new_builds = {
+            bid: b for bid, b in self.builds_in_progress.items() if bid != id_
+        }
+
+        # Find the minimal set of PRs that contains a bad one, based on what's
+        # included in this build and what got merged. I.e. if this build failed,
+        # but it was on top of another build, and that other build passed in the
+        # meantime but now this one fails, we can say that the failure was in
+        # our build. On the other hand, if the other build is still pending,
+        # then the entire range since master is potentially bad.
+        bad_prs: set[PrId] = set()
+        was_rooted = False
+        for head in reversed(self.heads):
+            if head in build.root_path:
+                bad_prs = build.root_path[head]
+                was_rooted = True
+                break
+
+        assert was_rooted, "A build must eventually be traceable to a succeeding build."
+
+        return self.assume_failed(t, bad_prs, print_update=True)._replace(builds_in_progress=new_builds)
 
 
 # A strategy is a function that, given the current state, proposes a new train
@@ -527,6 +536,12 @@ class Simulator:
         root_path: dict[Commit, set[PrId]]
         if base in builds_by_tip:
             other = builds_by_tip[base]
+            base_prs = other.prs_since_root()
+            assert all(pr not in base_prs for pr in prs_in_train), (
+                "Cannot include a pull request in a build on top of another "
+                f"build {base}, when that other build already includes it. "
+                f"{base_prs=} {prs_in_train=}"
+            )
             root_path = {k: prs | prs_in_train for k, prs in other.root_path.items()}
             root_path[base] = prs_in_train
             assert other.get_root() == self.state.get_tip(), (
@@ -534,6 +549,7 @@ class Simulator:
                 "top of master, we shouldn't build on top of something that is "
                 "already known to be obsolete."
             )
+
         elif base == self.state.get_tip():
             root_path = {base: prs_in_train}
         else:
@@ -980,104 +996,218 @@ def strategy_bayesian(state: State) -> Tuple[Commit, set[PrId]]:
     return state.get_tip(), includes
 
 
-def expected_num_processed(state: State, prs: set[PrId]) -> float:
-    """
-    Return the expected number of pull requests that the backlog will shrink
-    after we learn the outcome of building `prs` all together.
-    """
-    if len(prs) == 1:
-        # For a single PR, the backlog shrinks by 1 with certainty. Either it
-        # succeeds and we merge it, or the build fails and we fail the PR.
-        return 1.0
-
-    # Otherwise, we merge all of them with P(all good), otherwise we merge zero.
-    return state.probability_all_good(prs) * len(prs)
-
-
-def maximize_num_processed(
+def iterate_options(
     state: State,
-    includes: set[PrId],
-    candidates: Iterable[PrId],
-) -> Tuple[set[PrId], float, float]:
+    excludes: set[PrId],
+) -> Iterable[Tuple[set[PrId], str]]:
     """
-    Return the set of pull requests to build, which is a superset of `includes`,
-    and which maximizes the expected number of pull requests processed. Also
-    return the probability that this set will build successfully, and the
-    expected number of pull requests merged after the build completes (assuming
-    that `includes` are already being built).
+    Propose some things that we could build, starting from the given state.
+    In addition to the pull requests to build, also return the reason, just for
+    diagnostic purposes.
     """
-    # Sort first by descending is_good probability, and when two PRs have equal
-    # is_good probability (because they are new, let's say) order by PR id.
-    # NOTE: Here we still have a choice to make, how to order PRs that have the
-    # same probability of passing. We go for the "classic" strategy of ordering
-    # by id, but we could order by reverse arrival time, to get the stack-like
-    # behavior.
+    # Sort first by descending is-good probability, and when two PRs have equal
+    # is-good probability (because they are new, let's say) order by PR id.
+    # Some alternatives to try could be to order by (reverse) arrival time,
+    # although it matters less for the Bayesian strategy than for the others,
+    # because it builds many more PRs, so few PRs stay unevaluated.
+    candidates = set(state.open_prs.keys()) - excludes
+
+    if len(candidates) == 0:
+        return
+
     candidates_ranked = sorted(
         ((state.probability_good(pr_id), -pr_id, pr_id) for pr_id in candidates),
         reverse=True,
     )
-    prs = includes
-    p_all_good = state.probability_all_good(prs)
-    expected_len = p_all_good * len(prs)
-    expected_len_includes = expected_len
 
-    for p_is_good, _, pr in candidates_ranked:
-        if pr in prs:
-            continue
+    # The most straightforward option: include the pull requests that are most
+    # likely to succeed in the next build. Due to the eager way we explore
+    # combinations later on, we have to provide the full set as part of these
+    # options, if we only try a single pull request, we might not explore the
+    # path further even though it was optimal.
+    p = 1.0
+    best_len = 0.0
+    for i in range(0, len(candidates_ranked)):
+        p_good, _, pr_id = candidates_ranked[i]
+        p_next = p * p_good
+        expected_len = (i + 1) * p_next
 
-        new_prs = prs | {pr}
-        new_p_all_good = p_all_good * p_is_good
+        if expected_len < best_len:
+            # Continue adding PRs, from most-likely to succeed to less likely,
+            # until the expected length no longer grows. Growing the set is a
+            # trade-off between increasing progress in case of success, but
+            # decreasing the success probability.
+            break
 
-        # The new expected amount of PRs processed can be broken down in two
-        # cases. If the train succeeds, then processed len(prs). But if the
-        # build fails, we don't process zero: the base train with the `includes`
-        # PRs can still succeed, so we should count its expected number of PRs
-        # processed too.
-        new_expected_len = (
-            new_p_all_good * len(new_prs)
-            + (1.0 - new_p_all_good) * expected_len_includes
+        yield {pr_id for _, _, pr_id in candidates_ranked[:i + 1]}, (
+            f"Set of highest success probability, p_good={p_next:.3f} "
+            f"n={i + 1} {expected_len=:.3f}"
         )
 
-        if new_expected_len < expected_len:
-            return prs, p_all_good, expected_len
+        p = p_next
+        best_len = expected_len
 
-        prs = new_prs
-        p_all_good = new_p_all_good
-        expected_len = new_expected_len
+    # Alternatively, we could try to confirm a likely-bad pull request as bad
+    # by building it in isolation.
+    p, _, worst_pr_id = candidates_ranked[-1]
+    yield {worst_pr_id}, f"Highest fail probability, p_good={p:.3f}"
 
-    return prs, p_all_good, expected_len
+    # Yet another option is to build the complement of one of the failed builds.
+    # That might allow us to confirm one PR as bad and at the same time get some
+    # others merged.
+    for failed_prs in state.builds_failed:
+        prs = sorted(failed_prs, key=lambda pr_id: state.probability_good(pr_id))
+        p = state.probability_good(prs[0])
+        to_build = {pr for pr in prs if pr in state.open_prs and pr not in excludes}
+        if len(to_build) == 0:
+            continue
+        yield to_build, f"Complement of failed build, worst p_good={p:.3f}"
+
+
+def expected_num_processed(
+    state: State,
+    root_path: list[set[PrId]],
+    print_explain_indent: Optional[str] = None,
+) -> float:
+    """
+    Return the expected number of pull requests that the backlog will have
+    shrunken after we learn the outcome of this build. (Not necessarily due to
+    this build itself, also due to builds that this one is based on.)
+
+    This takes the full root path, where every subsequent element must be a
+    subset of the previous one. The final element contains all *new* pull
+    requests that we did not include before.
+    """
+    if len(root_path) == 0:
+        return 0.0
+
+    if len(state.open_prs) == 0:
+        # We can't make progress if there are no open PRs.
+        return 0.0
+
+    expected_len = 0.0
+    prs = root_path[0]
+    new_prs = root_path[-1]
+    base = prs - new_prs
+
+    assert len(prs) >= len(new_prs)
+    if len(prs) == 0:
+        # We can't make progress if we did not build anything.
+        return 0.0
+
+    # Case 1: the build passes.
+    p_success = state.probability_all_good(prs)
+    n_merged = len(prs)
+
+    prs_failed: set[PrId] = set()
+    n_failed = 0
+    for failed_prs in state.builds_failed:
+        leftover = {
+            pr for pr in failed_prs
+            if pr not in prs and pr in state.open_prs
+        }
+        if len(leftover) == 1:
+            prs_failed = prs_failed | leftover
+    n_failed = len(prs_failed)
+
+    expected_len += p_success * (n_merged + n_failed)
+    if print_explain_indent is not None:
+        print(
+            f"{print_explain_indent}Expected len from success: "
+            f"{n_merged=} {n_failed=} {p_success=:.3f} >> {expected_len=:.3f}"
+        )
+
+    # Case 2: the build fails. Any further things we investigate and query
+    # the state for, are *given* that the build failed, so we should update
+    # the state to compute conditional probabilities.
+    p_failure = 1.0 - p_success
+
+    bad_prs = prs - state.good_prs
+    if len(bad_prs) > 0:
+        # We need to pass a time to advance the state.
+        dummy_time = Time(1.0 + max(pr.arrived_at for pr in state.open_prs.values()))
+        state = state.assume_failed(dummy_time, bad_prs, print_update=False)
+
+    # We might learn something directly. If we built a single pull request
+    # on top of the base. We learn that only when the base passed and this
+    # build failed.
+    if len(new_prs) == 1:
+        p_base_success = state.probability_all_good(base)
+        expected_len += p_failure * p_base_success
+        if print_explain_indent is not None:
+            print(
+                f"{print_explain_indent}Expected len from direct failure: "
+                f"{p_failure=:.3f} {p_base_success=:.3f} >> {expected_len=:.3f}"
+            )
+
+    # When our build fails, even if we did not learn anything from our
+    # build, the one that we based it on might still have succeeded. But the
+    # probability that it did, not that we know ours failed, should be
+    # slightly lower than without that information.
+    base_expected_len = expected_num_processed(
+        state,
+        root_path=[prs - new_prs for prs in root_path[:-1]],
+        print_explain_indent=None if print_explain_indent is None else print_explain_indent + "  "
+    )
+    expected_len += p_failure * base_expected_len
+    if print_explain_indent is not None:
+        print(
+            f"{print_explain_indent}Expected len from parent: "
+            f"{p_failure=:.3f} {base_expected_len=:.3f} >> {expected_len=:.3f}"
+        )
+
+    return expected_len
+
+
+def maximize_num_processed(
+    state: State,
+    root_path: list[set[PrId]],
+) -> Tuple[float, set[PrId], list[str]]:
+    """
+    Given the root path of existing builds to build on top of, try various
+    things that we can build on top of it, and return the option that maximizes
+    the expected number of pull requests processed (merged or failed) after that
+    build completes. The prs in `include` are always part of the returned
+    solution. Returns (expected_len, prs_to_build, reasons_for_selecting).
+    """
+    best_option: Tuple[float, set[PrId], list[str]] = (0.0, set(), [])
+    made_progress = True
+
+    already_being_built = set() if len(root_path) == 0 else root_path[0]
+
+    while made_progress:
+        made_progress = False
+        _, include, base_reasons = best_option
+        for to_add, reason in iterate_options(state, excludes=include | already_being_built):
+            to_build = include | to_add
+            new_root_path = [prs | to_build for prs in root_path] + [to_build]
+            expected_len = expected_num_processed(state, new_root_path)
+
+            if expected_len > best_option[0]:
+                print(
+                    f" > Extending from len={best_option[0]:.3f} to len={expected_len:.3f}"
+                    f" with {to_add=} because {reason=}"
+                )
+                best_option = (expected_len, to_build, base_reasons + [reason])
+                made_progress = True
+
+    # TODO: This is only for debugging, remove.
+    to_build = best_option[1]
+    new_root_path = [prs | to_build for prs in root_path] + [to_build]
+    expected_num_processed(state, new_root_path, print_explain_indent="")
+
+    return best_option
 
 
 def strategy_bayesian_mkiv(state: State) -> Tuple[Commit, set[PrId]]:
     """
     Tries to minimize the remaining total waiting time.
     """
-    best_alternative_expected_len = 0.0
-
-    prs_not_being_built_exclusively = set(state.open_prs.keys())
-    for build in state.builds_in_progress.values():
-        if len(build.prs) == 1:
-            prs_not_being_built_exclusively = (
-                prs_not_being_built_exclusively - build.prs
-            )
-
-    if len(prs_not_being_built_exclusively) == 0:
-        # If everything is already building, we have no new builds to start.
-        # TODO: Potentially we could make one of the existing builds more fine-
-        # grained though.
-        return state.get_tip(), set()
-
-    # We can always try to build on top of the current tip.
+    best_option = maximize_num_processed(state, root_path=[])
     base = state.get_tip()
-    prs, p_all_good, expected_len = maximize_num_processed(
-        state,
-        includes=set(),
-        candidates=prs_not_being_built_exclusively,
-    )
-    print(f" - Main candidate: {expected_len=:.3f} {p_all_good=:.3f} {base=} {prs=}")
 
     # If there are builds in progress, we can also try building on top of them.
-    for build in state.builds_in_progress.values():
+    for build_id, build in state.builds_in_progress.items():
         if build.get_root() != state.get_tip():
             # We only want to build on top of builds that build on master, not
             # on builds that are no longer relevant.
@@ -1090,48 +1220,29 @@ def strategy_bayesian_mkiv(state: State) -> Tuple[Commit, set[PrId]]:
             # to fail.
             continue
 
-        best_alternative_expected_len = max(
-            best_alternative_expected_len,
-            expected_num_processed(state, base_prs),
-        )
-
-        new_prs, p_all_good, new_expected_len = maximize_num_processed(
-            state,
-            includes=base_prs,
-            # We consider all PRs again here, not only the ones that are not
-            # being built already, because we are extending a chain, so we
-            # believe that chain would succeed, and any other competing builds
-            # would not get merged.
-            candidates=state.open_prs.keys(),
-        )
-
-        if new_expected_len > expected_len:
-            prs = new_prs - base_prs
-            expected_len = new_expected_len
-            base = build.tip
+        root_path = list(build.root_path.values())
+        option = maximize_num_processed(state, root_path)
+        if option[0] > best_option[0]:
             print(
-                f" - Better candidate: {expected_len=:.3f} {p_all_good=:.3f} {base=} {prs=}"
+                f" - Replacing option expected_len={best_option[0]:.3f} "
+                f"with expected_len={option[0]:.3f} on top of "
+                f"build {build_id=} {build.tip=}"
             )
+            best_option = option
+            base = build.tip
 
-    # TODO: Implement the "split if build slots left"-trick.
+    print(f"Selected prs={best_option[1]} expected_len={best_option[0]:.3f} because:")
+    for reason in best_option[2]:
+        print(f" - {reason}")
 
-    # As an alternative to trying to continue extending master, we can try to
-    # confirm a likely-bad pull request.
-    p_is_good, worst_pr = min(
-        (state.probability_good(pr_id), pr_id)
-        for pr_id in prs_not_being_built_exclusively
-    )
-    p_fail_confirmed = 1.0 - p_is_good
-    new_expected_len = best_alternative_expected_len + p_fail_confirmed
-    if new_expected_len > expected_len:
-        base = state.get_tip()
-        prs = {worst_pr}
-        print(
-            f" - Opting to confirm bad pull request {worst_pr}: "
-            f"expected_len={new_expected_len:.3f} {p_fail_confirmed=:.3f}"
-        )
+    return base, best_option[1]
 
-    return base, prs
+    #prs_not_being_built_exclusively = set(state.open_prs.keys())
+    #for build in state.builds_in_progress.values():
+    #    if len(build.prs) == 1:
+    #        prs_not_being_built_exclusively = (
+    #            prs_not_being_built_exclusively - build.prs
+    #        )
 
 
 def main() -> None:
@@ -1139,11 +1250,11 @@ def main() -> None:
         # Config.new(parallelism=1, criticality=0.25),
         # Config.new(parallelism=1, criticality=0.50),
         # Config.new(parallelism=1, criticality=1.00),
-        Config.new(parallelism=2, criticality=0.25),
-        Config.new(parallelism=2, criticality=0.50),
-        Config.new(parallelism=2, criticality=1.00),
-        Config.new(parallelism=4, criticality=0.25),
-        Config.new(parallelism=4, criticality=0.50),
+        # Config.new(parallelism=2, criticality=0.25),
+        # Config.new(parallelism=2, criticality=0.50),
+        # Config.new(parallelism=2, criticality=1.00),
+        # Config.new(parallelism=4, criticality=0.25),
+        # Config.new(parallelism=4, criticality=0.50),
         Config.new(parallelism=4, criticality=1.00),
     ]
     strategies = [
