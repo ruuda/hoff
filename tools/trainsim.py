@@ -184,6 +184,7 @@ class Build(NamedTuple):
 
 class State(NamedTuple):
     open_prs: dict[PrId, PullRequest]
+
     # Per merged or failed PR, the time from arrival until it got merged.
     closed_prs: dict[PrId, Time]
 
@@ -192,7 +193,10 @@ class State(NamedTuple):
     # wrong head.
     good_prs: set[PrId]
 
-    is_good_probabilities: dict[PrId, float]
+    # For pull requests that we have built before, but which we haven't
+    # confirmed to be good, the estimated probability that they are good based
+    # on the current evidence.
+    probabilities_good: dict[PrId, float]
 
     # Builds that failed, and the pull requests that they contained. After a
     # pull request was built successfully, we removed it from all sets here, so
@@ -202,10 +206,12 @@ class State(NamedTuple):
     builds_failed: list[set[PrId]]
 
     builds_in_progress: dict[BuildId, Build]
-    num_build_slots: int
 
     # The successive commits that the master branch pointed to.
     heads: list[Commit]
+
+    num_build_slots: int
+    prior_is_good_probability: float
 
     @staticmethod
     def new(prior_is_good_probability: float, num_build_slots: int) -> State:
@@ -213,21 +219,71 @@ class State(NamedTuple):
             open_prs={},
             closed_prs={},
             good_prs=set(),
-            is_good_probabilities=defaultdict(lambda: prior_is_good_probability),
+            probabilities_good={},
             builds_failed=[],
             builds_in_progress={},
-            num_build_slots=num_build_slots,
             heads=[Commit(0)],
+            num_build_slots=num_build_slots,
+            prior_is_good_probability=prior_is_good_probability,
         )
 
     def get_tip(self) -> Commit:
         """Return the current tip of the master branch."""
         return self.heads[-1]
 
+    def probability_good(self, pr: PrId) -> float:
+        """Return the probability that a given pull request is good."""
+        if pr in self.good_prs:
+            return 1.0
+
+        if pr in self.closed_prs:
+            # If a pull request is closed but not good, it must be bad.
+            return 0.0
+
+        return self.probabilities_good.get(pr, self.prior_is_good_probability)
+
     def probability_all_good(self, prs: Iterable[PrId]) -> float:
         """Return the probability that all PRs in the sequence are good."""
-        p: float = np.product([self.is_good_probabilities[y] for y in prs])
+        p: float = np.product([self.probability_good(y) for y in prs])
         return p
+
+    def _recompute_probabilities_good(self) -> None:
+        """
+        Recompute the is-good probabilities based on the set of good prs and the
+        list of failed builds. Note, this method mutates the instance! It should
+        be called after creating a new instance with _replace that changes the
+        failed builds or good prs.
+        """
+        ps_old = self.probabilities_good.copy()
+        self.probabilities_good.clear()
+
+        # Order failed builds by the number of pull requests in the build first.
+        # TODO: Check if order matters.
+        fails = sorted(self.builds_failed, key=lambda prs: len(prs))
+        for bad_prs in fails:
+            # Perform the Bayesian update for the is-good probabilities of the
+            # PRs involved in this failed build.
+            updates = {}
+
+            p_train_fails = 1.0 - self.probability_all_good(bad_prs)
+            for x in bad_prs:
+                p_train_fails_given_x_is_good = 1.0 - self.probability_all_good(
+                    y for y in bad_prs if y != x
+                )
+                p_x_is_good = self.probability_good(x)
+                p_x_is_good_given_train_failed = (
+                    p_train_fails_given_x_is_good * p_x_is_good / p_train_fails
+                )
+                updates[x] = p_x_is_good_given_train_failed
+
+            self.probabilities_good.update(updates)
+
+        assert all(0.0 <= p <= 1.0 for p in self.probabilities_good.values())
+
+        for x, p_old in ps_old.items():
+            p_new = self.probability_good(x)
+            if p_new != p_old:
+                print(f"is_good({x}): {p_old:.3f} -> {p_new:.3f}")
 
     def insert_pr(self, pr: PullRequest) -> State:
         return self._replace(open_prs=self.open_prs | {pr.id_: pr})
@@ -246,19 +302,9 @@ class State(NamedTuple):
             bid: b for bid, b in self.builds_in_progress.items() if bid != id_
         }
 
-        new_ps = self.is_good_probabilities.copy()
         good_prs = build.prs_since_root()
         new_good_prs = self.good_prs | good_prs
-
-        # TODO: This should no longer be needed later.
-        for pr_id in good_prs:
-            # We now know that this pull request was good. Don't set it quite to
-            # 1.0 to avoid division by zero problems.
-            new_ps[pr_id] = 0.9999
-
-        new_builds_failed = [
-            prs - good_prs for prs in self.builds_failed
-        ]
+        new_builds_failed = [prs - good_prs for prs in self.builds_failed]
 
         new_open_prs = dict(self.open_prs.items())
         new_closed_prs = dict(self.closed_prs.items())
@@ -287,14 +333,15 @@ class State(NamedTuple):
             # This success was not on top of master, so it was not that useful,
             # though the new probabilities can still help to get these prs
             # prioritized next.
-            return self._replace(
+            result = self._replace(
                 open_prs=new_open_prs,
                 closed_prs=new_closed_prs,
                 good_prs=new_good_prs,
                 builds_in_progress=new_builds,
                 builds_failed=new_builds_failed,
-                is_good_probabilities=new_ps,
             )
+            result._recompute_probabilities_good()
+            return result
 
         # If we merge the tip of this build, then that means that some other
         # builds that were previously speculative, might now be directly on top
@@ -309,15 +356,16 @@ class State(NamedTuple):
         for pr_id in prs_since_tip:
             close_pr(pr_id)
 
-        return self._replace(
+        result = self._replace(
             open_prs=new_open_prs,
             closed_prs=new_closed_prs,
             good_prs=new_good_prs,
             builds_in_progress=new_builds,
             builds_failed=new_builds_failed,
             heads=new_heads,
-            is_good_probabilities=new_ps,
         )
+        result._recompute_probabilities_good()
+        return result
 
     def complete_build_failure(self, t: Time, id_: BuildId) -> State:
         """
@@ -345,69 +393,44 @@ class State(NamedTuple):
 
         assert was_rooted, "A build must eventually be traceable to a succeeding build."
 
-        new_ps = self.is_good_probabilities.copy()
+        new_open_prs = self.open_prs
+        new_closed_prs = self.closed_prs
 
-        # If the build contained a single PR, then in addition to updating the
-        # probabilities, we mark that PR as failed.
+        # If the build contained a single PR, then we mark that PR as failed.
         if len(bad_prs) == 1:
             pr_id = next(iter(bad_prs))
 
-            if pr_id not in self.open_prs:
-                # We might have a stale build result; possibly a different build
-                # already concluded that this PR failed to build. Then there is
-                # nothing to change.
-                assert pr_id in self.closed_prs
-                return self._replace(builds_in_progress=new_builds)
+            # We might have a stale build result; possibly a different build
+            # already concluded that this PR failed to build. Then there is
+            # nothing to update.
+            if pr_id in self.open_prs:
+                assert pr_id not in self.closed_prs
+                assert pr_id not in self.good_prs
 
-            pr = self.open_prs[pr_id]
-            dt = Time(t - pr.arrived_at)
-            assert dt > Time(0.0)
-            assert pr_id not in self.closed_prs
-            new_open_prs = {k: v for k, v in self.open_prs.items() if k != pr_id}
-            new_closed_prs = self.closed_prs | {pr_id: dt}
-            # Also still update the probability to virtually zero, so that if
-            # other trains involving this PR are still in progress, their
-            # failure will be blamed on this PR. Don't quite set it to zero to
-            # avoid division by zero problems, but also, to still cause a slight
-            # update for other trains, in case they contain multiple bad PRs.
-            new_ps[pr_id] = 0.01
-            return self._replace(
-                builds_in_progress=new_builds,
-                open_prs=new_open_prs,
-                closed_prs=new_closed_prs,
-                is_good_probabilities=new_ps,
-            )
+                pr = self.open_prs[pr_id]
+                dt = Time(t - pr.arrived_at)
+                assert dt > Time(0.0)
+                assert pr_id not in self.closed_prs
+                new_open_prs = {k: v for k, v in self.open_prs.items() if k != pr_id}
+                new_closed_prs = self.closed_prs | {pr_id: dt}
 
-        if len(bad_prs) > 1:
-            new_builds_failed = self.builds_failed + [bad_prs]
-        else:
+            # No need to record the failure if it was a single PR.
             new_builds_failed = self.builds_failed
 
-        # Perform the Bayesian update for the is-good probabilities of the PRs
-        # involved in this failed build.
-        # TODO: Migrate this out.
+        elif len(bad_prs) > 1:
+            new_builds_failed = self.builds_failed + [bad_prs]
 
-        p_train_fails = 1.0 - self.probability_all_good(bad_prs)
-        for x in bad_prs:
-            p_train_fails_given_x_is_good = 1.0 - self.probability_all_good(
-                y for y in bad_prs if y != x
-            )
-            p_x_is_good = self.is_good_probabilities[x]
-            p_x_is_good_given_train_failed = (
-                p_train_fails_given_x_is_good * p_x_is_good / p_train_fails
-            )
-            print(
-                f"is_good({x}): {p_x_is_good:.3f} -> {p_x_is_good_given_train_failed:.3f}"
-            )
-            new_ps[x] = p_x_is_good_given_train_failed
+        else:
+            raise Exception("A build failed, but it contained zero bad PRs?")
 
-        assert all(0.0 < p < 1.0 for p in new_ps.values())
-
-        return self._replace(
+        result = self._replace(
+            open_prs=new_open_prs,
+            closed_prs=new_closed_prs,
             builds_in_progress=new_builds,
             builds_failed=new_builds_failed,
-            is_good_probabilities=new_ps,
         )
+        result._recompute_probabilities_good()
+        return result
 
 
 # A strategy is a function that, given the current state, proposes a new train
@@ -904,7 +927,7 @@ def strategy_bayesian(state: State) -> Tuple[Commit, set[PrId]]:
     # behavior.
     candidates = sorted(
         (
-            (state.is_good_probabilities[pr_id], -pr_id, pr_id)
+            (state.probability_good(pr_id), -pr_id, pr_id)
             for pr_id in state.open_prs.keys()
         ),
         reverse=True,
@@ -975,7 +998,7 @@ def maximize_num_processed(
     # by id, but we could order by reverse arrival time, to get the stack-like
     # behavior.
     candidates_ranked = sorted(
-        ((state.is_good_probabilities[pr_id], -pr_id, pr_id) for pr_id in candidates),
+        ((state.probability_good(pr_id), -pr_id, pr_id) for pr_id in candidates),
         reverse=True,
     )
     prs = includes
@@ -1080,7 +1103,7 @@ def strategy_bayesian_mkiv(state: State) -> Tuple[Commit, set[PrId]]:
     # As an alternative to trying to continue extending master, we can try to
     # confirm a likely-bad pull request.
     p_is_good, worst_pr = min(
-        (state.is_good_probabilities[pr_id], pr_id)
+        (state.probability_good(pr_id), pr_id)
         for pr_id in prs_not_being_built_exclusively
     )
     p_fail_confirmed = 1.0 - p_is_good
