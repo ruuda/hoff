@@ -1131,7 +1131,8 @@ def expected_num_processed(
     if len(bad_prs) > 0:
         # We need to pass a time to advance the state.
         dummy_time = Time(1.0 + max(pr.arrived_at for pr in state.open_prs.values()))
-        state = state.assume_failed(dummy_time, bad_prs, print_update=False)
+        # TODO: Is this the culprit?
+        #state = state.assume_failed(dummy_time, bad_prs, print_update=False)
 
     # We might learn something directly. If we built a single pull request
     # on top of the base. We learn that only when the base passed and this
@@ -1202,6 +1203,7 @@ def strategy_bayesian_mkiv(state: State) -> Tuple[Commit, set[PrId]]:
     """
     best_option = maximize_num_processed(state, root_path=[])
     base = state.get_tip()
+    best_root_path = []
 
     # If there are builds in progress, we can also try building on top of them.
     for build_id, build in state.builds_in_progress.items():
@@ -1227,10 +1229,17 @@ def strategy_bayesian_mkiv(state: State) -> Tuple[Commit, set[PrId]]:
             )
             best_option = option
             base = build.tip
+            best_root_path = root_path
 
     print(f"Selected prs={best_option[1]} expected_len={best_option[0]:.3f} because:")
     for reason in best_option[2]:
         print(f" - {reason}")
+
+    prs = best_option[1]
+    expected_len_base = expected_num_processed(state, best_root_path)
+    best_root_path = [x | prs for x in best_root_path] + [prs]
+    expected_len_new = expected_num_processed(state, best_root_path, print_explain_indent="")
+    print(f"Recomputed {expected_len_new=:.3f} {expected_len_base=:.3f}")
 
     return base, best_option[1]
 
