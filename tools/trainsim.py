@@ -1170,7 +1170,8 @@ def maximize_num_processed(
     build completes. The prs in `include` are always part of the returned
     solution. Returns (expected_len, prs_to_build, reasons_for_selecting).
     """
-    best_option: Tuple[float, set[PrId], list[str]] = (0.0, set(), [])
+    base_expected_len = expected_num_processed(state, root_path)
+    best_option: Tuple[float, set[PrId], list[str]] = (base_expected_len, set(), [])
     made_progress = True
 
     already_being_built = set() if len(root_path) == 0 else root_path[0]
