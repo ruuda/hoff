@@ -1061,7 +1061,12 @@ def iterate_options(
         to_build = {pr for pr in prs if pr in state.open_prs and pr not in excludes}
         if len(to_build) == 0:
             continue
-        yield to_build, f"Complement of failed build, worst p_good={p:.3f}"
+        p_success = state.probability_all_good(to_build)
+        expected_len = (len(to_build) + 1) * p_success
+        yield to_build, (
+            f"Complement of failed build, worst p_good={p:.3f} "
+            f"{p_success=:.3f} {expected_len=:.3f}"
+        )
 
 
 def expected_num_processed(
@@ -1185,17 +1190,8 @@ def maximize_num_processed(
             expected_len = expected_num_processed(state, new_root_path)
 
             if expected_len > best_option[0]:
-                print(
-                    f" > Extending from len={best_option[0]:.3f} to len={expected_len:.3f}"
-                    f" with {to_add=} because {reason=}"
-                )
                 best_option = (expected_len, to_build, base_reasons + [reason])
                 made_progress = True
-
-    # TODO: This is only for debugging, remove.
-    to_build = best_option[1]
-    new_root_path = [prs | to_build for prs in root_path] + [to_build]
-    expected_num_processed(state, new_root_path, print_explain_indent="")
 
     return best_option
 
