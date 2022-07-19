@@ -409,7 +409,7 @@ eventLoopSpec = parallel $ do
       -- if there are no other PRs depending on it.
       -- The other branches should be left untouched.
       branches `shouldMatchList`
-        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused", "integration/4"]
+        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused"]
 
     it "handles a fast-forwardable pull request with tag" $ do
       (history, _branches, tagRefs, tagAnns) <- withTestEnv' $ \ shas runLoop _git -> do
@@ -555,7 +555,7 @@ eventLoopSpec = parallel $ do
       -- if there are no other PRs depending on it.
       -- The other branches should be left untouched.
       branches `shouldMatchList`
-        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused", "integration/6"]
+        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused"]
 
     it "handles a non-conflicting non-fast-forwardable pull request with tag" $ do
       (history, _branches, tagRefs, tagAnns) <- withTestEnv' $ \ shas runLoop _git -> do
@@ -1210,4 +1210,4 @@ eventLoopSpec = parallel $ do
         , "* c0"
         ]
       branches `shouldMatchList`
-        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused", "integration/8"]
+        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused"]
