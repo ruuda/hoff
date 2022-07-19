@@ -314,6 +314,42 @@ class ProbDist(NamedTuple):
 
         return ProbDist(prs=self.prs, ps=ps)
 
+    def subset_expected_entropy_decrease(self) -> ProbDist:
+        """
+        For every possible subset of the set of pull requests, return the
+        expected decrease in entropy when we build that subset. The result is
+        not a probability distribution, but we return it that way due to the
+        pretty-printer.
+        """
+        # In addition to the probability per state, get the subset
+        # probabilities.
+        ps = self.subset_probabilities().ps
+        n = len(ps)
+
+        # Entropy delta.
+        de = [0.0 for _ in ps]
+
+        # Now we kind of do the Bayesian update for every subset, except we
+        # don't store the new probabilities, we store the difference in entropy.
+        for s, p_good in enumerate(ps):
+            p_bad = 1.0 - p_good
+            for k in range(n):
+                p_good_given_k = float(k & s == s)
+                p_bad_given_k = float(k & s != s)
+                p_k = self.ps[k]
+
+                p_k_given_good = (p_good_given_k * p_k) / p_good if p_good > 0.0 else 0.0
+                p_k_given_bad = (p_bad_given_k * p_k) / p_bad if p_bad > 0.0 else 0.0
+
+                e_before = p_k * math.log2(p_k) if p_k > 0.0 else 0.0
+                e_good = p_k_given_good * math.log2(p_k_given_good) if p_k_given_good > 0.0 else 0.0
+                e_bad = p_k_given_bad * math.log2(p_k_given_bad) if p_k_given_bad > 0.0 else 0.0
+                e_after = p_good * e_good + p_bad * e_bad
+
+                de[s] += e_after - e_before
+
+        return ProbDist(prs=self.prs, ps=de)
+
     def prs_confirmed(self) -> Tuple[set[PrId], set[PrId]]:
         """
         Return the sets of (good prs, bad prs) which are 100% certain to be good
@@ -344,27 +380,32 @@ class ProbDist(NamedTuple):
 p = ProbDist.new().insert(PrId(1), 0.9).insert(PrId(2), 0.9).insert(PrId(3), 0.9).insert(PrId(4), 0.9)
 print(p, p.prs_confirmed())
 print(p.flatten())
-print(p.subset_probabilities(), "\n")
+print(p.subset_probabilities())
+print(p.subset_expected_entropy_decrease(), "\n")
 
 p = p.observe_outcome({PrId(1)}, is_good=True)
 print(p, p.prs_confirmed())
 print(p.flatten())
-print(p.subset_probabilities(), "\n")
+print(p.subset_probabilities())
+print(p.subset_expected_entropy_decrease(), "\n")
 
 p = p.observe_outcome({PrId(2), PrId(3)}, is_good=False)
 print(p, p.prs_confirmed())
 print(p.flatten())
-print(p.subset_probabilities(), "\n")
+print(p.subset_probabilities())
+print(p.subset_expected_entropy_decrease(), "\n")
 
 p = p.observe_outcome({PrId(3)}, is_good=False)
 print(p, p.prs_confirmed())
 print(p.flatten())
-print(p.subset_probabilities(), "\n")
+print(p.subset_probabilities())
+print(p.subset_expected_entropy_decrease(), "\n")
 
 p = p.remove(PrId(1)).remove(PrId(4))
 print(p)
 print(p.flatten())
-print(p.subset_probabilities(), "\n")
+print(p.subset_probabilities())
+print(p.subset_expected_entropy_decrease(), "\n")
 
 import sys
 sys.exit(1)
