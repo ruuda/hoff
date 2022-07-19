@@ -281,6 +281,22 @@ class ProbDist(NamedTuple):
         # Throw in a max to avoid negative zero, because it looks ugly.
         return max(0.0, -sum(p * math.log2(p) for p in self.ps if p > 0.0))
 
+    def flatten(self) -> dict[PrId, float]:
+        """
+        For each PR, return the probability that it is good. Note, this flattens
+        the distribution; the probabilities for some PRs may be correlated, and
+        that information is lost here.
+        """
+        ps = [0.0 for _ in self.prs]
+        n = len(self.ps)
+        m = len(self.prs)
+        for k, p in enumerate(self.ps):
+            for i in range(m):
+                if (1 << i) & k > 0:
+                    ps[i] += p
+
+        return {pr: p for pr, p in zip(self.prs, ps)}
+
     def prs_confirmed(self) -> Tuple[set[PrId], set[PrId]]:
         """
         Return the sets of (good prs, bad prs) which are 100% certain to be good
@@ -310,18 +326,23 @@ class ProbDist(NamedTuple):
 
 p = ProbDist.new().insert(PrId(1), 0.9).insert(PrId(2), 0.9).insert(PrId(3), 0.9).insert(PrId(4), 0.9)
 print(p, p.prs_confirmed())
+print(p.flatten())
 
 p = p.observe_outcome({PrId(1)}, is_good=True)
 print(p, p.prs_confirmed())
+print(p.flatten())
 
 p = p.observe_outcome({PrId(2), PrId(3)}, is_good=False)
 print(p, p.prs_confirmed())
+print(p.flatten())
 
 p = p.observe_outcome({PrId(3)}, is_good=False)
 print(p, p.prs_confirmed())
+print(p.flatten())
 
 p = p.remove(PrId(1)).remove(PrId(4))
 print(p)
+print(p.flatten())
 
 import sys
 sys.exit(1)
