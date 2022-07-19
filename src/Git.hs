@@ -35,7 +35,7 @@ module Git
   callGit,
   clone,
   deleteTag,
-  deleteBranch,
+  deleteRemoteBranch,
   doesGitDirectoryExist,
   fetchBranch,
   fetchBranchWithTags,
@@ -201,7 +201,7 @@ data GitOperationFree a
   | ShortLog SomeRefSpec SomeRefSpec (Maybe Text -> a)
   | Tag Sha TagName TagMessage (TagResult -> a)
   | DeleteTag TagName a
-  | DeleteBranch Branch (PushResult -> a)
+  | DeleteRemoteBranch Branch (PushResult -> a)
   | CheckOrphanFixups Sha RemoteBranch (Bool -> a)
   deriving (Functor)
 
@@ -262,8 +262,8 @@ tag' sha t@(TagName name) = tag sha t (TagMessage name)
 deleteTag :: TagName -> GitOperation ()
 deleteTag t = liftF $ DeleteTag t ()
 
-deleteBranch :: Branch -> GitOperation PushResult
-deleteBranch branch = liftF $ DeleteBranch branch id
+deleteRemoteBranch :: Branch -> GitOperation PushResult
+deleteRemoteBranch branch = liftF $ DeleteRemoteBranch branch id
 
 checkOrphanFixups :: Sha -> RemoteBranch -> GitOperation Bool
 checkOrphanFixups sha branch = liftF $ CheckOrphanFixups sha branch id
@@ -360,7 +360,7 @@ runGit userConfig repoDir operation =
           pure . cont $ PushRejected message
         Right _ -> pure $ cont PushOk
 
-    DeleteBranch branch cont -> do
+    DeleteRemoteBranch branch cont -> do
       gitResult <- callGitInRepo ["push", "-d", refSpec branch]
       case gitResult of
         Right _ -> pure $ cont PushOk
@@ -548,7 +548,7 @@ runGitReadOnly userConfig repoDir operation =
         let errorMsg = Text.concat ["Would have pushed ", sha, " to ", branch]
         logInfoN errorMsg
         pure . cont $ PushRejected errorMsg
-      DeleteBranch (Branch branch) cont -> do
+      DeleteRemoteBranch (Branch branch) cont -> do
         let errorMsg = Text.concat ["Would have deleted remote branch ", branch]
         logInfoN errorMsg
         pure . cont $ PushRejected errorMsg

@@ -196,7 +196,7 @@ runAction config = foldFree $ \case
             -- the origin
 
   CleanupTestBranch pr cont -> do
-    _ <- doGit $ Git.deleteBranch (Git.Branch $ Config.testBranch config <> "/" <> pullRequestIdToText pr) -- TODO: DRY!
+    _ <- doGit $ Git.deleteRemoteBranch (Git.Branch $ Config.testBranch config <> "/" <> pullRequestIdToText pr) -- TODO: DRY!
     pure cont
 
   LeaveComment pr body cont -> do
