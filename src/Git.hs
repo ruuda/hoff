@@ -366,7 +366,7 @@ runGit userConfig repoDir operation =
         Right _ -> pure $ cont PushOk
 
     DeleteRemoteBranch branch cont -> do
-      gitResult <- callGitInRepo ["push", "-d", refSpec branch]
+      gitResult <- callGitInRepo ["push", "origin", "-d", refSpec branch]
       case gitResult of
         Right _ -> pure $ cont PushOk
         Left (_, message) -> do
