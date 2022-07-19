@@ -35,6 +35,7 @@ module Git
   callGit,
   clone,
   deleteTag,
+  deleteBranch,
   deleteRemoteBranch,
   doesGitDirectoryExist,
   fetchBranch,
@@ -201,6 +202,7 @@ data GitOperationFree a
   | ShortLog SomeRefSpec SomeRefSpec (Maybe Text -> a)
   | Tag Sha TagName TagMessage (TagResult -> a)
   | DeleteTag TagName a
+  | DeleteBranch Branch a
   | DeleteRemoteBranch Branch (PushResult -> a)
   | CheckOrphanFixups Sha RemoteBranch (Bool -> a)
   deriving (Functor)
@@ -261,6 +263,9 @@ tag' sha t@(TagName name) = tag sha t (TagMessage name)
 
 deleteTag :: TagName -> GitOperation ()
 deleteTag t = liftF $ DeleteTag t ()
+
+deleteBranch :: Branch -> GitOperation ()
+deleteBranch t = liftF $ DeleteBranch t ()
 
 deleteRemoteBranch :: Branch -> GitOperation PushResult
 deleteRemoteBranch branch = liftF $ DeleteRemoteBranch branch id
@@ -492,6 +497,8 @@ runGit userConfig repoDir operation =
           logInfoN $ format "tagged {} with {}" [show sha, show t]
           pure $ cont $ TagOk t
 
+    DeleteBranch branch cont -> cont <$ callGitInRepo ["branch", "-d", refSpec branch]
+
     DeleteTag t cont -> cont <$ callGitInRepo ["tag", "-d", refSpec t]
 
     CheckOrphanFixups sha branch cont -> do
@@ -537,6 +544,7 @@ runGitReadOnly userConfig repoDir operation =
       ShortLog {} -> unsafeResult
       Tag {} -> unsafeResult
       DeleteTag {} -> unsafeResult
+      DeleteBranch {} -> unsafeResult
       CheckOrphanFixups {} -> unsafeResult
 
       -- These operations mutate the remote, so we don't execute them in
