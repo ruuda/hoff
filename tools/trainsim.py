@@ -377,62 +377,15 @@ class ProbDist(NamedTuple):
         return prs_good, prs_bad
 
 
-p = ProbDist.new().insert(PrId(1), 0.9).insert(PrId(2), 0.9).insert(PrId(3), 0.9).insert(PrId(4), 0.9)
-print(p, p.prs_confirmed())
-print(p.flatten())
-print(p.subset_probabilities())
-print(p.subset_expected_entropy_decrease(), "\n")
-
-p = p.observe_outcome({PrId(1)}, is_good=True)
-print(p, p.prs_confirmed())
-print(p.flatten())
-print(p.subset_probabilities())
-print(p.subset_expected_entropy_decrease(), "\n")
-
-p = p.observe_outcome({PrId(2), PrId(3)}, is_good=False)
-print(p, p.prs_confirmed())
-print(p.flatten())
-print(p.subset_probabilities())
-print(p.subset_expected_entropy_decrease(), "\n")
-
-p = p.observe_outcome({PrId(3)}, is_good=False)
-print(p, p.prs_confirmed())
-print(p.flatten())
-print(p.subset_probabilities())
-print(p.subset_expected_entropy_decrease(), "\n")
-
-p = p.remove(PrId(1)).remove(PrId(4))
-print(p)
-print(p.flatten())
-print(p.subset_probabilities())
-print(p.subset_expected_entropy_decrease(), "\n")
-
-import sys
-sys.exit(1)
-
-
 class State(NamedTuple):
     open_prs: dict[PrId, PullRequest]
 
     # Per merged or failed PR, the time from arrival until it got merged.
     closed_prs: dict[PrId, Time]
 
-    # Pull requests that have been confirmed to be good. Note that that does not
-    # necessarily mean that they got merged, they might have been built upon the
-    # wrong head.
-    good_prs: set[PrId]
-
-    # For pull requests that we have built before, but which we haven't
-    # confirmed to be good, the estimated probability that they are good based
-    # on the current evidence.
-    probabilities_good: dict[PrId, float]
-
-    # Builds that failed, and the pull requests that they contained. After a
-    # pull request was built successfully, we removed it from all sets here, so
-    # every individual set shrinks over time. This also allows us to confirm
-    # pull requests as bad without building them in isolation by confirming that
-    # the complement is good.
-    builds_failed: list[set[PrId]]
+    # The probability distribution over all possible states in {good, bad}^n of
+    # the n open pull requests.
+    pd: ProbDist
 
     builds_in_progress: dict[BuildId, Build]
 
@@ -447,9 +400,7 @@ class State(NamedTuple):
         return State(
             open_prs={},
             closed_prs={},
-            good_prs=set(),
-            probabilities_good={},
-            builds_failed=[],
+            pd=ProbDist.new(),
             builds_in_progress={},
             heads=[Commit(0)],
             num_build_slots=num_build_slots,
@@ -460,78 +411,20 @@ class State(NamedTuple):
         """Return the current tip of the master branch."""
         return self.heads[-1]
 
-    def probability_good(self, pr: PrId) -> float:
-        """Return the probability that a given pull request is good."""
-        if pr in self.good_prs:
-            return 1.0
-
-        if pr in self.closed_prs:
-            # If a pull request is closed but not good, it must be bad.
-            return 0.0
-
-        return self.probabilities_good.get(pr, self.prior_is_good_probability)
-
-    def probability_all_good(self, prs: Iterable[PrId]) -> float:
-        """Return the probability that all PRs in the sequence are good."""
-        p: float = np.product([self.probability_good(y) for y in prs])
-        return p
-
-    def _recompute_probabilities_good(self, print_update: bool) -> None:
+    def probabilities_good(self) -> dict[PrId, float]:
         """
-        Recompute the is-good probabilities based on the set of good prs and the
-        list of failed builds. Note, this method mutates the instance! It should
-        be called after creating a new instance with _replace that changes the
-        failed builds or good prs.
+        Return the probability that the pull request is good for all tracked
+        pull requests.
         """
-        ps_old = self.probabilities_good.copy()
-
-        # Start again from a clean slate without any evidence (aside from that
-        # for the pull requests that succeeded), and then apply all evidence at
-        # once from that state using Bayes' rule. This is only one possible way
-        # of doing this, we could also apply e.g. every failed build one by one,
-        # and we would get a different outcome. One thing I like about this
-        # formulation below, is that it does not depend on the order in which
-        # the evidence came in, while the other one does. A downside is that it
-        # leads to less extreme estimates about pull requests. I asked about
-        # this on Stack Exchange: https://stats.stackexchange.com/q/582275/140869.
-        self.probabilities_good.clear()
-        bad_prs = {x for fails in self.builds_failed for x in fails}
-        trains_per_pr = {
-            x: [fails for fails in self.builds_failed if x in fails] for x in bad_prs
-        }
-        updates = {}
-        for x, trains in trains_per_pr.items():
-            # Perform the Bayesian update for the is-good probability of this
-            # pull request, given that it was involved in all those failing
-            # builds.
-            p_train_fails = [1.0 - self.probability_all_good(train) for train in trains]
-            p_all_trains_fail = np.product(p_train_fails)
-
-            p_train_fails_given_x_is_good = [
-                1.0 - self.probability_all_good(y for y in train if y != x)
-                for train in trains
-            ]
-            p_all_trains_fail_given_x_is_good = np.product(
-                p_train_fails_given_x_is_good
-            )
-            p_x_is_good = self.probability_good(x)
-            p_x_is_good_given_all_trains_failed = (
-                p_all_trains_fail_given_x_is_good * p_x_is_good / p_all_trains_fail
-            )
-            updates[x] = p_x_is_good_given_all_trains_failed
-
-        self.probabilities_good.update(updates)
-
-        assert all(0.0 <= p <= 1.0 for p in self.probabilities_good.values())
-
-        if print_update:
-            for x, p_old in ps_old.items():
-                p_new = self.probability_good(x)
-                if p_new != p_old and p_new != 1.0:
-                    print(f"is_good({x}): {p_old:.3f} -> {p_new:.3f}")
+        return self.pd.flatten()
 
     def insert_pr(self, pr: PullRequest) -> State:
-        return self._replace(open_prs=self.open_prs | {pr.id_: pr})
+        # TODO: We may want to limit the size of the tracked PRs.
+        pd_new = self.pd.insert(pr.id_, p_is_good=self.prior_is_good_probability)
+        return self._replace(
+            open_prs=self.open_prs | {pr.id_: pr},
+            pd=pd_new,
+        )
 
     def start_build(self, id_: BuildId, build: Build) -> State:
         return self._replace(builds_in_progress=self.builds_in_progress | {id_: build})
@@ -548,8 +441,7 @@ class State(NamedTuple):
         }
 
         good_prs = build.prs_since_root()
-        new_good_prs = self.good_prs | good_prs
-        new_builds_failed = [prs - good_prs for prs in self.builds_failed]
+        new_pd = self.pd.observe_outcome(build.prs_since_root(), is_good=True)
 
         new_open_prs = dict(self.open_prs.items())
         new_closed_prs = dict(self.closed_prs.items())
@@ -562,31 +454,22 @@ class State(NamedTuple):
             assert pr_id not in new_closed_prs
             new_closed_prs[pr_id] = dt
 
-        # When we learn that some pull requests are good, we might also learn
-        # that some other pull requests are bad: when they were part of a
-        # failing build and all pull requests except for a single one were good,
-        # the remaining one must be bad.
-        for failed_prs in new_builds_failed:
-            if len(failed_prs) == 1:
-                pr_id = next(iter(failed_prs))
-                if pr_id in new_open_prs:
-                    print(f"Confirmed bad indirectly: {pr_id}")
-                    close_pr(pr_id)
+        _confirmed_good, confirmed_bad = new_pd.prs_confirmed()
+        for pr_id in confirmed_bad:
+            print("Confirmed bad indirectly: {pr_id}")
+            close_pr(pr_id)
+            new_pd = new_pd.remove(pr_id)
 
         tip = self.get_tip()
         if tip not in build.root_path:
-            # This success was not on top of master, so it was not that useful,
-            # though the new probabilities can still help to get these prs
-            # prioritized next.
-            result = self._replace(
+            # This success was not on top of master, so it was not directly
+            # useful, but we may still have made progress.
+            return self._replace(
                 open_prs=new_open_prs,
                 closed_prs=new_closed_prs,
-                good_prs=new_good_prs,
+                pd=new_pd,
                 builds_in_progress=new_builds,
-                builds_failed=new_builds_failed,
             )
-            result._recompute_probabilities_good(print_update=True)
-            return result
 
         # If we merge the tip of this build, then that means that some other
         # builds that were previously speculative, might now be directly on top
@@ -602,65 +485,20 @@ class State(NamedTuple):
 
         for pr_id in prs_since_tip:
             close_pr(pr_id)
+            new_pd = new_pd.remove(pr_id)
 
-        result = self._replace(
+        return self._replace(
             open_prs=new_open_prs,
             closed_prs=new_closed_prs,
-            good_prs=new_good_prs,
+            pd=new_pd,
             builds_in_progress=new_builds,
-            builds_failed=new_builds_failed,
             heads=new_heads,
         )
-        result._recompute_probabilities_good(print_update=True)
-        return result
-
-    def assume_failed(self, t: Time, bad_prs: set[PrId], print_update: bool) -> State:
-        """
-        Hypothetically assume that a build with the given pull requests in it
-        failed. Note, to finish a build, use `complete_build_failure` below.
-        """
-        new_open_prs = self.open_prs
-        new_closed_prs = self.closed_prs
-
-        # If the build contained a single PR, then we mark that PR as failed.
-        if len(bad_prs) == 1:
-            pr_id = next(iter(bad_prs))
-
-            # We might have a stale build result; possibly a different build
-            # already concluded that this PR failed to build. Then there is
-            # nothing to update.
-            if pr_id in self.open_prs:
-                assert pr_id not in self.closed_prs
-                assert pr_id not in self.good_prs
-
-                pr = self.open_prs[pr_id]
-                dt = Time(t - pr.arrived_at)
-                assert dt > Time(0.0)
-                assert pr_id not in self.closed_prs
-                new_open_prs = {k: v for k, v in self.open_prs.items() if k != pr_id}
-                new_closed_prs = self.closed_prs | {pr_id: dt}
-
-            # No need to record the failure if it was a single PR.
-            new_builds_failed = self.builds_failed
-
-        elif len(bad_prs) > 1:
-            new_builds_failed = self.builds_failed + [bad_prs]
-
-        else:
-            raise Exception("A build failed, but it contained zero bad PRs?")
-
-        result = self._replace(
-            open_prs=new_open_prs,
-            closed_prs=new_closed_prs,
-            builds_failed=new_builds_failed,
-        )
-        result._recompute_probabilities_good(print_update=print_update)
-        return result
 
     def complete_build_failure(self, t: Time, id_: BuildId) -> State:
         """
-        Complete the build, update the is-good probabilities for the PRs
-        involved, or if the train was a singleton, mark that PR as failed.
+        Complete the build, update the probabilities for the PRs involved, and
+        if we can confirm something as certainly bad, mark that PR as failed.
         """
         build = self.builds_in_progress[id_]
         new_builds = {
@@ -683,7 +521,29 @@ class State(NamedTuple):
 
         assert was_rooted, "A build must eventually be traceable to a succeeding build."
 
-        return self.assume_failed(t, bad_prs, print_update=True)._replace(builds_in_progress=new_builds)
+        new_pd = self.pd.observe_outcome(bad_prs, is_good=False)
+        new_open_prs = self.open_prs
+        new_closed_prs = self.closed_prs
+
+        prs_confirmed_good, prs_confirmed_bad = new_pd.prs_confirmed()
+        assert len(prs_confirmed_good) == 0, "A failed build can never confirm a PR."
+
+        # If the build contained a single PR, then we mark that PR as failed.
+        for pr_id in prs_confirmed_bad:
+            assert pr_id in self.open_prs, "ProbDist only tracks open PRs."
+            assert pr_id not in self.closed_prs
+            pr = self.open_prs[pr_id]
+            dt = Time(t - pr.arrived_at)
+            assert dt > Time(0.0)
+            new_open_prs = {k: v for k, v in self.open_prs.items() if k != pr_id}
+            new_closed_prs = self.closed_prs | {pr_id: dt}
+            new_pd = new_pd.remove(pr_id)
+
+        return self._replace(
+            open_prs=new_open_prs,
+            closed_prs=new_closed_prs,
+            pd=new_pd,
+        )
 
 
 # A strategy is a function that, given the current state, proposes a new train
@@ -1186,10 +1046,7 @@ def strategy_bayesian(state: State) -> Tuple[Commit, set[PrId]]:
     # by id, but we could order by reverse arrival time, to get the stack-like
     # behavior.
     candidates = sorted(
-        (
-            (state.probability_good(pr_id), -pr_id, pr_id)
-            for pr_id in state.open_prs.keys()
-        ),
+        ((p, -pr_id, pr_id) for pr_id, p in state.probabilities_good().items()),
         reverse=True,
     )
 
@@ -1225,214 +1082,14 @@ def strategy_bayesian(state: State) -> Tuple[Commit, set[PrId]]:
     return state.get_tip(), includes
 
 
-def iterate_options(
-    state: State,
-    excludes: set[PrId],
-) -> Iterable[Tuple[set[PrId], str]]:
+def strategy_minimize_entropy(state: State) -> Tuple[Commit, set[PrId]]:
     """
-    Propose some things that we could build, starting from the given state.
-    In addition to the pull requests to build, also return the reason, just for
-    diagnostic purposes.
+    Tries to minimize the entropy of the probability distribution over all
+    possible PR states after the build.
     """
-    # Sort first by descending is-good probability, and when two PRs have equal
-    # is-good probability (because they are new, let's say) order by PR id.
-    # Some alternatives to try could be to order by (reverse) arrival time,
-    # although it matters less for the Bayesian strategy than for the others,
-    # because it builds many more PRs, so few PRs stay unevaluated.
-    candidates = set(state.open_prs.keys()) - excludes
-
-    if len(candidates) == 0:
-        return
-
-    candidates_ranked = sorted(
-        ((state.probability_good(pr_id), -pr_id, pr_id) for pr_id in candidates),
-        reverse=True,
-    )
-
-    # The most straightforward option: include the pull requests that are most
-    # likely to succeed in the next build. Due to the eager way we explore
-    # combinations later on, we have to provide the full set as part of these
-    # options, if we only try a single pull request, we might not explore the
-    # path further even though it was optimal.
-    p = 1.0
-    best_len = 0.0
-    for i in range(0, len(candidates_ranked)):
-        p_good, _, pr_id = candidates_ranked[i]
-        p_next = p * p_good
-        expected_len = (i + 1) * p_next
-
-        if expected_len < best_len:
-            # Continue adding PRs, from most-likely to succeed to less likely,
-            # until the expected length no longer grows. Growing the set is a
-            # trade-off between increasing progress in case of success, but
-            # decreasing the success probability.
-            break
-
-        yield {pr_id for _, _, pr_id in candidates_ranked[:i + 1]}, (
-            f"Set of highest success probability, p_good={p_next:.3f} "
-            f"n={i + 1} {expected_len=:.3f}"
-        )
-
-        p = p_next
-        best_len = expected_len
-
-    # Alternatively, we could try to confirm a likely-bad pull request as bad
-    # by building it in isolation.
-    p, _, worst_pr_id = candidates_ranked[-1]
-    yield {worst_pr_id}, f"Highest fail probability, p_good={p:.3f}"
-
-    # Yet another option is to build the complement of one of the failed builds.
-    # That might allow us to confirm one PR as bad and at the same time get some
-    # others merged.
-    for failed_prs in state.builds_failed:
-        prs = sorted(failed_prs, key=lambda pr_id: state.probability_good(pr_id))
-        p = state.probability_good(prs[0])
-        to_build = {pr for pr in prs if pr in state.open_prs and pr not in excludes}
-        if len(to_build) == 0:
-            continue
-        p_success = state.probability_all_good(to_build)
-        expected_len = (len(to_build) + 1) * p_success
-        yield to_build, (
-            f"Complement of failed build, worst p_good={p:.3f} "
-            f"{p_success=:.3f} {expected_len=:.3f}"
-        )
-
-
-def expected_num_processed(
-    state: State,
-    root_path: list[set[PrId]],
-    print_explain_indent: Optional[str] = None,
-) -> float:
-    """
-    Return the expected number of pull requests that the backlog will have
-    shrunken after we learn the outcome of this build. (Not necessarily due to
-    this build itself, also due to builds that this one is based on.)
-
-    This takes the full root path, where every subsequent element must be a
-    subset of the previous one. The final element contains all *new* pull
-    requests that we did not include before.
-    """
-    if len(root_path) == 0:
-        return 0.0
-
-    if len(state.open_prs) == 0:
-        # We can't make progress if there are no open PRs.
-        return 0.0
-
-    expected_len = 0.0
-    prs = root_path[0]
-    new_prs = root_path[-1]
-    base = prs - new_prs
-
-    assert len(prs) >= len(new_prs)
-    if len(prs) == 0:
-        # We can't make progress if we did not build anything.
-        return 0.0
-
-    # Case 1: the build passes.
-    p_success = state.probability_all_good(prs)
-    n_merged = len(prs)
-
-    prs_failed: set[PrId] = set()
-    n_failed = 0
-    for failed_prs in state.builds_failed:
-        leftover = {
-            pr for pr in failed_prs
-            if pr not in prs and pr in state.open_prs
-        }
-        if len(leftover) == 1:
-            prs_failed = prs_failed | leftover
-    n_failed = len(prs_failed)
-
-    expected_len += p_success * (n_merged + n_failed)
-    if print_explain_indent is not None:
-        print(
-            f"{print_explain_indent}Expected len from success: "
-            f"{n_merged=} {n_failed=} {p_success=:.3f} >> {expected_len=:.3f}"
-        )
-
-    # Case 2: the build fails. Any further things we investigate and query
-    # the state for, are *given* that the build failed, so we should update
-    # the state to compute conditional probabilities.
-    p_failure = 1.0 - p_success
-
-    bad_prs = prs - state.good_prs
-    if len(bad_prs) > 0:
-        # We need to pass a time to advance the state.
-        dummy_time = Time(1.0 + max(pr.arrived_at for pr in state.open_prs.values()))
-        # TODO: Is this the culprit?
-        #state = state.assume_failed(dummy_time, bad_prs, print_update=False)
-
-    # We might learn something directly. If we built a single pull request
-    # on top of the base. We learn that only when the base passed and this
-    # build failed.
-    if len(new_prs) == 1:
-        p_base_success = state.probability_all_good(base)
-        expected_len += p_failure * p_base_success
-        if print_explain_indent is not None:
-            print(
-                f"{print_explain_indent}Expected len from direct failure: "
-                f"{p_failure=:.3f} {p_base_success=:.3f} >> {expected_len=:.3f}"
-            )
-
-    # When our build fails, even if we did not learn anything from our
-    # build, the one that we based it on might still have succeeded. But the
-    # probability that it did, not that we know ours failed, should be
-    # slightly lower than without that information.
-    base_expected_len = expected_num_processed(
-        state,
-        root_path=[prs - new_prs for prs in root_path[:-1]],
-        print_explain_indent=None if print_explain_indent is None else print_explain_indent + "  "
-    )
-    expected_len += p_failure * base_expected_len
-    if print_explain_indent is not None:
-        print(
-            f"{print_explain_indent}Expected len from parent: "
-            f"{p_failure=:.3f} {base_expected_len=:.3f} >> {expected_len=:.3f}"
-        )
-
-    return expected_len
-
-
-def maximize_num_processed(
-    state: State,
-    root_path: list[set[PrId]],
-) -> Tuple[float, set[PrId], list[str]]:
-    """
-    Given the root path of existing builds to build on top of, try various
-    things that we can build on top of it, and return the option that maximizes
-    the expected number of pull requests processed (merged or failed) after that
-    build completes. The prs in `include` are always part of the returned
-    solution. Returns (expected_len, prs_to_build, reasons_for_selecting).
-    """
-    base_expected_len = expected_num_processed(state, root_path)
-    best_option: Tuple[float, set[PrId], list[str]] = (base_expected_len, set(), [])
-    made_progress = True
-
-    already_being_built = set() if len(root_path) == 0 else root_path[0]
-
-    while made_progress:
-        made_progress = False
-        _, include, base_reasons = best_option
-        for to_add, reason in iterate_options(state, excludes=include | already_being_built):
-            to_build = include | to_add
-            new_root_path = [prs | to_build for prs in root_path] + [to_build]
-            expected_len = expected_num_processed(state, new_root_path)
-
-            if expected_len > best_option[0]:
-                best_option = (expected_len, to_build, base_reasons + [reason])
-                made_progress = True
-
-    return best_option
-
-
-def strategy_bayesian_mkiv(state: State) -> Tuple[Commit, set[PrId]]:
-    """
-    Tries to minimize the remaining total waiting time.
-    """
-    best_option = maximize_num_processed(state, root_path=[])
     base = state.get_tip()
-    best_root_path = []
+
+    # TODO
 
     # If there are builds in progress, we can also try building on top of them.
     for build_id, build in state.builds_in_progress.items():
@@ -1448,36 +1105,7 @@ def strategy_bayesian_mkiv(state: State) -> Tuple[Commit, set[PrId]]:
             # to fail.
             continue
 
-        root_path = list(build.root_path.values())
-        option = maximize_num_processed(state, root_path)
-        if option[0] > best_option[0]:
-            print(
-                f" - Replacing option expected_len={best_option[0]:.3f} "
-                f"with expected_len={option[0]:.3f} on top of "
-                f"build {build_id=} {build.tip=}"
-            )
-            best_option = option
-            base = build.tip
-            best_root_path = root_path
-
-    print(f"Selected prs={best_option[1]} expected_len={best_option[0]:.3f} because:")
-    for reason in best_option[2]:
-        print(f" - {reason}")
-
-    prs = best_option[1]
-    expected_len_base = expected_num_processed(state, best_root_path)
-    best_root_path = [x | prs for x in best_root_path] + [prs]
-    expected_len_new = expected_num_processed(state, best_root_path, print_explain_indent="")
-    print(f"Recomputed {expected_len_new=:.3f} {expected_len_base=:.3f}")
-
-    return base, best_option[1]
-
-    #prs_not_being_built_exclusively = set(state.open_prs.keys())
-    #for build in state.builds_in_progress.values():
-    #    if len(build.prs) == 1:
-    #        prs_not_being_built_exclusively = (
-    #            prs_not_being_built_exclusively - build.prs
-    #        )
+    raise Exception("TODO")
 
 
 def main() -> None:
@@ -1493,8 +1121,8 @@ def main() -> None:
         Config.new(parallelism=4, criticality=1.00),
     ]
     strategies = [
-        ("bayesian_mkiv", strategy_bayesian_mkiv),
-        # ("bayesian", strategy_bayesian),
+        # ("minimize_entropy", strategy_minimize_entropy),
+        ("bayesian", strategy_bayesian),
         # ("classic", strategy_classic),
         # ("fifo", strategy_fifo),
         # ("lifo", strategy_lifo),
