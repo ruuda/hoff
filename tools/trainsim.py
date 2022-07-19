@@ -182,6 +182,67 @@ class Build(NamedTuple):
         return self._replace(root_path=new_root_path)
 
 
+class ProbDist(NamedTuple):
+    """
+    A probability distribution over {good, bad}^n the set of all possible states
+    of n pull requests.
+
+    The states are numbered in binary, where the least significant bit is 0 for
+    a state where `open_prs[0]` is bad, and it is 1 for a state where
+    `open_prs[0]` is good, with the more significant bit for higher indexes.
+    """
+    prs: list[PrId]
+    ps: list[float]
+
+    @staticmethod
+    def new() -> ProbDist:
+        return ProbDist([], [1.0])
+
+    def insert(self, id_: PrId, p_is_good: float) -> ProbDist:
+        p_is_bad = 1.0 - p_is_good
+        return ProbDist(
+            prs=self.prs + [id_],
+            ps=(
+                # The first n values are when pr "id_" fails,
+                # the next n when it passes.
+                [p_is_bad * p for p in self.ps] +
+                [p_is_good * p for p in self.ps]
+            ),
+        )
+
+    def remove(self, id_: PrId) -> ProbDist:
+        i = self.prs.index(id_)
+        mask_i = 1 << i
+        mask_low = mask_i - 1
+        mask_high = len(self.ps) - 1 - mask_low
+
+        ps = []
+        for k in range(len(self.ps) // 2):
+            # For one element in the new distribution, we had two previously:
+            # one where PR i was bad, and one where it was good. Sum those.
+            old_k = ((k & mask_high) << 1) | (k & mask_low)
+            ps.append(self.ps[old_k] + self.ps[old_k + mask_i])
+
+        return ProbDist(
+            prs=self.prs[:i] + self.prs[i + 1:],
+            ps=ps,
+        )
+
+
+p = ProbDist.new().insert(PrId(1), 0.9).insert(PrId(2), 0.9).insert(PrId(3), 0.9).insert(PrId(4), 0.9)
+print(p)
+p = p.remove(PrId(3))
+print(p)
+p = p.remove(PrId(4))
+print(p)
+p = p.remove(PrId(1))
+print(p)
+p = p.remove(PrId(2))
+print(p)
+import sys
+sys.exit(1)
+
+
 class State(NamedTuple):
     open_prs: dict[PrId, PullRequest]
 
