@@ -44,7 +44,7 @@ class Config(NamedTuple):
     # For the Bayesian update that the state keeps of the probability that a
     # given PR is good, the initial probability, which does not have to match
     # the real probability defined above.
-    prior_is_good_probability: float = 0.8
+    prior_is_good_probability: float = 0.9
     num_prs: int = 250
     num_build_slots: int = 4
 
@@ -445,7 +445,7 @@ class State(NamedTuple):
         # add the one with the lowest id. NOTE: This creates a kind of "Classic"
         # strategy again when the backlog is big. You can experiment with the
         # fifo/lifo alternatives here too.
-        spots_left = 15 - len(new_pd.prs)
+        spots_left = 10 - len(new_pd.prs)
         if spots_left > 0:
             prs_not_in_pd = sorted(set(self.open_prs.keys()) - set(self.pd.prs))
             for pr_id in prs_not_in_pd[:spots_left]:
@@ -1114,6 +1114,27 @@ def strategy_minimize_entropy(state: State) -> Tuple[Commit, set[PrId]]:
     """
     base = state.get_tip()
 
+    if len(state.builds_in_progress) > 0:
+        return base, set()
+
+    subsets = state.pd.subset_probabilities()
+    options = sorted(
+        ((p * s.bit_count(), s, p) for s, p in enumerate(subsets.ps)),
+        reverse=True,
+    )
+    for expected_len, s, p in options[:3]:
+        print(f" - Option {s:05b} {expected_len=:.3f} {p=:.3f}")
+
+    _, s, _ = options[0]
+
+    includes = set()
+    for i, pr_id in enumerate(subsets.prs):
+        index = 1 << i
+        if index & s == index:
+            includes.add(pr_id)
+
+    return base, includes
+
     # TODO
 
     # If there are builds in progress, we can also try building on top of them.
@@ -1135,9 +1156,9 @@ def strategy_minimize_entropy(state: State) -> Tuple[Commit, set[PrId]]:
 
 def main() -> None:
     configs = [
-            # Config.new(parallelism=1, criticality=0.25),
-            # Config.new(parallelism=1, criticality=0.50),
-            # Config.new(parallelism=1, criticality=1.00),
+        Config.new(parallelism=1, criticality=0.25),
+        Config.new(parallelism=1, criticality=0.50),
+        Config.new(parallelism=1, criticality=1.00),
         Config.new(parallelism=2, criticality=0.25),
         Config.new(parallelism=2, criticality=0.50),
         Config.new(parallelism=2, criticality=1.00),
@@ -1146,8 +1167,8 @@ def main() -> None:
         # Config.new(parallelism=4, criticality=1.00),
     ]
     strategies = [
-        # ("minimize_entropy", strategy_minimize_entropy),
-        ("bayesian", strategy_bayesian),
+        ("minimize_entropy", strategy_minimize_entropy),
+        # ("bayesian", strategy_bayesian),
         # ("classic", strategy_classic),
         # ("fifo", strategy_fifo),
         # ("lifo", strategy_lifo),
