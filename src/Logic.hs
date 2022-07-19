@@ -168,7 +168,7 @@ runAction config = foldFree $ \case
       ref
       sha
       (Git.RemoteBranch $ Config.branch config)
-      (Git.Branch $ Config.testBranch config <> "/" <> pullRequestIdToText pr)
+      (testBranch config pr)
       alwaysAddMergeCommit
 
     case shaOrFailed of
@@ -196,8 +196,9 @@ runAction config = foldFree $ \case
             -- the origin
 
   CleanupTestBranch pr cont -> do
-    doGit $ Git.deleteBranch (Git.Branch $ Config.testBranch config <> "/" <> pullRequestIdToText pr) -- TODO: DRY!
-    _ <- doGit $ Git.deleteRemoteBranch (Git.Branch $ Config.testBranch config <> "/" <> pullRequestIdToText pr) -- TODO: DRY!
+    let branch = testBranch config pr
+    doGit $ Git.deleteBranch branch
+    _ <- doGit $ Git.deleteRemoteBranch branch
     pure cont
 
   LeaveComment pr body cont -> do
@@ -806,3 +807,6 @@ messageForTag (TagName tagName) tagOrDeploy changelog =
 
 pullRequestIdToText :: PullRequestId -> Text
 pullRequestIdToText (PullRequestId prid) = Text.pack $ show prid
+
+testBranch :: ProjectConfiguration -> PullRequestId -> Git.Branch
+testBranch config pullRequestId = Git.Branch $ Config.testBranch config <> "/" <> pullRequestIdToText pullRequestId
