@@ -228,17 +228,22 @@ class ProbDist(NamedTuple):
             ps=ps,
         )
 
+    def entropy(self) -> float:
+        """Return the Shannon entropy of the distribution."""
+        # Throw in a max to avoid negative zero, because it looks ugly.
+        return max(0.0, -sum(p * math.log2(p) for p in self.ps if p > 0.0))
+
 
 p = ProbDist.new().insert(PrId(1), 0.9).insert(PrId(2), 0.9).insert(PrId(3), 0.9).insert(PrId(4), 0.9)
-print(p)
+print(p.entropy(), p)
 p = p.remove(PrId(3))
-print(p)
+print(p.entropy(), p)
 p = p.remove(PrId(4))
-print(p)
+print(p.entropy(), p)
 p = p.remove(PrId(1))
-print(p)
+print(p.entropy(), p)
 p = p.remove(PrId(2))
-print(p)
+print(p.entropy(), p)
 import sys
 sys.exit(1)
 
