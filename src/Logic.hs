@@ -163,6 +163,12 @@ runAction :: ProjectConfiguration -> Action a -> Operation a
 runAction config = foldFree $ \case
   TryIntegrate message (pr, ref, sha) alwaysAddMergeCommit cont -> do
     doGit $ ensureCloned config
+
+    -- Needed for backwards compatibility with existing repositories
+    -- as we now test at testing/<pr_id> instead of testing.
+    -- When no repositories have a testing branch, this can safely be removed.
+    _ <- doGit $ Git.deleteRemoteBranch $ Git.Branch $ Config.testBranch config
+
     shaOrFailed <- doGit $ Git.tryIntegrate
       message
       ref
