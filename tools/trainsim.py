@@ -228,6 +228,42 @@ class ProbDist(NamedTuple):
             ps=ps,
         )
 
+    def observe_outcome(self, ids: set[PrId], is_good: bool) -> ProbDist:
+        """
+        Perform a Bayesian update, for the evidence that the set of pull
+        requests built together was good/bad.
+        """
+        mask = sum(1 << self.prs.index(pr) for pr in ids)
+        n = len(self.ps)
+        ps: list[float] = []
+
+        if is_good:
+            p_outcome = sum(self.ps[i] for i in range(n) if i & mask == mask)
+        else:
+            p_outcome = sum(self.ps[i] for i in range(n) if i & mask != mask)
+
+        # You can enable this print to inspect the update.
+        # print(f"{mask=:05b} {p_outcome=:.4f}")
+
+        for k in range(n):
+            # Apply Bayes' rule for the probability that we are in world k.
+            if is_good:
+                p_outcome_given_k = float(k & mask == mask)
+            else:
+                p_outcome_given_k = float(k & mask != mask)
+
+            p_k = self.ps[k]
+            p_k_given_outcome = (p_outcome_given_k * p_k) / p_outcome
+            # You can enable this print to inspect the update.
+            # print(
+            #     f"{k=:05b} {p_k=:.4f} {p_outcome_given_k=:.4f} "
+            #     f"{p_k_given_outcome=:.4f}"
+            # )
+
+            ps.append(p_k_given_outcome)
+
+        return ProbDist(self.prs, ps)
+
     def entropy(self) -> float:
         """Return the Shannon entropy of the distribution."""
         # Throw in a max to avoid negative zero, because it looks ugly.
@@ -236,14 +272,12 @@ class ProbDist(NamedTuple):
 
 p = ProbDist.new().insert(PrId(1), 0.9).insert(PrId(2), 0.9).insert(PrId(3), 0.9).insert(PrId(4), 0.9)
 print(p.entropy(), p)
-p = p.remove(PrId(3))
+p = p.observe_outcome({PrId(1)}, is_good=True)
 print(p.entropy(), p)
-p = p.remove(PrId(4))
+p = p.observe_outcome({PrId(2), PrId(3)}, is_good=False)
+p = p.remove(PrId(1)).remove(PrId(4))
 print(p.entropy(), p)
-p = p.remove(PrId(1))
-print(p.entropy(), p)
-p = p.remove(PrId(2))
-print(p.entropy(), p)
+
 import sys
 sys.exit(1)
 
