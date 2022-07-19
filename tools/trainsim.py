@@ -297,6 +297,23 @@ class ProbDist(NamedTuple):
 
         return {pr: p for pr, p in zip(self.prs, ps)}
 
+    def subset_probabilities(self) -> ProbDist:
+        """
+        For every possible subset of the set of pull requests, return the
+        probability that building that subset would succeed.
+        """
+        # The success probability for subset of PRs, where every bit in an
+        # element's index determines whether the corresponding PR is part of the
+        # set. (So 0 is the empty set, n-1 is the full set.)
+        ps = [0.0 for _ in self.ps]
+        n = len(self.ps)
+        for k, p in enumerate(self.ps):
+            for s in range(n):
+                if k & s == s:
+                    ps[s] += p
+
+        return ProbDist(prs=self.prs, ps=ps)
+
     def prs_confirmed(self) -> Tuple[set[PrId], set[PrId]]:
         """
         Return the sets of (good prs, bad prs) which are 100% certain to be good
@@ -327,22 +344,27 @@ class ProbDist(NamedTuple):
 p = ProbDist.new().insert(PrId(1), 0.9).insert(PrId(2), 0.9).insert(PrId(3), 0.9).insert(PrId(4), 0.9)
 print(p, p.prs_confirmed())
 print(p.flatten())
+print(p.subset_probabilities(), "\n")
 
 p = p.observe_outcome({PrId(1)}, is_good=True)
 print(p, p.prs_confirmed())
 print(p.flatten())
+print(p.subset_probabilities(), "\n")
 
 p = p.observe_outcome({PrId(2), PrId(3)}, is_good=False)
 print(p, p.prs_confirmed())
 print(p.flatten())
+print(p.subset_probabilities(), "\n")
 
 p = p.observe_outcome({PrId(3)}, is_good=False)
 print(p, p.prs_confirmed())
 print(p.flatten())
+print(p.subset_probabilities(), "\n")
 
 p = p.remove(PrId(1)).remove(PrId(4))
 print(p)
 print(p.flatten())
+print(p.subset_probabilities(), "\n")
 
 import sys
 sys.exit(1)
