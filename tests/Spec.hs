@@ -95,6 +95,7 @@ data ActionFlat
   | ATryPromoteWithTag Branch Sha TagName TagMessage
   | ALeaveComment PullRequestId Text
   | AIsReviewer Username
+  | ACleanupTestBranch PullRequestId
   | AGetPullRequest PullRequestId
   | AGetOpenPullRequests
   deriving (Eq, Show)
@@ -210,6 +211,9 @@ runActionRws =
       TryPromoteWithTag prBranch headSha newTag tagMessage cont -> do
         Rws.tell [ATryPromoteWithTag prBranch headSha newTag tagMessage]
         cont . (Right newTag, ) <$> takeResultPush
+      CleanupTestBranch pr cont -> do
+        Rws.tell [ACleanupTestBranch pr]
+        pure cont
       LeaveComment pr body cont -> do
         Rws.tell [ALeaveComment pr body]
         pure cont
@@ -1128,7 +1132,9 @@ main = hspec $ do
         candidates = getIntegrationCandidates state'
       -- After a successful push, the candidate should be gone.
       candidates `shouldBe` []
-      actions    `shouldBe` [ATryPromote (Branch "results/rachael") (Sha "38d")]
+      actions    `shouldBe` [ ATryPromote (Branch "results/rachael") (Sha "38d")
+                            , ACleanupTestBranch (PullRequestId 1)
+                            ]
 
     it "pushes and tags with a new version after a successful build (merge and tag)" $ do
       let
@@ -1160,6 +1166,7 @@ main = hspec $ do
             (TagMessage "v2\n\nchangelog")
         , ALeaveComment (PullRequestId 1)
             "@deckard I tagged your PR with `v2`. Don't forget to deploy it!"
+        , ACleanupTestBranch (PullRequestId 1)
         ]
 
     it "pushes and tags with a new version after a successful build (merge and deploy)" $ do
@@ -1192,6 +1199,7 @@ main = hspec $ do
             (TagMessage "v2 (autodeploy)\n\nchangelog")
         , ALeaveComment (PullRequestId 1)
             "@deckard I tagged your PR with `v2`. It is scheduled for autodeploy!"
+        , ACleanupTestBranch (PullRequestId 1)
         ]
 
     it "pushes after successful build even if tagging failed" $ do
@@ -1218,7 +1226,9 @@ main = hspec $ do
       -- After a successful push, the candidate should be gone.
       candidates `shouldBe` []
       actions    `shouldBe` [ ALeaveComment (PullRequestId 1) "@deckard Sorry, I could not tag your PR. The previous tag `abcdef` seems invalid"
-                           , ATryPromote (Branch "results/rachael") (Sha "38d")]
+                            , ATryPromote (Branch "results/rachael") (Sha "38d")
+                            , ACleanupTestBranch (PullRequestId 1)
+                            ]
 
 
     it "restarts the sequence after a rejected push" $ do
@@ -1386,6 +1396,7 @@ main = hspec $ do
       cId     `shouldBe` PullRequestId 2
       actions `shouldBe`
         [ ATryPromote (Branch "results/leon") (Sha "38d")
+        , ACleanupTestBranch (PullRequestId 1)
         , ATryIntegrate "Merge #2: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n"
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "f37") False
         , ALeaveComment (PullRequestId 2) "Rebased as 38e, waiting for CI \x2026"

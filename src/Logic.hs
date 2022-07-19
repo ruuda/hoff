@@ -84,6 +84,7 @@ data ActionFree a
     }
   | TryPromote Branch Sha (PushResult -> a)
   | TryPromoteWithTag Branch Sha TagName TagMessage (PushWithTagResult -> a)
+  | CleanupTestBranch PullRequestId a
   | LeaveComment PullRequestId Text a
   | IsReviewer Username (Bool -> a)
   | GetPullRequest PullRequestId (Maybe GithubApi.PullRequest -> a)
@@ -130,6 +131,9 @@ tryPromote prBranch newHead = liftF $ TryPromote prBranch newHead id
 tryPromoteWithTag :: Branch -> Sha -> TagName -> TagMessage -> Action PushWithTagResult
 tryPromoteWithTag prBranch newHead tagName tagMessage =
   liftF $ TryPromoteWithTag prBranch newHead tagName tagMessage id
+
+cleanupTestBranch :: PullRequestId -> Action ()
+cleanupTestBranch pullRequestId = liftF $ CleanupTestBranch pullRequestId ()
 
 -- Leave a comment on the given pull request.
 leaveComment :: PullRequestId -> Text -> Action ()
@@ -190,6 +194,10 @@ runAction config = foldFree $ \case
             <*  Git.deleteTag tagName
             -- Deleting tag after atomic push is important to maintain one "source of truth", namely
             -- the origin
+
+  CleanupTestBranch pr cont -> do
+    _ <- doGit $ Git.deleteBranch (Git.Branch $ Config.testBranch config <> "/" <> pullRequestIdToText pr) -- TODO: DRY!
+    pure cont
 
   LeaveComment pr body cont -> do
     doGithub $ GithubApi.leaveComment pr body
@@ -688,7 +696,9 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       -- GitHub will mark the pull request as closed, and when we receive that
       -- event, we delete the pull request from the state. Until then, reset
       -- the integration candidate, so we proceed with the next pull request.
-      PushOk -> pure $ Pr.setIntegrationStatus pullRequestId Promoted state
+      PushOk -> do
+        cleanupTestBranch pullRequestId
+        pure $ Pr.setIntegrationStatus pullRequestId Promoted state
       -- If something was pushed to the target branch while the candidate was
       -- being tested, try to integrate again and hope that next time the push
       -- succeeds.
