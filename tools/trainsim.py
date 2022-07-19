@@ -199,6 +199,7 @@ class ProbDist(NamedTuple):
         return ProbDist([], [1.0])
 
     def insert(self, id_: PrId, p_is_good: float) -> ProbDist:
+        assert len(self.prs) < 25, "This would quickly make your machine go OOM."
         p_is_bad = 1.0 - p_is_good
         return ProbDist(
             prs=self.prs + [id_],
@@ -419,12 +420,38 @@ class State(NamedTuple):
         return self.pd.flatten()
 
     def insert_pr(self, pr: PullRequest) -> State:
-        # TODO: We may want to limit the size of the tracked PRs.
-        pd_new = self.pd.insert(pr.id_, p_is_good=self.prior_is_good_probability)
-        return self._replace(
-            open_prs=self.open_prs | {pr.id_: pr},
-            pd=pd_new,
-        )
+        return self._replace(open_prs=self.open_prs | {pr.id_: pr})._refresh_pd()
+
+    def _refresh_pd(self) -> State:
+        """
+        Remove any pull requests from the probability distribution that are no
+        longer open, and add more PRs is there is space for that.
+
+        The memory used by the probability distribution is exponential in its
+        size, and many operations are too, so if it grows too big, it becomes
+        intractable. To make it manageable, we only track probabilities for some
+        maximum number of PRs. When we get more they still go in the backlog,
+        but they just sit there (and therefore we never consider them for
+        merging) until there is space for them in the probability distribution.
+        """
+        # First, remove any PRs that are no longer open.
+        new_pd = self.pd
+        for pr_id in self.pd.prs:
+            if pr_id not in self.open_prs:
+                new_pd = new_pd.remove(pr_id)
+
+        # Then, if there is space, we can add PRs to the probability
+        # distribution. If there are many pull requests waiting to enter the PD,
+        # add the one with the lowest id. NOTE: This creates a kind of "Classic"
+        # strategy again when the backlog is big. You can experiment with the
+        # fifo/lifo alternatives here too.
+        spots_left = 15 - len(new_pd.prs)
+        if spots_left > 0:
+            prs_not_in_pd = sorted(set(self.open_prs.keys()) - set(self.pd.prs))
+            for pr_id in prs_not_in_pd[:spots_left]:
+                new_pd = new_pd.insert(pr_id, p_is_good=self.prior_is_good_probability)
+
+        return self._replace(pd=new_pd)
 
     def start_build(self, id_: BuildId, build: Build) -> State:
         return self._replace(builds_in_progress=self.builds_in_progress | {id_: build})
@@ -456,9 +483,8 @@ class State(NamedTuple):
 
         _confirmed_good, confirmed_bad = new_pd.prs_confirmed()
         for pr_id in confirmed_bad:
-            print("Confirmed bad indirectly: {pr_id}")
+            print(f"Confirmed bad indirectly: {pr_id}")
             close_pr(pr_id)
-            new_pd = new_pd.remove(pr_id)
 
         tip = self.get_tip()
         if tip not in build.root_path:
@@ -469,7 +495,7 @@ class State(NamedTuple):
                 closed_prs=new_closed_prs,
                 pd=new_pd,
                 builds_in_progress=new_builds,
-            )
+            )._refresh_pd()
 
         # If we merge the tip of this build, then that means that some other
         # builds that were previously speculative, might now be directly on top
@@ -485,7 +511,6 @@ class State(NamedTuple):
 
         for pr_id in prs_since_tip:
             close_pr(pr_id)
-            new_pd = new_pd.remove(pr_id)
 
         return self._replace(
             open_prs=new_open_prs,
@@ -493,7 +518,7 @@ class State(NamedTuple):
             pd=new_pd,
             builds_in_progress=new_builds,
             heads=new_heads,
-        )
+        )._refresh_pd()
 
     def complete_build_failure(self, t: Time, id_: BuildId) -> State:
         """
@@ -537,13 +562,13 @@ class State(NamedTuple):
             assert dt > Time(0.0)
             new_open_prs = {k: v for k, v in self.open_prs.items() if k != pr_id}
             new_closed_prs = self.closed_prs | {pr_id: dt}
-            new_pd = new_pd.remove(pr_id)
 
         return self._replace(
             open_prs=new_open_prs,
             closed_prs=new_closed_prs,
             pd=new_pd,
-        )
+            builds_in_progress=new_builds,
+        )._refresh_pd()
 
 
 # A strategy is a function that, given the current state, proposes a new train
@@ -1110,15 +1135,15 @@ def strategy_minimize_entropy(state: State) -> Tuple[Commit, set[PrId]]:
 
 def main() -> None:
     configs = [
-        # Config.new(parallelism=1, criticality=0.25),
-        # Config.new(parallelism=1, criticality=0.50),
-        # Config.new(parallelism=1, criticality=1.00),
-        # Config.new(parallelism=2, criticality=0.25),
-        # Config.new(parallelism=2, criticality=0.50),
-        # Config.new(parallelism=2, criticality=1.00),
+            # Config.new(parallelism=1, criticality=0.25),
+            # Config.new(parallelism=1, criticality=0.50),
+            # Config.new(parallelism=1, criticality=1.00),
+        Config.new(parallelism=2, criticality=0.25),
+        Config.new(parallelism=2, criticality=0.50),
+        Config.new(parallelism=2, criticality=1.00),
         # Config.new(parallelism=4, criticality=0.25),
         # Config.new(parallelism=4, criticality=0.50),
-        Config.new(parallelism=4, criticality=1.00),
+        # Config.new(parallelism=4, criticality=1.00),
     ]
     strategies = [
         # ("minimize_entropy", strategy_minimize_entropy),
