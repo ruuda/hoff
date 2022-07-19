@@ -264,19 +264,64 @@ class ProbDist(NamedTuple):
 
         return ProbDist(self.prs, ps)
 
+    def __repr__(self) -> str:
+        result = [f"ProbDist(prs={self.prs}, entropy={self.entropy():.2f}, ps=["]
+        w = (len(self.ps) - 1).bit_length()
+        ps = [f"{k:b}".zfill(w) + f" {p:.4f}" for k, p in enumerate(self.ps)]
+        while len(ps) > 4:
+            m = len(ps) // 2
+            ps = [ps[i] + "  " + ps[m + i] for i in range(m)]
+
+        result.extend("  " + line for line in ps)
+        result.append("])")
+        return "\n".join(result)
+
     def entropy(self) -> float:
         """Return the Shannon entropy of the distribution."""
         # Throw in a max to avoid negative zero, because it looks ugly.
         return max(0.0, -sum(p * math.log2(p) for p in self.ps if p > 0.0))
 
+    def prs_confirmed(self) -> Tuple[set[PrId], set[PrId]]:
+        """
+        Return the sets of (good prs, bad prs) which are 100% certain to be good
+        or bad based on past observations.
+        """
+        n = len(self.prs)
+        mask = (1 << n) - 1
+        mask_good = mask
+        mask_bad = mask
+        for k, p in enumerate(self.ps):
+            if p > 0.0:
+                mask_good &= k
+                mask_bad &= mask - k
+
+        prs_good = set()
+        prs_bad = set()
+
+        for i, pr in enumerate(self.prs):
+            index_mask = 1 << i
+            if mask_good & index_mask > 0:
+                prs_good.add(pr)
+            if mask_bad & index_mask > 0:
+                prs_bad.add(pr)
+
+        return prs_good, prs_bad
+
 
 p = ProbDist.new().insert(PrId(1), 0.9).insert(PrId(2), 0.9).insert(PrId(3), 0.9).insert(PrId(4), 0.9)
-print(p.entropy(), p)
+print(p, p.prs_confirmed())
+
 p = p.observe_outcome({PrId(1)}, is_good=True)
-print(p.entropy(), p)
+print(p, p.prs_confirmed())
+
 p = p.observe_outcome({PrId(2), PrId(3)}, is_good=False)
+print(p, p.prs_confirmed())
+
+p = p.observe_outcome({PrId(3)}, is_good=False)
+print(p, p.prs_confirmed())
+
 p = p.remove(PrId(1)).remove(PrId(4))
-print(p.entropy(), p)
+print(p)
 
 import sys
 sys.exit(1)
