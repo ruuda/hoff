@@ -234,7 +234,12 @@ class ProbDist(NamedTuple):
         Perform a Bayesian update, for the evidence that the set of pull
         requests built together was good/bad.
         """
-        mask = sum(1 << self.prs.index(pr) for pr in ids)
+        relevant_ids = [pr for pr in self.prs if pr in ids]
+
+        if len(relevant_ids) == 0:
+            return self
+
+        mask = sum(1 << self.prs.index(pr) for pr in relevant_ids)
         n = len(self.ps)
         ps: list[float] = []
 
@@ -435,10 +440,17 @@ class State(NamedTuple):
         but they just sit there (and therefore we never consider them for
         merging) until there is space for them in the probability distribution.
         """
-        # First, remove any PRs that are no longer open.
+        # First, remove any PRs that are no longer open, and no longer being
+        # built. (If there is still a build for it in progress, we need to keep
+        # it, otherwise we might falsely blame a failure of such build on the
+        # remaining PRs, when we already removed the real culprit.)
+        in_progress_prs: set[PrId] = set()
+        for build in self.builds_in_progress.values():
+            in_progress_prs = in_progress_prs | build.prs_since_root()
+
         new_pd = self.pd
         for pr_id in self.pd.prs:
-            if pr_id not in self.open_prs:
+            if pr_id not in self.open_prs and pr_id not in in_progress_prs:
                 new_pd = new_pd.remove(pr_id)
 
         # Then, if there is space, we can add PRs to the probability
@@ -488,8 +500,12 @@ class State(NamedTuple):
 
         _confirmed_good, confirmed_bad = new_pd.prs_confirmed()
         for pr_id in confirmed_bad:
-            print(f"Confirmed bad indirectly: {pr_id}")
-            close_pr(pr_id)
+            # We might confirm a PR to be bad that is no longer open, because
+            # pull requests need to remain in the probability distribution while
+            # there are builds for them in progress.
+            if pr_id in new_open_prs:
+                print(f"Confirmed bad indirectly: {pr_id}")
+                close_pr(pr_id)
 
         tip = self.get_tip()
         if tip not in build.root_path:
@@ -556,12 +572,20 @@ class State(NamedTuple):
         new_closed_prs = self.closed_prs
 
         prs_confirmed_good, prs_confirmed_bad = new_pd.prs_confirmed()
-        assert len(prs_confirmed_good) == 0, "A failed build can never confirm a PR."
+        # TODO: Sometimes I hit this assertion ... why? Can a build failure
+        # actually confirm another PR to be good?
+        # assert len(prs_confirmed_good) == 0, "Build failure can never prove a PR to be good."
 
-        # If the build contained a single PR, then we mark that PR as failed.
+        # If the build caused us to learn that any PRs are certainly bad, mark
+        # those as failed.
         for pr_id in prs_confirmed_bad:
-            assert pr_id in self.open_prs, "ProbDist only tracks open PRs."
-            assert pr_id not in self.closed_prs
+            if pr_id not in self.open_prs:
+                # For some PRs, we might already know that they are bad, but we
+                # need to keep them around in the PD because some builds
+                # referencing them, so not all confirmed-bad PRs need to be open.
+                assert pr_id in self.closed_prs
+                continue
+
             pr = self.open_prs[pr_id]
             dt = Time(t - pr.arrived_at)
             assert dt > Time(0.0)
@@ -1112,42 +1136,19 @@ def strategy_bayesian(state: State) -> Tuple[Commit, set[PrId]]:
     return state.get_tip(), includes
 
 
-def strategy_minimize_entropy(state: State) -> Tuple[Commit, set[PrId]]:
+def strategy_minimize_entropy_wait(state: State) -> Tuple[Commit, set[PrId]]:
     """
-    Tries to minimize the entropy of the probability distribution over all
-    possible PR states after the build.
+    Tries to minimize the total waiting time, based on two factors:
+
+    * The expected number of pull requests merged.
+    * The expected entropy of the remaining distribution.
     """
     base = state.get_tip()
+    pd = state.pd
 
-    if len(state.builds_in_progress) > 0:
-        return base, set()
-
-    subset_probabilities, subset_entropies = state.pd.subset_probabilities_and_expected_entropies()
-    #print(f"pd={state.pd}, subset_ps={subset_probabilities}, subset_es={subset_entropies}")
-
-    options = sorted(
-        (
-            (e, s.bit_count() * p, p, s)
-            for s, (e, p) in enumerate(zip(subset_entropies.ps, subset_probabilities.ps))
-        ),
-        # Sort by ascending entropy, then by descending expected num merged,
-        # then by ascending subset bits (so subsets with older PRs get priority).
-        key=lambda tup: (tup[0], -tup[1], tup[3]),
-    )
-    for entropy, expected_len, p, s in options[:5]:
-        print(f" - Option {s:05b} {expected_len=:.3f} {p=:.3f} expected_{entropy=:.3f}")
-
-    _, _, _, s = options[0]
-
-    includes = set()
-    for i, pr_id in enumerate(subset_entropies.prs):
-        index = 1 << i
-        if index & s == index:
-            includes.add(pr_id)
-
-    return base, includes
-
-    # TODO
+    for pr in pd.prs:
+        if pr not in state.open_prs:
+            pd = pd.remove(pr)
 
     # If there are builds in progress, we can also try building on top of them.
     for build_id, build in state.builds_in_progress.items():
@@ -1162,6 +1163,44 @@ def strategy_minimize_entropy(state: State) -> Tuple[Commit, set[PrId]]:
             # We also don't want to build on top of builds that are guaranteed
             # to fail.
             continue
+
+        for pr in base_prs:
+            if pr in pd.prs:
+                pd = pd.remove(pr)
+
+        # TODO: This is not nearly the right way to do it, but let's see what
+        # happens.
+        print("Speculative build:")
+        base = build.tip
+
+    subset_probabilities, subset_entropies = pd.subset_probabilities_and_expected_entropies()
+    #print(f"pd={state.pd}, subset_ps={subset_probabilities}, subset_es={subset_entropies}")
+
+    n = len(state.open_prs)
+    options = sorted(
+        (
+            (e * (n - s.bit_count() * p), e, s.bit_count() * p, p, s)
+            for s, (e, p) in enumerate(zip(subset_entropies.ps, subset_probabilities.ps))
+        ),
+        # Sort by ascending expected wait time left, then by descending subset
+        # bits, so subsets with newer PRs get priority, to get the lifo-like
+        # behavior.
+        key=lambda tup: (tup[0], -tup[4]),
+    )
+    for expected_wait_time, entropy, expected_len, p, s in options[:5]:
+        print(f" - Option {s:05b} {expected_len=:.3f} {p=:.3f} expected_{entropy=:.3f} {expected_wait_time=:.3f}")
+
+    _, _, _, _, s = options[0]
+
+    includes = set()
+    for i, pr_id in enumerate(subset_entropies.prs):
+        index = 1 << i
+        if index & s == index:
+            includes.add(pr_id)
+
+    return base, includes
+
+    # TODO
 
     raise Exception("TODO")
 
@@ -1179,7 +1218,7 @@ def main() -> None:
         # Config.new(parallelism=4, criticality=1.00),
     ]
     strategies = [
-        ("minimize_entropy", strategy_minimize_entropy),
+        ("minimize_entropy_wait", strategy_minimize_entropy_wait),
         # ("bayesian", strategy_bayesian),
         # ("classic", strategy_classic),
         # ("fifo", strategy_fifo),
