@@ -295,7 +295,7 @@ classifyPullRequest pr = case approval pr of
       BuildPending    -> PrStatusBuildPending
       BuildSucceeded  -> PrStatusIntegrated
       BuildFailed url -> PrStatusFailedBuild url
-    Promoted -> PrStatusIntegrated -- TODO: state-of-its-own?
+    Promoted -> PrStatusIntegrated
 
 -- Classify every pull request into one status. Orders pull requests by id in
 -- ascending order.
