@@ -269,7 +269,8 @@ class ProbDist(NamedTuple):
         result = [f"ProbDist(prs={self.prs}, entropy={self.entropy():.2f}, ps=["]
         w = (len(self.ps) - 1).bit_length()
         ps = [f"{k:b}".zfill(w) + f" {p:.4f}" for k, p in enumerate(self.ps)]
-        while len(ps) > 4:
+        nrows = max(2, int(math.sqrt(len(ps))) - 1)
+        while len(ps) > nrows:
             m = len(ps) // 2
             ps = [ps[i] + "  " + ps[m + i] for i in range(m)]
 
@@ -315,23 +316,24 @@ class ProbDist(NamedTuple):
 
         return ProbDist(prs=self.prs, ps=ps)
 
-    def subset_expected_entropy_decrease(self) -> ProbDist:
+    def subset_probabilities_and_expected_entropies(self) -> Tuple[ProbDist, ProbDist]:
         """
-        For every possible subset of the set of pull requests, return the
-        expected decrease in entropy when we build that subset. The result is
-        not a probability distribution, but we return it that way due to the
-        pretty-printer.
+        For every possible subset of the set of pull requests, return:
+         * The probability that building it will succeed.
+         * The expected entropy of the distribution after we build this subset.
+        TODO: The result is not a probability distribution, but we return it
+        that way due to the pretty-printer.
         """
         # In addition to the probability per state, get the subset
         # probabilities.
-        ps = self.subset_probabilities().ps
+        subset_probabilities = self.subset_probabilities()
+        ps = subset_probabilities.ps
         n = len(ps)
 
-        # Entropy delta.
-        de = [0.0 for _ in ps]
+        entropies = [0.0 for _ in ps]
 
         # Now we kind of do the Bayesian update for every subset, except we
-        # don't store the new probabilities, we store the difference in entropy.
+        # don't store the new probabilities, we store the expected entropy.
         for s, p_good in enumerate(ps):
             p_bad = 1.0 - p_good
             for k in range(n):
@@ -342,14 +344,13 @@ class ProbDist(NamedTuple):
                 p_k_given_good = (p_good_given_k * p_k) / p_good if p_good > 0.0 else 0.0
                 p_k_given_bad = (p_bad_given_k * p_k) / p_bad if p_bad > 0.0 else 0.0
 
-                e_before = p_k * math.log2(p_k) if p_k > 0.0 else 0.0
                 e_good = p_k_given_good * math.log2(p_k_given_good) if p_k_given_good > 0.0 else 0.0
                 e_bad = p_k_given_bad * math.log2(p_k_given_bad) if p_k_given_bad > 0.0 else 0.0
                 e_after = p_good * e_good + p_bad * e_bad
 
-                de[s] += e_after - e_before
+                entropies[s] -= e_after
 
-        return ProbDist(prs=self.prs, ps=de)
+        return subset_probabilities, ProbDist(prs=self.prs, ps=entropies)
 
     def prs_confirmed(self) -> Tuple[set[PrId], set[PrId]]:
         """
@@ -445,7 +446,11 @@ class State(NamedTuple):
         # add the one with the lowest id. NOTE: This creates a kind of "Classic"
         # strategy again when the backlog is big. You can experiment with the
         # fifo/lifo alternatives here too.
-        spots_left = 10 - len(new_pd.prs)
+        # After some testing, with a capacity of 7, the simulation can still run
+        # in a reasonable time (~30s per run on my machine). You can crank it up
+        # to possibly get somewhat better results at the cost of being very
+        # slow.
+        spots_left = 7 - len(new_pd.prs)
         if spots_left > 0:
             prs_not_in_pd = sorted(set(self.open_prs.keys()) - set(self.pd.prs))
             for pr_id in prs_not_in_pd[:spots_left]:
@@ -1117,18 +1122,25 @@ def strategy_minimize_entropy(state: State) -> Tuple[Commit, set[PrId]]:
     if len(state.builds_in_progress) > 0:
         return base, set()
 
-    subsets = state.pd.subset_probabilities()
-    options = sorted(
-        ((p * s.bit_count(), s, p) for s, p in enumerate(subsets.ps)),
-        reverse=True,
-    )
-    for expected_len, s, p in options[:3]:
-        print(f" - Option {s:05b} {expected_len=:.3f} {p=:.3f}")
+    subset_probabilities, subset_entropies = state.pd.subset_probabilities_and_expected_entropies()
+    #print(f"pd={state.pd}, subset_ps={subset_probabilities}, subset_es={subset_entropies}")
 
-    _, s, _ = options[0]
+    options = sorted(
+        (
+            (e, s.bit_count() * p, p, s)
+            for s, (e, p) in enumerate(zip(subset_entropies.ps, subset_probabilities.ps))
+        ),
+        # Sort by ascending entropy, then by descending expected num merged,
+        # then by ascending subset bits (so subsets with older PRs get priority).
+        key=lambda tup: (tup[0], -tup[1], tup[3]),
+    )
+    for entropy, expected_len, p, s in options[:5]:
+        print(f" - Option {s:05b} {expected_len=:.3f} {p=:.3f} expected_{entropy=:.3f}")
+
+    _, _, _, s = options[0]
 
     includes = set()
-    for i, pr_id in enumerate(subsets.prs):
+    for i, pr_id in enumerate(subset_entropies.prs):
         index = 1 << i
         if index & s == index:
             includes.add(pr_id)
@@ -1156,13 +1168,13 @@ def strategy_minimize_entropy(state: State) -> Tuple[Commit, set[PrId]]:
 
 def main() -> None:
     configs = [
-        Config.new(parallelism=1, criticality=0.25),
-        Config.new(parallelism=1, criticality=0.50),
-        Config.new(parallelism=1, criticality=1.00),
+        #Config.new(parallelism=1, criticality=0.25),
+        #Config.new(parallelism=1, criticality=0.50),
+        #Config.new(parallelism=1, criticality=1.00),
         Config.new(parallelism=2, criticality=0.25),
         Config.new(parallelism=2, criticality=0.50),
         Config.new(parallelism=2, criticality=1.00),
-        # Config.new(parallelism=4, criticality=0.25),
+        #Config.new(parallelism=4, criticality=0.25),
         # Config.new(parallelism=4, criticality=0.50),
         # Config.new(parallelism=4, criticality=1.00),
     ]
