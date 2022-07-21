@@ -303,6 +303,8 @@ class ProbDist(NamedTuple):
         else:
             p_outcome = sum(self.ps[i] for i in range(n) if i & mask != mask)
 
+        assert p_outcome > 0.0, "Cannot observe an impossible outcome."
+
         # You can enable this print to inspect the update.
         # print(f"{mask=:05b} {p_outcome=:.4f}")
 
@@ -1212,22 +1214,6 @@ def strategy_minimize_entropy_wait(state: State) -> Tuple[Commit, set[PrId]]:
     base = state.get_tip()
     pd = state.pd
 
-    # We build on top of the largest train that builds on top of the current
-    # master. This assumes that the in-progress builds are ordered by "height"
-    # on top of master, at least those that are grounded in the current master.
-    # But they should be, by induction, because we extend like this.
-    for train in state.builds_in_progress.values():
-        if train.base == base:
-            base = train.tip
-            # We build speculatively, but we don't assume that the train will
-            # succeed. This is a bit of a double-edged sword. We should really
-            # consider both cases.
-            pd = pd.observe_outcome(train.prs, is_good=True)
-            for pr in train.prs:
-                pd = pd.remove(pr)
-
-    options = list(pd.speculate_subsets())
-
     # The size of the set of open PRs is the real number we care about, the size
     # of the probability distribution is capped. However, sometimes PRs that are
     # no longer open can still be in the distribution, so we take the max of the
@@ -1235,13 +1221,44 @@ def strategy_minimize_entropy_wait(state: State) -> Tuple[Commit, set[PrId]]:
     n = max(len(pd.prs), len(state.open_prs))
     candidates = []
 
+    options = list(pd.speculate_subsets())
     for s, sp in enumerate(options):
         candidates.append((sp.expected_wait_time(queue_size=n), sp, s, base))
 
+    for train in reversed(state.builds_in_progress.values()):
+        root, prs_since_root = next(iter(train.root_path.items()))
+        if root == base and all(pr in state.open_prs for pr in prs_since_root):
+            s_root = pd.pack(prs_since_root)
+            sp_base = options[pd.pack(prs_since_root)]
+            if sp_base.p_success == 0.0:
+                continue
+
+            base = train.tip
+            pd = state.pd.observe_outcome(train.prs, is_good=True)
+            for s, sp in enumerate(pd.speculate_subsets()):
+                if s & s_root > 0:
+                    # Skip options that overlap with the parent. We only want to
+                    # build new stuff now.
+                    continue
+
+                len_success = (n - sp.n_confirmed_success) * sp.entropy_success
+                len_failure = (n - sp.n_confirmed_failure) * sp.entropy_failure
+                len_base_failure = (n - sp_base.n_confirmed_failure) * sp_base.entropy_failure
+                expected_wait_time = (
+                    sp_base.p_success * len_success * sp.p_success +
+                    sp_base.p_success * len_failure * (1.0 - sp.p_success) +
+                    (1.0 - sp_base.p_success) * len_base_failure
+                )
+                candidates.append((expected_wait_time, sp, s, base))
+
+            break
+
     candidates.sort(
         # Order by ascending expected wait time, break ties by descending number
-        # of PRs confirmed on success, then break ties by ascending subset
-        # bitmask, which means we prefer subsets of older PRs.
+        # of PRs confirmed on success, then break ties by descending subset
+        # bitmask, which means we prefer subsets of younger PRs, and we prefer
+        # non-empty subsets over the empty subset. Edit: Or not, does this mess
+        # things up?
         key=lambda tup: (tup[0], -tup[1].n_confirmed_success, tup[2]),
     )
     for expected_wait_time, sp, s, base in candidates[:5]:
@@ -1263,8 +1280,8 @@ def main() -> None:
         #Config.new(parallelism=2, criticality=0.50),
         #Config.new(parallelism=2, criticality=1.00),
         #Config.new(parallelism=4, criticality=0.25),
-        #Config.new(parallelism=4, criticality=0.50),
-        Config.new(parallelism=4, criticality=1.00),
+        Config.new(parallelism=4, criticality=0.50),
+        #Config.new(parallelism=4, criticality=1.00),
     ]
     strategies = [
         ("minimize_entropy_wait", strategy_minimize_entropy_wait),
