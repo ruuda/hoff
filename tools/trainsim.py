@@ -195,12 +195,12 @@ class Speculation(NamedTuple):
     entropy_failure: float
     # The number of pull requests that we know are certainly good or bad, after
     # observing success for this subset.
-    n_confirmed_success: int
+    n_confirmed_success: float
     # The number of pull requests that we know are certainly good or bad, after
     # observing failure for this subset.
-    n_confirmed_failure: int
+    n_confirmed_failure: float
 
-    def expected_wait_time(self, queue_size: int) -> float:
+    def expected_wait_time(self, queue_size: float) -> float:
         """
         Return the expected remaining total wait time after the result of
         building this pull request comes in.
@@ -272,17 +272,29 @@ class ProbDist(NamedTuple):
             ps=ps,
         )
 
+    def pack(self, ids: set[PrId]) -> int:
+        """
+        Pack the set of pull requests into a bit mask that we can use for
+        indexing into this distribution.
+        """
+        return sum(1 << i for i, pr in enumerate(self.prs) if pr in ids)
+
+    def unpack(self, mask: int) -> set[PrId]:
+        """
+        Expand a bitmask into the PRs selected by it.
+        """
+        return { pr for i, pr in enumerate(self.prs) if (1 << i) & mask > 0 }
+
     def observe_outcome(self, ids: set[PrId], is_good: bool) -> ProbDist:
         """
         Perform a Bayesian update, for the evidence that the set of pull
         requests built together was good/bad.
         """
-        relevant_ids = [pr for pr in self.prs if pr in ids]
+        mask = self.pack(ids)
 
-        if len(relevant_ids) == 0:
+        if mask == 0:
             return self
 
-        mask = sum(1 << self.prs.index(pr) for pr in relevant_ids)
         n = len(self.ps)
         ps: list[float] = []
 
@@ -435,17 +447,7 @@ class ProbDist(NamedTuple):
                 mask_good &= k
                 mask_bad &= mask - k
 
-        prs_good = set()
-        prs_bad = set()
-
-        for i, pr in enumerate(self.prs):
-            index_mask = 1 << i
-            if mask_good & index_mask > 0:
-                prs_good.add(pr)
-            if mask_bad & index_mask > 0:
-                prs_bad.add(pr)
-
-        return prs_good, prs_bad
+        return self.unpack(mask_good), self.unpack(mask_bad)
 
 
 class State(NamedTuple):
@@ -1221,7 +1223,7 @@ def strategy_minimize_entropy_wait(state: State) -> Tuple[Commit, set[PrId]]:
     print(f"Queue size: {n}")
     candidates = sorted(
         (
-            (sp.expected_wait_time(queue_size=n), sp, s)
+            (sp.expected_wait_time(queue_size=n), sp, s, base)
             for s, sp in enumerate(state.pd.speculate_subsets())
         ),
         # Order by ascending expected wait time, break ties by descending number
@@ -1229,20 +1231,15 @@ def strategy_minimize_entropy_wait(state: State) -> Tuple[Commit, set[PrId]]:
         # bitmask, which means we prefer subsets of older PRs.
         key=lambda tup: (tup[0], -tup[1].n_confirmed_success, tup[2]),
     )
-    for expected_wait_time, sp, s in candidates[:5]:
+    for expected_wait_time, sp, s, _base in candidates[:5]:
         s_str = f"{s:b}".zfill(len(state.pd.prs))
         print(f" - Option {s_str} {expected_wait_time=:.3f} {sp}")
 
-    _, sp, s = candidates[0]
+    _, sp, s, base = candidates[0]
 
-    includes = set()
-    for i, pr_id in enumerate(state.pd.prs):
-        index = 1 << i
-        if index & s == index and pr_id in state.open_prs:
-            includes.add(pr_id)
+    includes = {pr_id for pr_id in state.pd.unpack(s) if pr_id in state.open_prs}
 
     return base, includes
-
 
     for pr in pd.prs:
         if pr not in state.open_prs:
