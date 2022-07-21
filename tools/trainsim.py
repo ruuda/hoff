@@ -220,8 +220,8 @@ class Speculation(NamedTuple):
             f"p_success={self.p_success:.3f} "
             f"entropy_success={self.entropy_success:.3f} "
             f"entropy_failure={self.entropy_failure:.3f} "
-            f"n_confirmed_success={self.n_confirmed_success} "
-            f"n_confirmed_failure={self.n_confirmed_failure}"
+            f"n_confirmed_success={self.n_confirmed_success:.3f} "
+            f"n_confirmed_failure={self.n_confirmed_failure:.3f}"
         )
 
 
@@ -1210,79 +1210,131 @@ def strategy_minimize_entropy_wait(state: State) -> Tuple[Commit, set[PrId]]:
     * The expected entropy of the remaining distribution.
     """
     base = state.get_tip()
-    pd = state.pd
+    options = list(state.pd.speculate_subsets())
+    bases = []
+    base_masks = set()
+    p_all_else_fails = 1.0
 
-    if len(state.builds_in_progress) > 0:
-        return base, set()
-
-    # The size of the set of open PRs is the real number we care about, the size
-    # of the probability distribution is capped. However, sometimes PRs that are
-    # no longer open can still be in the distribution, so we take the max of the
-    # sizes.
-    n = max(len(state.pd.prs), len(state.open_prs))
-    print(f"Queue size: {n}")
-    candidates = sorted(
-        (
-            (sp.expected_wait_time(queue_size=n), sp, s, base)
-            for s, sp in enumerate(state.pd.speculate_subsets())
-        ),
-        # Order by ascending expected wait time, break ties by descending number
-        # of PRs confirmed on success, then break ties by ascending subset
-        # bitmask, which means we prefer subsets of older PRs.
-        key=lambda tup: (tup[0], -tup[1].n_confirmed_success, tup[2]),
-    )
-    for expected_wait_time, sp, s, _base in candidates[:5]:
-        s_str = f"{s:b}".zfill(len(state.pd.prs))
-        print(f" - Option {s_str} {expected_wait_time=:.3f} {sp}")
-
-    _, sp, s, base = candidates[0]
-
-    includes = {pr_id for pr_id in state.pd.unpack(s) if pr_id in state.open_prs}
-
-    return base, includes
-
-    for pr in pd.prs:
-        if pr not in state.open_prs:
-            pd = pd.remove(pr)
-
-    # If there are builds in progress, we can also try building on top of them.
+    # If there are builds in progress, we can try building on top of them. To be
+    # able to decide if that is a good idea, first determine their expected end
+    # states.
     for build_id, build in state.builds_in_progress.items():
         if build.get_root() != state.get_tip():
             # We only want to build on top of builds that build on master, not
             # on builds that are no longer relevant.
             continue
 
-        base_prs = build.prs_since_root()
-
-        if any(pr not in state.open_prs for pr in base_prs):
+        prs_since_root = build.prs_since_root()
+        if any(pr not in state.open_prs for pr in prs_since_root):
             # We also don't want to build on top of builds that are guaranteed
             # to fail.
             continue
 
-        for pr in base_prs:
-            if pr in pd.prs:
-                pd = pd.remove(pr)
+        # Compute the expected entropy, and expected number of confirmed PRs,
+        # after this build completes. For the success case we have this
+        # directly, computed before, but for the failure case, if this build is
+        # based on top of another build, then when it fails, not all hope is
+        # lost, because the thing we built on top of can still pass, etc. This
+        # is not the best estimate we have; for the failure case, we could
+        # recompute everything *given* that the larger set has also failed, and
+        # that will make success less likely. But it's also more expensive to
+        # compute, so we just leave it at this.
+        prs = prs_since_root
+        full_mask = state.pd.pack(prs)
+        sp = options[full_mask]
+        entropy = sp.p_success * sp.entropy_success
+        n_confirmed = sp.p_success * sp.n_confirmed_success
+        p = 1.0 - sp.p_success
+        p_all_else_fails *= p
+        for prs_new in reversed(build.root_path.values()):
+            prs = prs - prs_new
+            mask = state.pd.pack(prs)
+            sp = options[mask]
+            entropy += p * sp.p_success * sp.entropy_success
+            n_confirmed += p * sp.p_success * sp.n_confirmed_success
+            p = p * (1.0 - sp.p_success)
+            # Note, in the final iteration, mask will be 0, which means that we
+            # still add the expected remaining entropy for the case when
+            # everything fails.
 
-        # TODO: This is not nearly the right way to do it, but let's see what
-        # happens.
-        print("Speculative build:")
-        base = build.tip
+        bases.append((build_id, build.tip, full_mask, entropy, n_confirmed))
+        base_masks.add(full_mask)
 
-    # TODO
+    for build_id, tip, s, e, n_confirmed in bases:
+        s_str = f"{s:b}".zfill(len(state.pd.prs))
+        print(f" - Base   {s_str} {build_id=} entropy={e:.3f} n_confirmed={n_confirmed:.3f} {tip=}")
 
-    raise Exception("TODO")
+    # The size of the set of open PRs is the real number we care about, the size
+    # of the probability distribution is capped. However, sometimes PRs that are
+    # no longer open can still be in the distribution, so we take the max of the
+    # sizes.
+    n = max(len(state.pd.prs), len(state.open_prs))
+    candidates = []
+
+    for s, sp in enumerate(options):
+        # For every subset we can build, one option is to build it on top of the
+        # current master. Only try that if this particular subset is not already
+        # being built.
+        if s not in base_masks:
+            if len(bases) > 0:
+                # If any other builds are already in progress, then if we do not
+                # build on top of those but start a competing fork, then likely
+                # we will not get to merge our fork (because the competing fork
+                # finishes first). So we should discount the number of PRs we
+                # confirm on success by the probability that all the other
+                # builds fail. This is not entirely correct (for example, might
+                # still confirm failures), but it will suffice.
+                sp_alt = sp._replace(
+                    n_confirmed_success=sp.n_confirmed_success * p_all_else_fails,
+                )
+            else:
+                sp_alt = sp
+            candidates.append((sp_alt.expected_wait_time(queue_size=n), sp_alt, s, base))
+
+        # If it is a superset of a build that is already in progress, we can
+        # also build on top of that build instead. In case of success, we are
+        # still in the same situation at the end. But in case of failure, the
+        # base could have succeeded and made progress, so this can be
+        # advantageous.
+        for _base_id, base_tip, base_s, entropy, n_confirmed in bases:
+            if s & base_s != base_s or s == base_s:
+                # `s` is not a strict superset of `base_s`.
+                continue
+
+            sp_alt = sp._replace(
+                entropy_failure=entropy,
+                n_confirmed_failure=n_confirmed,
+            )
+            candidates.append(
+                (sp_alt.expected_wait_time(queue_size=n), sp_alt, s - base_s, base_tip)
+            )
+
+    candidates.sort(
+        # Order by ascending expected wait time, break ties by descending number
+        # of PRs confirmed on success, then break ties by ascending subset
+        # bitmask, which means we prefer subsets of older PRs.
+        key=lambda tup: (tup[0], -tup[1].n_confirmed_success, tup[2]),
+    )
+    for expected_wait_time, sp, s, base in candidates[:5]:
+        s_str = f"{s:b}".zfill(len(state.pd.prs))
+        print(f" - Option {s_str} {expected_wait_time=:.3f} {sp} {base=}")
+
+    _, sp, s, base = candidates[0]
+
+    includes = {pr_id for pr_id in state.pd.unpack(s) if pr_id in state.open_prs}
+    return base, includes
 
 
 def main() -> None:
     configs = [
-        Config.new(parallelism=1, criticality=0.25),
-        Config.new(parallelism=1, criticality=0.50),
-        Config.new(parallelism=1, criticality=1.00),
+        #Config.new(parallelism=1, criticality=0.25),
+        #Config.new(parallelism=1, criticality=0.50),
+        #Config.new(parallelism=1, criticality=1.00),
         #Config.new(parallelism=2, criticality=0.25),
         #Config.new(parallelism=2, criticality=0.50),
         #Config.new(parallelism=2, criticality=1.00),
         #Config.new(parallelism=4, criticality=0.25),
-        # Config.new(parallelism=4, criticality=0.50),
+        Config.new(parallelism=4, criticality=0.50),
         # Config.new(parallelism=4, criticality=1.00),
     ]
     strategies = [
