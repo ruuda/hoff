@@ -44,7 +44,7 @@ class Config(NamedTuple):
     # For the Bayesian update that the state keeps of the probability that a
     # given PR is good, the initial probability, which does not have to match
     # the real probability defined above.
-    prior_is_good_probability: float = 0.9
+    prior_is_good_probability: float = 0.85
     num_prs: int = 250
     num_build_slots: int = 4
 
@@ -180,6 +180,49 @@ class Build(NamedTuple):
             if len(prs) <= len(still_pending_prs)
         }
         return self._replace(root_path=new_root_path)
+
+
+class Speculation(NamedTuple):
+    """
+    The result of speculating what would happen if we would build a particular
+    subset of pull requests from a probability distribution.
+    """
+    # The probability that the subset will succeed to build.
+    p_success: float
+    # The entropy of the distribution after observing success for this subset.
+    entropy_success: float
+    # The entropy of the distribution after observing failure for this subset.
+    entropy_failure: float
+    # The number of pull requests that we know are certainly good or bad, after
+    # observing success for this subset.
+    n_confirmed_success: int
+    # The number of pull requests that we know are certainly good or bad, after
+    # observing failure for this subset.
+    n_confirmed_failure: int
+
+    def expected_wait_time(self, queue_size: int) -> float:
+        """
+        Return the expected remaining total wait time after the result of
+        building this pull request comes in.
+        """
+        # The entropy of the resulting distribution is a rough estimate of how
+        # many builds we still have to do, and the size of the queue minus what
+        # we reduce it by, is the number of PRs that incur that wait time.
+        # Technically we should expect it to be more like the surface area of a
+        # triangle and add a factor 0.5 in there, but the constant wouldn't
+        # doesn't change the ranking.
+        len_success = (queue_size - self.n_confirmed_success) * self.entropy_success
+        len_failure = (queue_size - self.n_confirmed_failure) * self.entropy_failure
+        return self.p_success * len_success + (1.0 - self.p_success) * len_failure
+
+    def __repr__(self) -> str:
+        return (
+            f"p_success={self.p_success:.3f} "
+            f"entropy_success={self.entropy_success:.3f} "
+            f"entropy_failure={self.entropy_failure:.3f} "
+            f"n_confirmed_success={self.n_confirmed_success} "
+            f"n_confirmed_failure={self.n_confirmed_failure}"
+        )
 
 
 class ProbDist(NamedTuple):
@@ -321,41 +364,62 @@ class ProbDist(NamedTuple):
 
         return ProbDist(prs=self.prs, ps=ps)
 
-    def subset_probabilities_and_expected_entropies(self) -> Tuple[ProbDist, ProbDist]:
+    def speculate_subsets(self) -> Iterable[Speculation]:
         """
-        For every possible subset of the set of pull requests, return:
-         * The probability that building it will succeed.
-         * The expected entropy of the distribution after we build this subset.
-        TODO: The result is not a probability distribution, but we return it
-        that way due to the pretty-printer.
+        For every possible subset of the set of pull requests, inspect both the
+        cases where it would pass if we built it, and where it would fail, and
+        return some info about that.
+
+        The result is a list where the binary representation of the index of an
+        element decides which pull requests to include. E.g. at index 0 is the
+        empty set, at index len-1 is the full set itself.
         """
         # In addition to the probability per state, get the subset
         # probabilities.
         subset_probabilities = self.subset_probabilities()
         ps = subset_probabilities.ps
         n = len(ps)
-
-        entropies = [0.0 for _ in ps]
+        mask = n - 1
 
         # Now we kind of do the Bayesian update for every subset, except we
         # don't store the new probabilities, we store the expected entropy.
         for s, p_good in enumerate(ps):
             p_bad = 1.0 - p_good
-            for k in range(n):
+            mask_good_good = mask
+            mask_good_bad = mask
+            mask_bad_good = mask
+            mask_bad_bad = mask
+            entropy_success = 0.0
+            entropy_failure = 0.0
+
+            for k, p_k in enumerate(self.ps):
                 p_good_given_k = float(k & s == s)
                 p_bad_given_k = float(k & s != s)
-                p_k = self.ps[k]
 
                 p_k_given_good = (p_good_given_k * p_k) / p_good if p_good > 0.0 else 0.0
                 p_k_given_bad = (p_bad_given_k * p_k) / p_bad if p_bad > 0.0 else 0.0
 
-                e_good = p_k_given_good * math.log2(p_k_given_good) if p_k_given_good > 0.0 else 0.0
-                e_bad = p_k_given_bad * math.log2(p_k_given_bad) if p_k_given_bad > 0.0 else 0.0
-                e_after = p_good * e_good + p_bad * e_bad
+                entropy_success -= p_k_given_good * math.log2(p_k_given_good) if p_k_given_good > 0.0 else 0.0
+                entropy_failure -= p_k_given_bad * math.log2(p_k_given_bad) if p_k_given_bad > 0.0 else 0.0
 
-                entropies[s] -= e_after
+                # Update the masks for which pull requests can be good or bad,
+                # we count this at the same time.
+                if p_k_given_good > 0.0:
+                    mask_good_good &= k
+                    mask_bad_good &= mask - k
+                if p_k_given_bad > 0.0:
+                    mask_good_bad &= k
+                    mask_bad_bad &= mask - k
 
-        return subset_probabilities, ProbDist(prs=self.prs, ps=entropies)
+            yield Speculation(
+                p_success=p_good,
+                # These maxes are only really here to avoid negative zeros,
+                # which are not harmful but look ugly.
+                entropy_success=max(0.0, entropy_success),
+                entropy_failure=max(0.0, entropy_failure),
+                n_confirmed_success=(mask_good_good | mask_bad_good).bit_count(),
+                n_confirmed_failure=(mask_good_bad | mask_bad_bad).bit_count(),
+            )
 
     def prs_confirmed(self) -> Tuple[set[PrId], set[PrId]]:
         """
@@ -1146,6 +1210,40 @@ def strategy_minimize_entropy_wait(state: State) -> Tuple[Commit, set[PrId]]:
     base = state.get_tip()
     pd = state.pd
 
+    if len(state.builds_in_progress) > 0:
+        return base, set()
+
+    # The size of the set of open PRs is the real number we care about, the size
+    # of the probability distribution is capped. However, sometimes PRs that are
+    # no longer open can still be in the distribution, so we take the max of the
+    # sizes.
+    n = max(len(state.pd.prs), len(state.open_prs))
+    print(f"Queue size: {n}")
+    candidates = sorted(
+        (
+            (sp.expected_wait_time(queue_size=n), sp, s)
+            for s, sp in enumerate(state.pd.speculate_subsets())
+        ),
+        # Order by ascending expected wait time, break ties by descending number
+        # of PRs confirmed on success, then break ties by ascending subset
+        # bitmask, which means we prefer subsets of older PRs.
+        key=lambda tup: (tup[0], -tup[1].n_confirmed_success, tup[2]),
+    )
+    for expected_wait_time, sp, s in candidates[:5]:
+        s_str = f"{s:b}".zfill(len(state.pd.prs))
+        print(f" - Option {s_str} {expected_wait_time=:.3f} {sp}")
+
+    _, sp, s = candidates[0]
+
+    includes = set()
+    for i, pr_id in enumerate(state.pd.prs):
+        index = 1 << i
+        if index & s == index and pr_id in state.open_prs:
+            includes.add(pr_id)
+
+    return base, includes
+
+
     for pr in pd.prs:
         if pr not in state.open_prs:
             pd = pd.remove(pr)
@@ -1173,33 +1271,6 @@ def strategy_minimize_entropy_wait(state: State) -> Tuple[Commit, set[PrId]]:
         print("Speculative build:")
         base = build.tip
 
-    subset_probabilities, subset_entropies = pd.subset_probabilities_and_expected_entropies()
-    #print(f"pd={state.pd}, subset_ps={subset_probabilities}, subset_es={subset_entropies}")
-
-    n = len(state.open_prs)
-    options = sorted(
-        (
-            (e * (n - s.bit_count() * p), e, s.bit_count() * p, p, s)
-            for s, (e, p) in enumerate(zip(subset_entropies.ps, subset_probabilities.ps))
-        ),
-        # Sort by ascending expected wait time left, then by descending subset
-        # bits, so subsets with newer PRs get priority, to get the lifo-like
-        # behavior.
-        key=lambda tup: (tup[0], -tup[4]),
-    )
-    for expected_wait_time, entropy, expected_len, p, s in options[:5]:
-        print(f" - Option {s:05b} {expected_len=:.3f} {p=:.3f} expected_{entropy=:.3f} {expected_wait_time=:.3f}")
-
-    _, _, _, _, s = options[0]
-
-    includes = set()
-    for i, pr_id in enumerate(subset_entropies.prs):
-        index = 1 << i
-        if index & s == index:
-            includes.add(pr_id)
-
-    return base, includes
-
     # TODO
 
     raise Exception("TODO")
@@ -1207,12 +1278,12 @@ def strategy_minimize_entropy_wait(state: State) -> Tuple[Commit, set[PrId]]:
 
 def main() -> None:
     configs = [
-        #Config.new(parallelism=1, criticality=0.25),
-        #Config.new(parallelism=1, criticality=0.50),
-        #Config.new(parallelism=1, criticality=1.00),
-        Config.new(parallelism=2, criticality=0.25),
-        Config.new(parallelism=2, criticality=0.50),
-        Config.new(parallelism=2, criticality=1.00),
+        Config.new(parallelism=1, criticality=0.25),
+        Config.new(parallelism=1, criticality=0.50),
+        Config.new(parallelism=1, criticality=1.00),
+        #Config.new(parallelism=2, criticality=0.25),
+        #Config.new(parallelism=2, criticality=0.50),
+        #Config.new(parallelism=2, criticality=1.00),
         #Config.new(parallelism=4, criticality=0.25),
         # Config.new(parallelism=4, criticality=0.50),
         # Config.new(parallelism=4, criticality=1.00),
