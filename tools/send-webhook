@@ -94,7 +94,7 @@ cat <<JSON
 	},
 	"sha": "$commit",
 	"state": "$state",
-	"target_url": null
+	"target_url": $target
 }
 JSON
 }
@@ -124,9 +124,17 @@ build-status)
 	event=
 	commit="$1"
 	state="$2"
+	target="$3"
 
 	[ -n "$commit" ] || errxit "Full commit sha should be provided as the 1st argument"
 	[ -n "$state" ] || state=success
+
+	# If this is a URL make sure it has quote marks, if null make sure it doesn't.
+	if [ -z "$target" ]; then
+		target="null"
+	else
+		target="\"$target\""
+	fi
 
 	event="status"
 	build-status-payload >webhook-data.json

@@ -311,7 +311,7 @@ handleEventInternal triggerConfig projectConfig mergeWindowExemption event = cas
   PullRequestEdited pr title baseBranch -> handlePullRequestEdited pr title baseBranch
   CommentAdded pr author body
     -> handleCommentAdded triggerConfig projectConfig mergeWindowExemption pr author body
-  BuildStatusChanged sha status   -> pure . handleBuildStatusChanged sha status
+  BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
   Synchronize                     -> synchronizeState
 
 handlePullRequestOpened
@@ -528,20 +528,25 @@ handleMergeRequested projectConfig prId author state pr approvalType = do
     then pure $ Pr.setIntegrationStatus prId IncorrectBaseBranch state''
     else pure state''
 
-handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> ProjectState
+handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
 handleBuildStatusChanged buildSha newStatus state =
   -- If there is an integration candidate, and its integration sha matches that
   -- of the build, then update the build status for that pull request. Otherwise
   -- do nothing.
   let
-    setBuildStatus pullRequest = case Pr.integrationStatus pullRequest of
-      Integrated candidateSha _oldStatus | candidateSha == buildSha ->
-        pullRequest { Pr.integrationStatus = Integrated buildSha newStatus }
-      _ -> pullRequest
-  in
+    setBuildStatus prId pullRequest = case Pr.integrationStatus pullRequest of
+      Integrated candidateSha _oldStatus | candidateSha == buildSha -> do
+        let pullRequest' = pullRequest { Pr.integrationStatus = Integrated buildSha newStatus }
+        -- Sometimes we want to leave an informative comment on the PR. This isn't for things
+        -- that require user feedback like build failures.
+        case newStatus of
+          BuildPending (Just url) -> pullRequest' <$ leaveComment prId ("Waiting on CI job: " <> url)
+          _                       -> pure pullRequest'
+      _ -> pure pullRequest
+    in
     case Pr.integrationCandidate state of
-      Just candidateId -> Pr.updatePullRequest candidateId setBuildStatus state
-      Nothing          -> state
+      Just candidateId -> Pr.updatePullRequestM candidateId (setBuildStatus candidateId) state
+      Nothing          -> pure state
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
 synchronizeState :: ProjectState -> Action ProjectState
@@ -611,7 +616,7 @@ proceedCandidate (pullRequestId, pullRequest) state =
       pure $ Pr.setIntegrationCandidate Nothing state
 
     Integrated sha buildStatus -> case buildStatus of
-      BuildPending   -> pure state
+      BuildPending _ -> pure state
       BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) sha state
       BuildFailed _  -> do
         -- If the build failed, this is no longer a candidate.
@@ -655,7 +660,8 @@ tryIntegratePullRequest pr state =
         -- If it succeeded, update the integration candidate, and set the build
         -- to pending, as pushing should have triggered a build.
         pure
-          $ Pr.setIntegrationStatus pr (Integrated (Sha sha) BuildPending)
+          -- The build pending has no URL here, we need to wait for semaphore
+          $ Pr.setIntegrationStatus pr (Integrated (Sha sha) (BuildPending Nothing))
           $ Pr.setIntegrationCandidate (Just pr)
           $ Pr.setNeedsFeedback pr True
           $ state
@@ -733,9 +739,11 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
       0 -> format "Pull request approved for {} by @{}, rebasing now." [approvalCommand, approvedBy]
       1 -> format "Pull request approved for {} by @{}, waiting for rebase behind one pull request." [approvalCommand, approvedBy]
       n -> format "Pull request approved for {} by @{}, waiting for rebase behind {} pull requests." (approvalCommand, approvedBy, n)
-  PrStatusBuildPending ->
+  PrStatusBuildPending url ->
     let Sha sha = fromJust $ getIntegrationSha pr
-    in Text.concat ["Rebased as ", sha, ", waiting for CI …"]
+    in case url of
+         Just url' -> Text.concat ["CI job started [here](", url', ")."]
+         Nothing   -> Text.concat ["Rebased as ", sha, ", waiting for CI …"]
   PrStatusIntegrated -> "The build succeeded."
   PrStatusIncorrectBaseBranch -> "Merge rejected: the target branch must be the integration branch."
   PrStatusWrongFixups -> "Pull request cannot be integrated as it contains fixup commits that do not belong to any other commits."

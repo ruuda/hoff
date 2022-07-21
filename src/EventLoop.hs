@@ -74,7 +74,7 @@ eventFromCommentPayload payload =
 
 mapCommitStatus :: Github.CommitStatus -> Maybe Text.Text -> Project.BuildStatus
 mapCommitStatus status url = case status of
-  Github.Pending -> Project.BuildPending
+  Github.Pending -> Project.BuildPending url
   Github.Success -> Project.BuildSucceeded
   Github.Failure -> Project.BuildFailed url
   Github.Error   -> Project.BuildFailed url

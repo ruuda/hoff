@@ -43,6 +43,7 @@ module Project
   setIntegrationStatus,
   setNeedsFeedback,
   updatePullRequest,
+  updatePullRequestM,
   getOwners,
   wasIntegrationAttemptFor,
   MergeWindow(..))
@@ -70,7 +71,7 @@ import qualified Data.IntMap.Strict as IntMap
 import Types (PullRequestId (..), Username)
 
 data BuildStatus
-  = BuildPending
+  = BuildPending (Maybe Text)
   | BuildSucceeded
   | BuildFailed (Maybe Text)
   deriving (Eq, Show, Generic)
@@ -89,7 +90,7 @@ data IntegrationStatus
 data PullRequestStatus
   = PrStatusAwaitingApproval          -- New, awaiting review.
   | PrStatusApproved                  -- Approved, but not yet integrated or built.
-  | PrStatusBuildPending              -- Integrated, and build pending or in progress.
+  | PrStatusBuildPending (Maybe Text) -- Integrated, and build pending or in progress.
   | PrStatusIntegrated                -- Integrated, build passed, merged into target branch.
   | PrStatusIncorrectBaseBranch       -- ^ Integration branch not being valid.
   | PrStatusWrongFixups               -- Failed to integrate due to the presence of orphan fixup commits.
@@ -236,6 +237,16 @@ updatePullRequest (PullRequestId n) f state = state {
   pullRequests = IntMap.adjust f n $ pullRequests state
 }
 
+updatePullRequestM
+  :: Monad m => PullRequestId -> (PullRequest -> m PullRequest) -> ProjectState -> m ProjectState
+updatePullRequestM (PullRequestId n) f state = do
+  pullRequests' <- IntMap.traverseWithKey go (pullRequests state)
+  pure state { pullRequests = pullRequests' }
+ where
+  go key
+    | key == n  = f
+    | otherwise = pure
+
 -- Marks the pull request as approved by somebody or nobody.
 setApproval :: PullRequestId -> Maybe Approval -> ProjectState -> ProjectState
 setApproval pr newApproval = updatePullRequest pr changeApproval
@@ -284,9 +295,9 @@ classifyPullRequest pr = case approval pr of
     Conflicted _ EmptyRebase -> PrStatusEmptyRebase
     Conflicted _ _  -> PrStatusFailedConflict
     Integrated _ buildStatus -> case buildStatus of
-      BuildPending    -> PrStatusBuildPending
-      BuildSucceeded  -> PrStatusIntegrated
-      BuildFailed url -> PrStatusFailedBuild url
+      BuildPending url -> PrStatusBuildPending url
+      BuildSucceeded   -> PrStatusIntegrated
+      BuildFailed url  -> PrStatusFailedBuild url
 
 -- Classify every pull request into one status. Orders pull requests by id in
 -- ascending order.
@@ -352,7 +363,7 @@ isInProgress pr = case approval pr of
     IncorrectBaseBranch -> False
     Conflicted _ _ -> False
     Integrated _ buildStatus -> case buildStatus of
-      BuildPending   -> True
+      BuildPending _ -> True
       BuildSucceeded -> False
       BuildFailed _  -> False
 

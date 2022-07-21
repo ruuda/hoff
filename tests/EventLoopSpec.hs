@@ -831,7 +831,8 @@ eventLoopSpec = parallel $ do
         let Just (prId, pullRequest4) = Project.getIntegrationCandidate state
         prId `shouldBe` pr4
         let Integrated _ buildStatus = Project.integrationStatus pullRequest4
-        buildStatus `shouldBe` BuildPending
+        -- Expect no CI url
+        buildStatus `shouldBe` BuildPending Nothing
 
       -- We did not send a build status notification for c4, so it should not
       -- have been integrated.

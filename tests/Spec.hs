@@ -79,7 +79,7 @@ candidateState :: PullRequestId -> Branch -> BaseBranch -> Sha -> Username -> Us
 candidateState pr prBranch baseBranch prSha prAuthor approvedBy candidateSha =
   let
     state = Project.setIntegrationStatus pr
-      (Project.Integrated candidateSha Project.BuildPending)
+      (Project.Integrated candidateSha (Project.BuildPending Nothing))
       $ Project.setApproval pr (Just (Approval approvedBy Project.Merge 0))
       $ singlePullRequestState pr prBranch baseBranch prSha prAuthor
   in
@@ -303,8 +303,8 @@ main = hspec $ do
       let
         state0 = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "abc") "alice"
         state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge 0)) state0
-        state2 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc0") Project.BuildPending) state1
-        state3 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc1") Project.BuildPending) state2
+        state2 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc0") (Project.BuildPending Nothing)) state1
+        state3 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc1") (Project.BuildPending Nothing)) state2
         event  = PullRequestCommitChanged (PullRequestId 1) (Sha "dc0")
         stateAfterEvent = fst . runAction . handleEventTest event
       -- The commit changed, but to the sha that is the integration candidate,
@@ -323,7 +323,7 @@ main = hspec $ do
         prAt1   = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
         prAt2   = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
       Project.approval          prAt1 `shouldBe` Just (Approval "deckard" Project.Merge 0)
-      Project.integrationStatus prAt1 `shouldBe` Project.Integrated (Sha "bcd") Project.BuildPending
+      Project.integrationStatus prAt1 `shouldBe` Project.Integrated (Sha "bcd") (Project.BuildPending Nothing)
       Project.approval          prAt2 `shouldBe` Nothing
       Project.integrationStatus prAt2 `shouldBe` Project.NotIntegrated
 
@@ -430,7 +430,7 @@ main = hspec $ do
         pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 2) state'
       -- Even though the build status changed for "0ad" which is a known commit,
       -- only the build status of the integration candidate can be changed.
-      Project.integrationStatus pr1 `shouldBe` Project.Integrated (Sha "84c") Project.BuildPending
+      Project.integrationStatus pr1 `shouldBe` Project.Integrated (Sha "84c") (Project.BuildPending Nothing)
       Project.integrationStatus pr2 `shouldBe` Project.NotIntegrated
 
     it "only checks if a comment author is a reviewer for comment commands" $ do
@@ -514,7 +514,7 @@ main = hspec $ do
             title = "Add Nexus 7 experiment",
             author = Username "tyrell",
             approval = Just (Approval (Username "deckard") Project.Merge 0),
-            integrationStatus = Project.Integrated (Sha "b71") Project.BuildPending,
+            integrationStatus = Project.Integrated (Sha "b71") (Project.BuildPending Nothing),
             integrationAttempts = [],
             needsFeedback = False
             })
@@ -986,7 +986,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.integrationStatus pr == Project.Integrated (Sha "def2345") Project.BuildPending)
+        (\pr -> Project.integrationStatus pr == Project.Integrated (Sha "def2345") (Project.BuildPending Nothing))
 
     it "loses approval after an invalid base branch change" $ do
       let
@@ -1052,7 +1052,7 @@ main = hspec $ do
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
-      Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") Project.BuildPending
+      Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") (Project.BuildPending Nothing)
       prId    `shouldBe` PullRequestId 1
       actions `shouldBe`
         [ ATryIntegrate "Merge #1: Untitled\n\nApproved-by: fred\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "f34") False
@@ -1073,7 +1073,7 @@ main = hspec $ do
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
-      Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") Project.BuildPending
+      Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") (Project.BuildPending Nothing)
       prId    `shouldBe` PullRequestId 2
       actions `shouldBe`
         [ ATryIntegrate "Merge #2: Another untitled\n\nApproved-by: fred\nAuto-deploy: false\n" (Branch "refs/pull/2/head", Sha "g35") False
@@ -1228,7 +1228,7 @@ main = hspec $ do
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
 
-      Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") Project.BuildPending
+      Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") (Project.BuildPending Nothing)
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
       actions `shouldBe`
         [ ATryPromote (Branch "results/rachael") (Sha "38d")
@@ -1266,7 +1266,7 @@ main = hspec $ do
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
 
-      Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") Project.BuildPending
+      Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") (Project.BuildPending Nothing)
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
       actions `shouldBe`
         [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2") (TagMessage "v2\n\nchangelog")
@@ -1293,7 +1293,7 @@ main = hspec $ do
           $ Project.emptyProjectState
         events =
           [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
-          , BuildStatusChanged (Sha "b71") Project.BuildPending
+          , BuildStatusChanged (Sha "b71") (Project.BuildPending Nothing)
           , BuildStatusChanged (Sha "b71") Project.BuildSucceeded
           ]
         -- For this test, the first integration succeeds. Then we push, which
@@ -1379,7 +1379,7 @@ main = hspec $ do
           $ Project.emptyProjectState
         events =
           [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
-          , BuildStatusChanged (Sha "b71") Project.BuildPending
+          , BuildStatusChanged (Sha "b71") (Project.BuildPending Nothing)
           , BuildStatusChanged (Sha "b71") $ Project.BuildFailed $ Just $ pack "https://example.com/build-status"
             -- User summons bot again because CI failed for an external reason.
           , CommentAdded (PullRequestId 1) "deckard" "@bot merge"
@@ -1649,7 +1649,7 @@ main = hspec $ do
     it "converts a commit status pending event" $ do
       let payload = testCommitStatusPayload Github.Pending
           Just event = convertGithubEvent $ Github.CommitStatus payload
-      event `shouldBe` (BuildStatusChanged (Sha "b26354") Project.BuildPending)
+      event `shouldBe` (BuildStatusChanged (Sha "b26354") (Project.BuildPending (Just "https://travis-ci.org/rachael/owl/builds/1982")))
 
     it "converts a commit status success event" $ do
       let payload = testCommitStatusPayload Github.Success

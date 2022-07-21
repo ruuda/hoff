@@ -30,7 +30,8 @@ import qualified Data.ByteString.Lazy as LazyByteString
 import qualified Data.Text as Text
 
 import Format (format)
-import Project (Approval (..), Owner, ProjectInfo, ProjectState, PullRequest)
+import Project (Approval (..), BuildStatus (..), IntegrationStatus (..), Owner, ProjectInfo,
+                ProjectState, PullRequest (integrationStatus))
 import Types (PullRequestId (..), Username (..))
 
 import qualified Project
@@ -147,7 +148,7 @@ viewProjectQueues info state = do
     pullRequests = Project.classifyPullRequests state
     filterPrs predicate = filter (\(_, _, status) -> predicate status) pullRequests
 
-  let building = filterPrs (== Project.PrStatusBuildPending)
+  let building = filterPrs prPending
   h2 "Building"
   if null building
     then p "There are no builds in progress at the moment."
@@ -187,7 +188,7 @@ viewGroupedProjectQueues projects = do
       predicateTriple (_, _, status) = predicate status
       in  filter (not . null . snd) $ map (second (filter predicateTriple)) pullRequests
   let
-    building = filterPrs (== Project.PrStatusBuildPending)
+    building = filterPrs prPending
   h2 "Building"
   if null building
     then p "There are no builds in progress at the moment."
@@ -235,6 +236,17 @@ viewPullRequest info (PullRequestId n) pullRequest =
     a ! href (toValue url) $ toHtml $ Project.title pullRequest
     span ! class_ "prId" $ toHtml $ "#" <> (show n)
 
+    case integrationStatus pullRequest of
+      Integrated _ (BuildPending (Just ciUrl)) -> do
+        span "  | "
+        a ! href (toValue ciUrl) $ "View in CI"
+
+      Integrated _ (BuildFailed (Just ciUrl)) -> do
+        span "  | "
+        a ! href (toValue ciUrl) $ "View in CI"
+
+      _ -> pure ()
+
 viewPullRequestWithApproval :: ProjectInfo -> PullRequestId -> PullRequest -> Html
 viewPullRequestWithApproval info prId pullRequest = do
   viewPullRequest info prId pullRequest
@@ -262,3 +274,7 @@ prFailed :: Project.PullRequestStatus -> Bool
 prFailed Project.PrStatusFailedConflict  = True
 prFailed (Project.PrStatusFailedBuild _) = True
 prFailed _                               = False
+
+prPending :: Project.PullRequestStatus -> Bool
+prPending (Project.PrStatusBuildPending _) = True
+prPending _                                = False
