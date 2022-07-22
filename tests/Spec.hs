@@ -75,15 +75,12 @@ singlePullRequestState pr prBranch baseBranch prSha prAuthor =
   in
     fst $ runAction $ handleEventTest event Project.emptyProjectState
 
-candidateState :: PullRequestId -> Branch -> BaseBranch -> Sha -> Username -> Username -> Sha -> ProjectState
-candidateState pr prBranch baseBranch prSha prAuthor approvedBy candidateSha =
-  let
-    state = Project.setIntegrationStatus pr
-      (Project.Integrated candidateSha (Project.BuildPending Nothing))
-      $ Project.setApproval pr (Just (Approval approvedBy Project.Merge 0))
-      $ singlePullRequestState pr prBranch baseBranch prSha prAuthor
-  in
-    state { Project.integrationCandidate = Just pr }
+candidateState
+  :: PullRequestId -> Branch -> BaseBranch -> Sha -> Username -> Username -> Sha -> ProjectState
+candidateState pr prBranch baseBranch prSha prAuthor approvedBy candidateSha
+  = Project.setIntegrationStatus pr (Project.Integrated candidateSha (Project.BuildPending Nothing))
+  $ Project.setApproval pr (Just (Approval approvedBy Project.Merge 0))
+  $ singlePullRequestState pr prBranch baseBranch prSha prAuthor
 
 -- Types and functions to mock running an action without actually doing anything.
 
@@ -281,13 +278,13 @@ main = hspec $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 1) (Branch "p") masterBranch (Sha "ea0") "frank" "deckard" (Sha "cf4")
           state' = fst $ runAction $ handleEventTest event state
-      Project.integrationCandidate state' `shouldBe` Nothing
+      Project.integratedPullRequests state' `shouldBe` []
 
     it "does not modify the integration candidate if a different PR was closed" $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 2) (Branch "p") masterBranch (Sha "a38") "franz" "deckard" (Sha "ed0")
           state' = fst $ runAction $ handleEventTest event state
-      Project.integrationCandidate state' `shouldBe` (Just $ PullRequestId 2)
+      Project.integratedPullRequests state' `shouldBe` [PullRequestId 2]
 
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
@@ -418,7 +415,7 @@ main = hspec $ do
         state  = candidateState (PullRequestId 1) (Branch "p") masterBranch (Sha "a38") "johanna" "deckard" (Sha "84c")
         state' = fst $ runAction $ handleEventTest event state
         pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.integrationStatus pr `shouldBe` Project.Integrated (Sha "84c") Project.BuildSucceeded
+      Project.integrationStatus pr `shouldBe` Project.Promoted
 
     it "ignores a build status change for commits that are not the integration candidate" $ do
       let
@@ -584,7 +581,7 @@ main = hspec $ do
       -- The first pull request should be dropped, and a comment should be
       -- left indicating why. Then the second pull request should be at the
       -- front of the queue.
-      Project.integrationCandidate state' `shouldBe` Just (PullRequestId 2)
+      Project.integratedPullRequests state' `shouldBe` [PullRequestId 2]
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
@@ -1011,7 +1008,7 @@ main = hspec $ do
         ]
 
       Project.approval pr `shouldBe` Nothing
-      Project.integrationCandidate state' `shouldBe` Nothing
+      Project.integratedPullRequests state' `shouldBe` []
 
     it "shows an appropriate message when the commit is changed on an approved PR" $ do
       let
@@ -1036,7 +1033,7 @@ main = hspec $ do
         ]
 
       Project.approval pr `shouldBe` Nothing
-      Project.integrationCandidate state' `shouldBe` Nothing
+      Project.integratedPullRequests state' `shouldBe` []
 
 
   describe "Logic.proceedUntilFixedPoint" $ do
@@ -1051,7 +1048,7 @@ main = hspec $ do
           , resultPush = [PushRejected "test"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
+        [(prId, pullRequest)] = Project.getIntegrationCandidates state'
       Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") (Project.BuildPending Nothing)
       prId    `shouldBe` PullRequestId 1
       actions `shouldBe`
@@ -1072,7 +1069,7 @@ main = hspec $ do
           , resultPush = [PushRejected "test"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
+        [(prId, pullRequest)] = Project.getIntegrationCandidates state'
       Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") (Project.BuildPending Nothing)
       prId    `shouldBe` PullRequestId 2
       actions `shouldBe`
@@ -1095,15 +1092,14 @@ main = hspec $ do
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
-          , Project.integrationCandidate = Just $ PullRequestId 1
           , Project.pullRequestApprovalIndex = 1
           }
         results = defaultResults { resultIntegrate = [Right (Sha "38e")] }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        candidate = Project.getIntegrationCandidate state'
+        candidates = Project.getIntegrationCandidates state'
       -- After a successful push, the candidate should be gone.
-      candidate `shouldBe` Nothing
-      actions   `shouldBe` [ATryPromote (Branch "results/rachael") (Sha "38d")]
+      candidates `shouldBe` []
+      actions    `shouldBe` [ATryPromote (Branch "results/rachael") (Sha "38d")]
 
     it "pushes and tags with a new version after a successful build (merge and tag)" $ do
       let
@@ -1120,7 +1116,6 @@ main = hspec $ do
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
-          , Project.integrationCandidate = Just $ PullRequestId 1
           , Project.pullRequestApprovalIndex = 1
           }
         results = defaultResults
@@ -1128,10 +1123,10 @@ main = hspec $ do
           , resultGetChangelog = [Just "changelog"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        candidate = Project.getIntegrationCandidate state'
+        candidates = Project.getIntegrationCandidates state'
       -- After a successful push, the candidate should be gone.
-      candidate `shouldBe` Nothing
-      actions   `shouldBe`
+      candidates `shouldBe` []
+      actions    `shouldBe`
         [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2")
             (TagMessage "v2\n\nchangelog")
         , ALeaveComment (PullRequestId 1)
@@ -1153,7 +1148,6 @@ main = hspec $ do
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
-          , Project.integrationCandidate = Just $ PullRequestId 1
           , Project.pullRequestApprovalIndex = 1
           }
         results = defaultResults
@@ -1161,10 +1155,10 @@ main = hspec $ do
           , resultGetChangelog = [Just "changelog"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        candidate = Project.getIntegrationCandidate state'
+        candidates = Project.getIntegrationCandidates state'
       -- After a successful push, the candidate should be gone.
-      candidate `shouldBe` Nothing
-      actions   `shouldBe`
+      candidates `shouldBe` []
+      actions    `shouldBe`
         [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2")
             (TagMessage "v2 (autodeploy)\n\nchangelog")
         , ALeaveComment (PullRequestId 1)
@@ -1186,16 +1180,15 @@ main = hspec $ do
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
-          , Project.integrationCandidate = Just $ PullRequestId 1
           , Project.pullRequestApprovalIndex = 1
           }
         results = defaultResults { resultIntegrate = [Right (Sha "38e")]
                                  , resultGetLatestVersion = [Left (TagName "abcdef")] }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        candidate = Project.getIntegrationCandidate state'
+        candidates = Project.getIntegrationCandidates state'
       -- After a successful push, the candidate should be gone.
-      candidate `shouldBe` Nothing
-      actions   `shouldBe` [ ALeaveComment (PullRequestId 1) "@deckard Sorry, I could not tag your PR. The previous tag `abcdef` seems invalid"
+      candidates `shouldBe` []
+      actions    `shouldBe` [ ALeaveComment (PullRequestId 1) "@deckard Sorry, I could not tag your PR. The previous tag `abcdef` seems invalid"
                            , ATryPromote (Branch "results/rachael") (Sha "38d")]
 
 
@@ -1216,7 +1209,6 @@ main = hspec $ do
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
-          , Project.integrationCandidate = Just $ PullRequestId 1
           , Project.pullRequestApprovalIndex = 1
           }
         -- Run 'proceedUntilFixedPoint', and pretend that pushes fail (because
@@ -1226,7 +1218,7 @@ main = hspec $ do
           , resultPush = [PushRejected "test"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
+        [(_, pullRequest')] = Project.getIntegrationCandidates state'
 
       Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") (Project.BuildPending Nothing)
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
@@ -1253,7 +1245,6 @@ main = hspec $ do
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
-          , Project.integrationCandidate = Just $ PullRequestId 1
           , Project.pullRequestApprovalIndex = 1
           }
         -- Run 'proceedUntilFixedPoint', and pretend that pushes fail (because
@@ -1264,7 +1255,7 @@ main = hspec $ do
           , resultGetChangelog = [Just "changelog"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
+        [(_, pullRequest')] = Project.getIntegrationCandidates state'
 
       Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") (Project.BuildPending Nothing)
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
@@ -1353,16 +1344,16 @@ main = hspec $ do
           state = ProjectState
             {
               Project.pullRequests         = prMap,
-              Project.integrationCandidate = Nothing,
               Project.pullRequestApprovalIndex = 2
             }
           -- Proceeding should pick the next pull request as candidate.
           results = defaultResults { resultIntegrate = [Right (Sha "38e")] }
           (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-          Just (cId, _candidate) = Project.getIntegrationCandidate state'
+          [(cId, _candidate)] = Project.getIntegrationCandidates state'
       cId     `shouldBe` PullRequestId 2
       actions `shouldBe`
-        [ ATryIntegrate "Merge #2: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/2/head", Sha "f37") False
+        [ ATryPromote (Branch "results/leon") (Sha "38d")
+        , ATryIntegrate "Merge #2: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/2/head", Sha "f37") False
         , ALeaveComment (PullRequestId 2) "Rebased as 38e, waiting for CI \x2026"
         ]
 
