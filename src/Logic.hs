@@ -526,26 +526,17 @@ handleMergeRequested projectConfig prId author state pr approvalType = do
     then pure $ Pr.setIntegrationStatus prId IncorrectBaseBranch state''
     else pure state''
 
-traversePullRequests
-  :: (PullRequestId -> PullRequest -> Action PullRequest)
-  -> ProjectState
-  -> Action ProjectState
-traversePullRequests f state = do
-  pullRequests' <- IntMap.traverseWithKey (\key -> f (PullRequestId key)) $ Pr.pullRequests state
-  pure state { Pr.pullRequests = pullRequests' }
-
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
-handleBuildStatusChanged buildSha newStatus = traversePullRequests setBuildStatus
+handleBuildStatusChanged buildSha newStatus = pure . Pr.updatePullRequests setBuildStatus
   where
-  setBuildStatus _ pr = case Pr.integrationStatus pr of
+  setBuildStatus pr = case Pr.integrationStatus pr of
     -- If there is an integration candidate, and its integration sha matches that of the build,
     -- then update the build status for that pull request. Otherwise do nothing.
-    Integrated candidateSha _ | candidateSha == buildSha -> do
-      pure $ case newStatus of
-             BuildPending (Just _) -> pr{Pr.integrationStatus = Integrated buildSha newStatus, Pr.needsFeedback=True}
-             BuildFailed _         -> pr{Pr.integrationStatus = Integrated buildSha newStatus, Pr.needsFeedback=True}
-             _                     -> pr{Pr.integrationStatus = Integrated buildSha newStatus}
-    _ -> pure pr
+    Integrated candidateSha _ | candidateSha == buildSha -> case newStatus of
+      BuildPending (Just _) -> pr{Pr.integrationStatus = Integrated buildSha newStatus, Pr.needsFeedback=True}
+      BuildFailed _         -> pr{Pr.integrationStatus = Integrated buildSha newStatus, Pr.needsFeedback=True}
+      _                     -> pr{Pr.integrationStatus = Integrated buildSha newStatus}
+    _ -> pr
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
 synchronizeState :: ProjectState -> Action ProjectState
