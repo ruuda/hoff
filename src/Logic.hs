@@ -727,7 +727,7 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
   PrStatusBuildPending url ->
     let Sha sha = fromJust $ getIntegrationSha pr
     in case url of
-         Just url' -> Text.concat ["CI job started [here](", url', ")."]
+         Just url' -> Text.concat ["Waiting on CI job: ", url']
          Nothing   -> Text.concat ["Rebased as ", sha, ", waiting for CI …"]
   PrStatusIntegrated -> "The build succeeded."
   PrStatusIncorrectBaseBranch -> "Merge rejected: the target branch must be the integration branch."
