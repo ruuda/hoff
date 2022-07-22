@@ -537,16 +537,14 @@ traversePullRequests f state = do
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
 handleBuildStatusChanged buildSha newStatus = traversePullRequests setBuildStatus
   where
-  setBuildStatus prId pr = case Pr.integrationStatus pr of
+  setBuildStatus _ pr = case Pr.integrationStatus pr of
     -- If there is an integration candidate, and its integration sha matches that of the build,
     -- then update the build status for that pull request. Otherwise do nothing.
     Integrated candidateSha _ | candidateSha == buildSha -> do
-      -- TODO: try to avoid "leaveComment" here.
-      case newStatus of BuildPending (Just url) -> leaveComment prId ("Waiting on CI job: " <> url)
-                        _                       -> pure ()
       pure $ case newStatus of
-             BuildFailed _ -> pr{Pr.integrationStatus = Integrated buildSha newStatus, Pr.needsFeedback=True}
-             _             -> pr{Pr.integrationStatus = Integrated buildSha newStatus}
+             BuildPending (Just _) -> pr{Pr.integrationStatus = Integrated buildSha newStatus, Pr.needsFeedback=True}
+             BuildFailed _         -> pr{Pr.integrationStatus = Integrated buildSha newStatus, Pr.needsFeedback=True}
+             _                     -> pr{Pr.integrationStatus = Integrated buildSha newStatus}
     _ -> pure pr
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
