@@ -1380,6 +1380,7 @@ main = hspec $ do
         events =
           [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
           , BuildStatusChanged (Sha "b71") (Project.BuildPending Nothing)
+          , BuildStatusChanged (Sha "b71") (Project.BuildPending (Just "https://status.example.com/b71"))
           , BuildStatusChanged (Sha "b71") $ Project.BuildFailed $ Just $ pack "https://example.com/build-status"
             -- User summons bot again because CI failed for an external reason.
           , CommentAdded (PullRequestId 1) "deckard" "@bot merge"
@@ -1395,6 +1396,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/1/head", Sha "a39") False
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI \x2026"
+        , ALeaveComment (PullRequestId 1) "Waiting on CI job: https://status.example.com/b71"
         , ALeaveComment (PullRequestId 1) "The build failed: https://example.com/build-status\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.\nOtherwise, push a new commit and tag me again."
         , AIsReviewer "deckard"
           -- Nothing has changed for the bot because b71 has already failed, so
