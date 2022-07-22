@@ -535,24 +535,16 @@ traversePullRequests f state = do
   pure state { Pr.pullRequests = pullRequests' }
 
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
-handleBuildStatusChanged buildSha newStatus =
-  traversePullRequests setBuildStatus
+handleBuildStatusChanged buildSha newStatus = traversePullRequests setBuildStatus
   where
-  setBuildStatus prId pr =
-    case Pr.integrationStatus pr of
-      -- If there is an integration candidate, and its integration sha matches that of the build,
-      -- then update the build status for that pull request. Otherwise do nothing.
-      Integrated candidateSha _
-        | candidateSha == buildSha -> do
-            let pr' = pr { Pr.integrationStatus = Integrated buildSha newStatus }
-
-            -- Sometimes we want to leave an informative comment on the PR. This isn't for things
-            -- that require user feedback like build failures.
-            case newStatus of
-              BuildPending (Just url) -> pr' <$ leaveComment prId ("Waiting on CI job: " <> url)
-              _                       -> pure pr'
-
-      _ -> pure pr
+  setBuildStatus prId pr = case Pr.integrationStatus pr of
+    -- If there is an integration candidate, and its integration sha matches that of the build,
+    -- then update the build status for that pull request. Otherwise do nothing.
+    Integrated candidateSha _ | candidateSha == buildSha -> do
+      case newStatus of BuildPending (Just url) -> leaveComment prId ("Waiting on CI job: " <> url)
+                        _                       -> pure ()
+      pure $ pr { Pr.integrationStatus = Integrated buildSha newStatus }
+    _ -> pure pr
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
 synchronizeState :: ProjectState -> Action ProjectState
