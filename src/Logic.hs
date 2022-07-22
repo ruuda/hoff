@@ -532,10 +532,13 @@ handleBuildStatusChanged buildSha newStatus = pure . Pr.updatePullRequests setBu
   setBuildStatus pr = case Pr.integrationStatus pr of
     -- If there is an integration candidate, and its integration sha matches that of the build,
     -- then update the build status for that pull request. Otherwise do nothing.
-    Integrated candidateSha _ | candidateSha == buildSha -> case newStatus of
-      BuildPending (Just _) -> pr{Pr.integrationStatus = Integrated buildSha newStatus, Pr.needsFeedback=True}
-      BuildFailed _         -> pr{Pr.integrationStatus = Integrated buildSha newStatus, Pr.needsFeedback=True}
-      _                     -> pr{Pr.integrationStatus = Integrated buildSha newStatus}
+    Integrated candidateSha _ | candidateSha == buildSha ->
+      pr { Pr.integrationStatus = Integrated buildSha newStatus
+         , Pr.needsFeedback = case newStatus of
+                              BuildPending (Just _) -> True
+                              BuildFailed _         -> True
+                              _                     -> Pr.needsFeedback pr -- unchanged
+         }
     _ -> pr
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
