@@ -288,6 +288,10 @@ getIntegrationCandidates state =
   [ (pullRequestId, candidate)
   | pullRequestId <- integratedPullRequests state
   , Just candidate <- [lookupPullRequest pullRequestId state]
+  , case integrationStatus candidate of -- candidates are with either
+    Integrated _ (BuildPending _) -> True -- build pending or
+    Integrated _ BuildSucceeded   -> True -- build succeeded
+    _                             -> False
   ]
 
 setNeedsFeedback :: PullRequestId -> Bool -> ProjectState -> ProjectState
