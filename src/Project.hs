@@ -28,7 +28,6 @@ module Project
   deletePullRequest,
   emptyProjectState,
   existsPullRequest,
-  getIntegrationCandidates,
   getQueuePosition,
   insertPullRequest,
   loadProjectState,
@@ -281,14 +280,6 @@ setIntegrationStatus pr newStatus = updatePullRequest pr changeIntegrationStatus
         , integrationAttempts = oldSha : (integrationAttempts pullRequest)
         }
       _notIntegrated -> pullRequest { integrationStatus = newStatus }
-
--- Same as 'integratedPullRequests' but paired with the underlying objects.
-getIntegrationCandidates :: ProjectState -> [(PullRequestId, PullRequest)]
-getIntegrationCandidates state =
-  [ (pullRequestId, candidate)
-  | pullRequestId <- integratedPullRequests state
-  , Just candidate <- [lookupPullRequest pullRequestId state]
-  ]
 
 setNeedsFeedback :: PullRequestId -> Bool -> ProjectState -> ProjectState
 setNeedsFeedback pr value = updatePullRequest pr (\pullRequest -> pullRequest { needsFeedback = value })

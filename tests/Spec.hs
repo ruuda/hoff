@@ -244,6 +244,14 @@ handleEventTest = Logic.handleEvent testTriggerConfig testProjectConfig testmerg
 handleEventsTest :: [Event] -> ProjectState -> Action ProjectState
 handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig testProjectConfig testmergeWindowExemptionConfig) state events
 
+-- Same as 'integratedPullRequests' but paired with the underlying objects.
+getIntegrationCandidates :: ProjectState -> [(PullRequestId, PullRequest)]
+getIntegrationCandidates state =
+  [ (pullRequestId, candidate)
+  | pullRequestId <- Project.integratedPullRequests state
+  , Just candidate <- [Project.lookupPullRequest pullRequestId state]
+  ]
+
 main :: IO ()
 main = hspec $ do
   describe "Logic.handleEvent" $ do
@@ -1048,7 +1056,7 @@ main = hspec $ do
           , resultPush = [PushRejected "test"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        [(prId, pullRequest)] = Project.getIntegrationCandidates state'
+        [(prId, pullRequest)] = getIntegrationCandidates state'
       Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") (Project.BuildPending Nothing)
       prId    `shouldBe` PullRequestId 1
       actions `shouldBe`
@@ -1069,7 +1077,7 @@ main = hspec $ do
           , resultPush = [PushRejected "test"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        [(prId, pullRequest)] = Project.getIntegrationCandidates state'
+        [(prId, pullRequest)] = getIntegrationCandidates state'
       Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") (Project.BuildPending Nothing)
       prId    `shouldBe` PullRequestId 2
       actions `shouldBe`
@@ -1096,7 +1104,7 @@ main = hspec $ do
           }
         results = defaultResults { resultIntegrate = [Right (Sha "38e")] }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        candidates = Project.getIntegrationCandidates state'
+        candidates = getIntegrationCandidates state'
       -- After a successful push, the candidate should be gone.
       candidates `shouldBe` []
       actions    `shouldBe` [ATryPromote (Branch "results/rachael") (Sha "38d")]
@@ -1123,7 +1131,7 @@ main = hspec $ do
           , resultGetChangelog = [Just "changelog"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        candidates = Project.getIntegrationCandidates state'
+        candidates = getIntegrationCandidates state'
       -- After a successful push, the candidate should be gone.
       candidates `shouldBe` []
       actions    `shouldBe`
@@ -1155,7 +1163,7 @@ main = hspec $ do
           , resultGetChangelog = [Just "changelog"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        candidates = Project.getIntegrationCandidates state'
+        candidates = getIntegrationCandidates state'
       -- After a successful push, the candidate should be gone.
       candidates `shouldBe` []
       actions    `shouldBe`
@@ -1185,7 +1193,7 @@ main = hspec $ do
         results = defaultResults { resultIntegrate = [Right (Sha "38e")]
                                  , resultGetLatestVersion = [Left (TagName "abcdef")] }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        candidates = Project.getIntegrationCandidates state'
+        candidates = getIntegrationCandidates state'
       -- After a successful push, the candidate should be gone.
       candidates `shouldBe` []
       actions    `shouldBe` [ ALeaveComment (PullRequestId 1) "@deckard Sorry, I could not tag your PR. The previous tag `abcdef` seems invalid"
@@ -1218,7 +1226,7 @@ main = hspec $ do
           , resultPush = [PushRejected "test"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        [(_, pullRequest')] = Project.getIntegrationCandidates state'
+        [(_, pullRequest')] = getIntegrationCandidates state'
 
       Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") (Project.BuildPending Nothing)
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
@@ -1255,7 +1263,7 @@ main = hspec $ do
           , resultGetChangelog = [Just "changelog"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        [(_, pullRequest')] = Project.getIntegrationCandidates state'
+        [(_, pullRequest')] = getIntegrationCandidates state'
 
       Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") (Project.BuildPending Nothing)
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
@@ -1349,7 +1357,7 @@ main = hspec $ do
           -- Proceeding should pick the next pull request as candidate.
           results = defaultResults { resultIntegrate = [Right (Sha "38e")] }
           (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-          [(cId, _candidate)] = Project.getIntegrationCandidates state'
+          [(cId, _candidate)] = getIntegrationCandidates state'
       cId     `shouldBe` PullRequestId 2
       actions `shouldBe`
         [ ATryPromote (Branch "results/leon") (Sha "38d")
