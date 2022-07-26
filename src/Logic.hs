@@ -591,23 +591,12 @@ proceed state = do
                            -- No pull requests eligible, do nothing.
     (_,           _)    -> return state'
 
--- TODO: Get rid of the tuple; just pass the ID and do the lookup with fromJust.
+-- | Pushes the given integrated PR to be the new master if the build succeeded
 proceedCandidate :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
-proceedCandidate (pullRequestId, pullRequest) state =
-  case Pr.integrationStatus pullRequest of
-    NotIntegrated -> pure state -- dead code / unreachable
-
-    Integrated sha buildStatus -> case buildStatus of
-      BuildPending _ -> pure state
-      BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) sha state
-                        -- If the build failed, give feedback on the PR
-      BuildFailed _  -> pure state
-
-    Promoted -> pure state -- dead code / unreachable
-
-    Conflicted _branch _ -> pure state -- dead code / unreachable
-
-    IncorrectBaseBranch -> pure state -- dead code / unreachable
+-- TODO: Get rid of the tuple; just pass the ID and do the lookup with fromJust.
+proceedCandidate (pullRequestId, pullRequest) state = case Pr.integrationStatus pullRequest of
+  Integrated sha BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) sha state
+  _                             -> pure state -- dead code / unreachable
 
 -- Given a pull request id, returns the name of the GitHub ref for that pull
 -- request, so it can be fetched.
