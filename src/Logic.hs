@@ -583,7 +583,7 @@ synchronizeState stateInitial =
 proceed :: ProjectState -> Action ProjectState
 proceed state = do
   state' <- provideFeedback state
-  case (Pr.getIntegrationCandidates state', Pr.candidatePullRequests state') of
+  case (Pr.integratedPullRequests state', Pr.candidatePullRequests state') of
                            -- Proceed with an already integrated candidate
     (candidate:_, _)    -> proceedCandidate candidate state'
                            -- Found a new candidate, try to integrate it.
@@ -592,11 +592,14 @@ proceed state = do
     (_,           _)    -> return state'
 
 -- | Pushes the given integrated PR to be the new master if the build succeeded
-proceedCandidate :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
--- TODO: Get rid of the tuple; just pass the ID and do the lookup with fromJust.
-proceedCandidate (pullRequestId, pullRequest) state = case Pr.integrationStatus pullRequest of
-  Integrated sha BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) sha state
-  _                             -> pure state -- dead code / unreachable
+proceedCandidate :: PullRequestId -> ProjectState -> Action ProjectState
+proceedCandidate pullRequestId state =
+  case Pr.lookupPullRequest pullRequestId state of
+  Nothing -> pure state -- should not be reachable when called from 'proceed'
+  Just pullRequest ->
+    case Pr.integrationStatus pullRequest of
+    Integrated sha BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) sha state
+    _                             -> pure state -- BuildFailed/BuildPending
 
 -- Given a pull request id, returns the name of the GitHub ref for that pull
 -- request, so it can be fetched.

@@ -288,10 +288,6 @@ getIntegrationCandidates state =
   [ (pullRequestId, candidate)
   | pullRequestId <- integratedPullRequests state
   , Just candidate <- [lookupPullRequest pullRequestId state]
-  , case integrationStatus candidate of -- candidates are with either
-    Integrated _ (BuildPending _) -> True -- build pending or
-    Integrated _ BuildSucceeded   -> True -- build succeeded
-    _                             -> False
   ]
 
 setNeedsFeedback :: PullRequestId -> Bool -> ProjectState -> ProjectState
@@ -392,8 +388,9 @@ wasIntegrationAttemptFor commit pr = case integrationStatus pr of
 integratedPullRequests :: ProjectState -> [PullRequestId]
 integratedPullRequests = filterPullRequestsBy $ isIntegrated . integrationStatus
   where
-  isIntegrated (Integrated _ _) = True
-  isIntegrated _                = False
+  isIntegrated (Integrated _ (BuildPending _)) = True
+  isIntegrated (Integrated _ BuildSucceeded)   = True
+  isIntegrated _                               = False
 
 -- Returns the pull requests that have not been integrated yet, in order of
 -- ascending id.
