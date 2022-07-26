@@ -1790,25 +1790,25 @@ main = hspec $ do
       -- This serves to test and document a complete workflow.
       let
         state
-          = Project.insertPullRequest (PullRequestId 9) (Branch "nth") masterBranch (Sha "ab1") "Ninth PR"  (Username "tyrell")
-          $ Project.insertPullRequest (PullRequestId 8) (Branch "eth") masterBranch (Sha "cd2") "Eighth PR" (Username "rachael")
-          $ Project.insertPullRequest (PullRequestId 7) (Branch "sth") masterBranch (Sha "ef3") "Seventh PR"  (Username "rachael")
+          = Project.insertPullRequest (PullRequestId 9) (Branch "nth") masterBranch (Sha "ab9") "Ninth PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 8) (Branch "eth") masterBranch (Sha "cd8") "Eighth PR" (Username "rachael")
+          $ Project.insertPullRequest (PullRequestId 7) (Branch "sth") masterBranch (Sha "ef7") "Seventh PR"  (Username "rachael")
           $ Project.emptyProjectState
         events =
-          [ BuildStatusChanged (Sha "ab1") (Project.BuildSucceeded) -- PR#1 sha, ignored
+          [ BuildStatusChanged (Sha "ab9") (Project.BuildSucceeded) -- PR#1 sha, ignored
           , CommentAdded (PullRequestId 9) "deckard" "@someone Thanks for your review."
           , CommentAdded (PullRequestId 9) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 9) "bot" "Pull request approved for merge, rebasing now."
           , CommentAdded (PullRequestId 9) "bot" "Rebased as 1ab, waiting for CI …"
           , CommentAdded (PullRequestId 8) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 8) "bot" "Pull request approved for merge behind 1 PR."
-          , BuildStatusChanged (Sha "ef3") (Project.BuildSucceeded) -- PR#3 sha, ignored
+          , BuildStatusChanged (Sha "ef7") (Project.BuildSucceeded) -- PR#3 sha, ignored
           , BuildStatusChanged (Sha "1ab") (Project.BuildPending Nothing) -- same status, ignored
           , BuildStatusChanged (Sha "1ab") (Project.BuildPending (Just "example.com/1ab"))
           , CommentAdded (PullRequestId 9) "bot" "Waiting on CI job: example.com/1ab"
           , CommentAdded (PullRequestId 7) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 7) "bot" "Pull request approved for merge behind 2 PRs."
-          , BuildStatusChanged (Sha "cd2") (Project.BuildSucceeded) -- PR#2 sha, ignored
+          , BuildStatusChanged (Sha "cd8") (Project.BuildSucceeded) -- PR#2 sha, ignored
           , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded) -- testing build passed on PR#1
           , PullRequestClosed (PullRequestId 9) -- GH automatically closes PR#1 after merging
           , CommentAdded (PullRequestId 8) "bot" "Rebased as 2bc, waiting for CI …"
@@ -1835,7 +1835,7 @@ main = hspec $ do
         , ATryIntegrate "Merge #9: Ninth PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
-                        (Branch "refs/pull/9/head", Sha "ab1")
+                        (Branch "refs/pull/9/head", Sha "ab9")
                         False
         , ALeaveComment (PullRequestId 9) "Rebased as 1ab, waiting for CI …"
         , AIsReviewer "deckard"
@@ -1851,7 +1851,7 @@ main = hspec $ do
         , ATryIntegrate "Merge #8: Eighth PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
-                        (Branch "refs/pull/8/head", Sha "cd2")
+                        (Branch "refs/pull/8/head", Sha "cd8")
                         False
         , ALeaveComment (PullRequestId 8) "Rebased as 2bc, waiting for CI …"
         , ALeaveComment (PullRequestId 8) "Waiting on CI job: example.com/2bc"
@@ -1863,7 +1863,7 @@ main = hspec $ do
         , ATryIntegrate "Merge #7: Seventh PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
-                        (Branch "refs/pull/7/head", Sha "ef3")
+                        (Branch "refs/pull/7/head", Sha "ef7")
                         False
         , ALeaveComment (PullRequestId 7) "Rebased as 3cd, waiting for CI …"
         , ALeaveComment (PullRequestId 7) "Waiting on CI job: example.com/3cd"
