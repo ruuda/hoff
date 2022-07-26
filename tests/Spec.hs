@@ -1698,7 +1698,7 @@ main = hspec $ do
       -- An afternoon of work on PRs:
       -- * three PRs are merged and approved in order
       -- * build always succeeds
-      -- * Hoff its notified of its own comments
+      -- * Hoff is notified of its own comments and of GH closing merged PRs
       -- Hoff should process albeit ignore its own comments.
       --
       -- This serves to test and document a complete workflow.
@@ -1723,18 +1723,18 @@ main = hspec $ do
           , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 3) "bot" "Pull request approved for merge behind 2 PRs."
           , BuildStatusChanged (Sha "cd2") (Project.BuildSucceeded) -- PR#2 sha, ignored
-          , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded) -- testing build passed on PR#1
-          , PullRequestClosed (PullRequestId 1) -- GH automatically closes PR#1 after merging
+          , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded) -- PR#1
+          , PullRequestClosed (PullRequestId 1)
           , CommentAdded (PullRequestId 2) "bot" "Rebased as 2bc, waiting for CI …"
           , BuildStatusChanged (Sha "2bc") (Project.BuildPending (Just "example.com/2bc"))
           , CommentAdded (PullRequestId 2) "bot" "Waiting on CI job: example.com/2bc"
           , BuildStatusChanged (Sha "36a") (Project.BuildSucceeded) -- arbitrary sha, ignored
-          , BuildStatusChanged (Sha "2bc") (Project.BuildSucceeded) -- testing build passed on PR#2
-          , PullRequestClosed (PullRequestId 2) -- GH automatically closes PR#2 after merging
+          , BuildStatusChanged (Sha "2bc") (Project.BuildSucceeded) -- PR#2
+          , PullRequestClosed (PullRequestId 2)
           , CommentAdded (PullRequestId 3) "bot" "Rebased as 3cd, waiting for CI …"
           , BuildStatusChanged (Sha "3cd") (Project.BuildPending (Just "example.com/3cd"))
-          , BuildStatusChanged (Sha "3cd") (Project.BuildSucceeded) -- testing build passed on PR#3
-          , PullRequestClosed (PullRequestId 3) -- GH automatically closes PR#3 after merging
+          , BuildStatusChanged (Sha "3cd") (Project.BuildSucceeded) -- PR#3
+          , PullRequestClosed (PullRequestId 3)
           ]
         -- For this test, we assume all integrations and pushes succeed.
         results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
@@ -1782,9 +1782,9 @@ main = hspec $ do
 
     it "handles a sequence of merges: success, failure, success" $ do
       -- An afternoon of work on PRs:
-      -- * three PRs are merged and approved in order
-      -- * build always succeeds
-      -- * Hoff its notified of its own comments
+      -- * three PRs are merged and approved in reverse order
+      -- * build does not always succeeds
+      -- * Hoff is notified of its own comments and of GH auto-closing PRs
       -- Hoff should process albeit ignore its own comments.
       --
       -- This serves to test and document a complete workflow.
@@ -1795,32 +1795,32 @@ main = hspec $ do
           $ Project.insertPullRequest (PullRequestId 7) (Branch "sth") masterBranch (Sha "ef7") "Seventh PR"  (Username "rachael")
           $ Project.emptyProjectState
         events =
-          [ BuildStatusChanged (Sha "ab9") (Project.BuildSucceeded) -- PR#1 sha, ignored
+          [ BuildStatusChanged (Sha "ab9") (Project.BuildSucceeded) -- PR#9 sha, ignored
           , CommentAdded (PullRequestId 9) "deckard" "@someone Thanks for your review."
           , CommentAdded (PullRequestId 9) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 9) "bot" "Pull request approved for merge, rebasing now."
           , CommentAdded (PullRequestId 9) "bot" "Rebased as 1ab, waiting for CI …"
           , CommentAdded (PullRequestId 8) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 8) "bot" "Pull request approved for merge behind 1 PR."
-          , BuildStatusChanged (Sha "ef7") (Project.BuildSucceeded) -- PR#3 sha, ignored
+          , BuildStatusChanged (Sha "ef7") (Project.BuildSucceeded) -- PR#7 sha, ignored
           , BuildStatusChanged (Sha "1ab") (Project.BuildPending Nothing) -- same status, ignored
           , BuildStatusChanged (Sha "1ab") (Project.BuildPending (Just "example.com/1ab"))
           , CommentAdded (PullRequestId 9) "bot" "Waiting on CI job: example.com/1ab"
           , CommentAdded (PullRequestId 7) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 7) "bot" "Pull request approved for merge behind 2 PRs."
-          , BuildStatusChanged (Sha "cd8") (Project.BuildSucceeded) -- PR#2 sha, ignored
-          , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded) -- testing build passed on PR#1
-          , PullRequestClosed (PullRequestId 9) -- GH automatically closes PR#1 after merging
+          , BuildStatusChanged (Sha "cd8") (Project.BuildSucceeded) -- PR#8 sha, ignored
+          , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded) -- PR#9
+          , PullRequestClosed (PullRequestId 9)
           , CommentAdded (PullRequestId 8) "bot" "Rebased as 2bc, waiting for CI …"
           , BuildStatusChanged (Sha "2bc") (Project.BuildPending (Just "example.com/2bc"))
           , CommentAdded (PullRequestId 8) "bot" "Waiting on CI job: example.com/2bc"
           , BuildStatusChanged (Sha "36a") (Project.BuildSucceeded) -- arbitrary sha, ignored
-          , BuildStatusChanged (Sha "2bc") (Project.BuildFailed (Just "example.com/2bc")) -- PR#2
+          , BuildStatusChanged (Sha "2bc") (Project.BuildFailed (Just "example.com/2bc")) -- PR#8
           , CommentAdded (PullRequestId 8) "bot" "The build failed: example.com/2bc"
           , CommentAdded (PullRequestId 7) "bot" "Rebased as 3cd, waiting for CI …"
           , BuildStatusChanged (Sha "3cd") (Project.BuildPending (Just "example.com/3cd"))
-          , BuildStatusChanged (Sha "3cd") (Project.BuildSucceeded) -- testing build passed on PR#3
-          , PullRequestClosed (PullRequestId 7) -- GH automatically closes PR#3 after merging
+          , BuildStatusChanged (Sha "3cd") (Project.BuildSucceeded) -- testing build passed on PR#7
+          , PullRequestClosed (PullRequestId 7)
           ]
         -- For this test, we assume all integrations and pushes succeed.
         results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
