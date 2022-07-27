@@ -353,12 +353,10 @@ handlePullRequestClosedByUser :: PullRequestId -> ProjectState -> Action Project
 handlePullRequestClosedByUser = handlePullRequestClosed User
 
 handlePullRequestClosed :: PRCloseCause -> PullRequestId -> ProjectState -> Action ProjectState
-handlePullRequestClosed closingReason pr state = Pr.deletePullRequest pr <$>
-    case Pr.integrationCandidate state of
-      Just candidatePr | candidatePr == pr -> do
-        leaveComment pr $ prClosingMessage closingReason
-        pure state { Pr.integrationCandidate = Nothing }
-      _notCandidatePr -> pure state
+handlePullRequestClosed closingReason pr state = do
+  when (pr `elem` Pr.integratedPullRequests state) $
+    leaveComment pr $ prClosingMessage closingReason
+  pure $ Pr.deletePullRequest pr state
 
 handlePullRequestEdited :: PullRequestId -> Text -> BaseBranch -> ProjectState -> Action ProjectState
 handlePullRequestEdited prId newTitle newBaseBranch state =
@@ -529,24 +527,19 @@ handleMergeRequested projectConfig prId author state pr approvalType = do
     else pure state''
 
 handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
-handleBuildStatusChanged buildSha newStatus state =
-  -- If there is an integration candidate, and its integration sha matches that
-  -- of the build, then update the build status for that pull request. Otherwise
-  -- do nothing.
-  let
-    setBuildStatus prId pullRequest = case Pr.integrationStatus pullRequest of
-      Integrated candidateSha _oldStatus | candidateSha == buildSha -> do
-        let pullRequest' = pullRequest { Pr.integrationStatus = Integrated buildSha newStatus }
-        -- Sometimes we want to leave an informative comment on the PR. This isn't for things
-        -- that require user feedback like build failures.
-        case newStatus of
-          BuildPending (Just url) -> pullRequest' <$ leaveComment prId ("Waiting on CI job: " <> url)
-          _                       -> pure pullRequest'
-      _ -> pure pullRequest
-    in
-    case Pr.integrationCandidate state of
-      Just candidateId -> Pr.updatePullRequestM candidateId (setBuildStatus candidateId) state
-      Nothing          -> pure state
+handleBuildStatusChanged buildSha newStatus = pure . Pr.updatePullRequests setBuildStatus
+  where
+  setBuildStatus pr = case Pr.integrationStatus pr of
+    -- If there is an integration candidate, and its integration sha matches that of the build,
+    -- then update the build status for that pull request. Otherwise do nothing.
+    Integrated candidateSha _ | candidateSha == buildSha ->
+      pr { Pr.integrationStatus = Integrated buildSha newStatus
+         , Pr.needsFeedback = case newStatus of
+                              BuildPending (Just _) -> True
+                              BuildFailed _         -> True
+                              _                     -> Pr.needsFeedback pr -- unchanged
+         }
+    _ -> pr
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
 synchronizeState :: ProjectState -> Action ProjectState
@@ -590,38 +583,23 @@ synchronizeState stateInitial =
 proceed :: ProjectState -> Action ProjectState
 proceed state = do
   state' <- provideFeedback state
-  case Pr.getIntegrationCandidate state' of
-    Just candidate -> proceedCandidate candidate state'
-    -- No current integration candidate, find the next one.
-    Nothing -> case Pr.candidatePullRequests state' of
-      -- No pull requests eligible, do nothing.
-      []     -> return state'
-      -- Found a new candidate, try to integrate it.
-      pr : _ -> tryIntegratePullRequest pr state'
+  case (Pr.integratedPullRequests state', Pr.candidatePullRequests state') of
+                           -- Proceed with an already integrated candidate
+    (candidate:_, _)    -> proceedCandidate candidate state'
+                           -- Found a new candidate, try to integrate it.
+    (_,           pr:_) -> tryIntegratePullRequest pr state'
+                           -- No pull requests eligible, do nothing.
+    (_,           _)    -> return state'
 
--- TODO: Get rid of the tuple; just pass the ID and do the lookup with fromJust.
-proceedCandidate :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
-proceedCandidate (pullRequestId, pullRequest) state =
-  case Pr.integrationStatus pullRequest of
-    NotIntegrated ->
-      tryIntegratePullRequest pullRequestId state
-
-    IncorrectBaseBranch ->
-      -- It shouldn't come to this point; a PR with an incorrect base branch is
-      -- never considered as a candidate.
-      pure $ Pr.setIntegrationCandidate Nothing state
-
-    Conflicted _branch _ ->
-      -- If it conflicted, it should no longer be the integration candidate.
-      pure $ Pr.setIntegrationCandidate Nothing state
-
-    Integrated sha buildStatus -> case buildStatus of
-      BuildPending _ -> pure state
-      BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) sha state
-      BuildFailed _  -> do
-        -- If the build failed, this is no longer a candidate.
-        pure $ Pr.setIntegrationCandidate Nothing $
-          Pr.setNeedsFeedback pullRequestId True state
+-- | Pushes the given integrated PR to be the new master if the build succeeded
+proceedCandidate :: PullRequestId -> ProjectState -> Action ProjectState
+proceedCandidate pullRequestId state =
+  case Pr.lookupPullRequest pullRequestId state of
+  Nothing -> pure state -- should not be reachable when called from 'proceed'
+  Just pullRequest ->
+    case Pr.integrationStatus pullRequest of
+    Integrated sha BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) sha state
+    _                             -> pure state -- BuildFailed/BuildPending
 
 -- Given a pull request id, returns the name of the GitHub ref for that pull
 -- request, so it can be fetched.
@@ -657,12 +635,11 @@ tryIntegratePullRequest pr state =
           Pr.setNeedsFeedback pr True state
 
       Right (Sha sha) -> do
-        -- If it succeeded, update the integration candidate, and set the build
-        -- to pending, as pushing should have triggered a build.
+        -- If it succeeded, set the build to pending,
+        -- as pushing should have triggered a build.
         pure
           -- The build pending has no URL here, we need to wait for semaphore
           $ Pr.setIntegrationStatus pr (Integrated (Sha sha) (BuildPending Nothing))
-          $ Pr.setIntegrationCandidate (Just pr)
           $ Pr.setNeedsFeedback pr True
           $ state
 
@@ -711,7 +688,7 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       -- GitHub will mark the pull request as closed, and when we receive that
       -- event, we delete the pull request from the state. Until then, reset
       -- the integration candidate, so we proceed with the next pull request.
-      PushOk -> pure $ Pr.setIntegrationCandidate Nothing state
+      PushOk -> pure $ Pr.setIntegrationStatus pullRequestId Promoted state
       -- If something was pushed to the target branch while the candidate was
       -- being tested, try to integrate again and hope that next time the push
       -- succeeds.
@@ -742,7 +719,7 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
   PrStatusBuildPending url ->
     let Sha sha = fromJust $ getIntegrationSha pr
     in case url of
-         Just url' -> Text.concat ["CI job started [here](", url', ")."]
+         Just url' -> Text.concat ["Waiting on CI job: ", url']
          Nothing   -> Text.concat ["Rebased as ", sha, ", waiting for CI …"]
   PrStatusIntegrated -> "The build succeeded."
   PrStatusIncorrectBaseBranch -> "Merge rejected: the target branch must be the integration branch."

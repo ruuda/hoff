@@ -21,13 +21,13 @@ module Project
   PullRequestStatus (..),
   Owner,
   approvedPullRequests,
+  integratedPullRequests,
   candidatePullRequests,
   classifyPullRequest,
   classifyPullRequests,
   deletePullRequest,
   emptyProjectState,
   existsPullRequest,
-  getIntegrationCandidate,
   getQueuePosition,
   insertPullRequest,
   loadProjectState,
@@ -39,11 +39,11 @@ module Project
   displayApproval,
   setApproval,
   newApprovalOrder,
-  setIntegrationCandidate,
   setIntegrationStatus,
   setNeedsFeedback,
   updatePullRequest,
   updatePullRequestM,
+  updatePullRequests,
   getOwners,
   wasIntegrationAttemptFor,
   MergeWindow(..))
@@ -76,13 +76,20 @@ data BuildStatus
   | BuildFailed (Maybe Text)
   deriving (Eq, Show, Generic)
 
--- When attempting to integrated changes, there can be three states: no attempt
--- has been made to integrate; integration (e.g. merge or rebase) was successful
--- and the new commit has the given sha; and an attempt to integrate was made,
--- but it wasn't successful.
+-- When attempting to integrated changes, there can be five states:
+--
+-- * no attempt has been made to integrate;
+--
+-- * integration (e.g. merge or rebase) was successful
+--   and the new commit has the given sha;
+--
+-- * the PR has been promoted to be the new master;
+--
+-- * and an attempt to integrate was made, but it wasn't successful.
 data IntegrationStatus
   = NotIntegrated
   | Integrated Sha BuildStatus
+  | Promoted
   | Conflicted BaseBranch GitIntegrationFailure
   | IncorrectBaseBranch
   deriving (Eq, Show, Generic)
@@ -134,7 +141,6 @@ data PullRequest = PullRequest
 
 data ProjectState = ProjectState
   { pullRequests              :: IntMap PullRequest
-  , integrationCandidate      :: Maybe PullRequestId
   , pullRequestApprovalIndex  :: Int
   }
   deriving (Eq, Show, Generic)
@@ -188,7 +194,6 @@ saveProjectState fname state = do
 emptyProjectState :: ProjectState
 emptyProjectState = ProjectState {
   pullRequests         = IntMap.empty,
-  integrationCandidate = Nothing,
   pullRequestApprovalIndex = 0
 }
 
@@ -247,6 +252,11 @@ updatePullRequestM (PullRequestId n) f state = do
     | key == n  = f
     | otherwise = pure
 
+updatePullRequests :: (PullRequest -> PullRequest) -> ProjectState -> ProjectState
+updatePullRequests f state = state {
+  pullRequests = IntMap.map f $ pullRequests state
+}
+
 -- Marks the pull request as approved by somebody or nobody.
 setApproval :: PullRequestId -> Maybe Approval -> ProjectState -> ProjectState
 setApproval pr newApproval = updatePullRequest pr changeApproval
@@ -271,17 +281,6 @@ setIntegrationStatus pr newStatus = updatePullRequest pr changeIntegrationStatus
         }
       _notIntegrated -> pullRequest { integrationStatus = newStatus }
 
-getIntegrationCandidate :: ProjectState -> Maybe (PullRequestId, PullRequest)
-getIntegrationCandidate state = do
-  pullRequestId <- integrationCandidate state
-  candidate     <- lookupPullRequest pullRequestId state
-  return (pullRequestId, candidate)
-
-setIntegrationCandidate :: Maybe PullRequestId -> ProjectState -> ProjectState
-setIntegrationCandidate pr state = state {
-  integrationCandidate = pr
-}
-
 setNeedsFeedback :: PullRequestId -> Bool -> ProjectState -> ProjectState
 setNeedsFeedback pr value = updatePullRequest pr (\pullRequest -> pullRequest { needsFeedback = value })
 
@@ -298,6 +297,7 @@ classifyPullRequest pr = case approval pr of
       BuildPending url -> PrStatusBuildPending url
       BuildSucceeded   -> PrStatusIntegrated
       BuildFailed url  -> PrStatusFailedBuild url
+    Promoted -> PrStatusIntegrated
 
 -- Classify every pull request into one status. Orders pull requests by id in
 -- ascending order.
@@ -352,6 +352,7 @@ isQueued pr = case approval pr of
     IncorrectBaseBranch -> False
     Conflicted _ _ -> False
     Integrated _ _ -> False
+    Promoted -> False
 
 -- Returns whether a pull request is in the process of being integrated (pending
 -- build results).
@@ -366,6 +367,7 @@ isInProgress pr = case approval pr of
       BuildPending _ -> True
       BuildSucceeded -> False
       BuildFailed _  -> False
+    Promoted -> False
 
 -- Return whether the given commit is, or in this approval cycle ever was, an
 -- integration candidate of this pull request.
@@ -373,6 +375,13 @@ wasIntegrationAttemptFor :: Sha -> PullRequest -> Bool
 wasIntegrationAttemptFor commit pr = case integrationStatus pr of
   Integrated candidate _buildStatus -> commit `elem` (candidate : integrationAttempts pr)
   _                                 -> commit `elem` (integrationAttempts pr)
+
+integratedPullRequests :: ProjectState -> [PullRequestId]
+integratedPullRequests = filterPullRequestsBy $ isIntegrated . integrationStatus
+  where
+  isIntegrated (Integrated _ (BuildPending _)) = True
+  isIntegrated (Integrated _ BuildSucceeded)   = True
+  isIntegrated _                               = False
 
 -- Returns the pull requests that have not been integrated yet, in order of
 -- ascending id.

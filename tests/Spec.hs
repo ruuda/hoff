@@ -75,15 +75,12 @@ singlePullRequestState pr prBranch baseBranch prSha prAuthor =
   in
     fst $ runAction $ handleEventTest event Project.emptyProjectState
 
-candidateState :: PullRequestId -> Branch -> BaseBranch -> Sha -> Username -> Username -> Sha -> ProjectState
-candidateState pr prBranch baseBranch prSha prAuthor approvedBy candidateSha =
-  let
-    state = Project.setIntegrationStatus pr
-      (Project.Integrated candidateSha (Project.BuildPending Nothing))
-      $ Project.setApproval pr (Just (Approval approvedBy Project.Merge 0))
-      $ singlePullRequestState pr prBranch baseBranch prSha prAuthor
-  in
-    state { Project.integrationCandidate = Just pr }
+candidateState
+  :: PullRequestId -> Branch -> BaseBranch -> Sha -> Username -> Username -> Sha -> ProjectState
+candidateState pr prBranch baseBranch prSha prAuthor approvedBy candidateSha
+  = Project.setIntegrationStatus pr (Project.Integrated candidateSha (Project.BuildPending Nothing))
+  $ Project.setApproval pr (Just (Approval approvedBy Project.Merge 0))
+  $ singlePullRequestState pr prBranch baseBranch prSha prAuthor
 
 -- Types and functions to mock running an action without actually doing anything.
 
@@ -247,6 +244,14 @@ handleEventTest = Logic.handleEvent testTriggerConfig testProjectConfig testmerg
 handleEventsTest :: [Event] -> ProjectState -> Action ProjectState
 handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig testProjectConfig testmergeWindowExemptionConfig) state events
 
+-- Same as 'integratedPullRequests' but paired with the underlying objects.
+getIntegrationCandidates :: ProjectState -> [(PullRequestId, PullRequest)]
+getIntegrationCandidates state =
+  [ (pullRequestId, candidate)
+  | pullRequestId <- Project.integratedPullRequests state
+  , Just candidate <- [Project.lookupPullRequest pullRequestId state]
+  ]
+
 main :: IO ()
 main = hspec $ do
   describe "Logic.handleEvent" $ do
@@ -281,13 +286,13 @@ main = hspec $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 1) (Branch "p") masterBranch (Sha "ea0") "frank" "deckard" (Sha "cf4")
           state' = fst $ runAction $ handleEventTest event state
-      Project.integrationCandidate state' `shouldBe` Nothing
+      Project.integratedPullRequests state' `shouldBe` []
 
     it "does not modify the integration candidate if a different PR was closed" $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 2) (Branch "p") masterBranch (Sha "a38") "franz" "deckard" (Sha "ed0")
           state' = fst $ runAction $ handleEventTest event state
-      Project.integrationCandidate state' `shouldBe` (Just $ PullRequestId 2)
+      Project.integratedPullRequests state' `shouldBe` [PullRequestId 2]
 
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
@@ -418,7 +423,7 @@ main = hspec $ do
         state  = candidateState (PullRequestId 1) (Branch "p") masterBranch (Sha "a38") "johanna" "deckard" (Sha "84c")
         state' = fst $ runAction $ handleEventTest event state
         pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.integrationStatus pr `shouldBe` Project.Integrated (Sha "84c") Project.BuildSucceeded
+      Project.integrationStatus pr `shouldBe` Project.Promoted
 
     it "ignores a build status change for commits that are not the integration candidate" $ do
       let
@@ -584,7 +589,7 @@ main = hspec $ do
       -- The first pull request should be dropped, and a comment should be
       -- left indicating why. Then the second pull request should be at the
       -- front of the queue.
-      Project.integrationCandidate state' `shouldBe` Just (PullRequestId 2)
+      Project.integratedPullRequests state' `shouldBe` [PullRequestId 2]
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
@@ -1011,7 +1016,7 @@ main = hspec $ do
         ]
 
       Project.approval pr `shouldBe` Nothing
-      Project.integrationCandidate state' `shouldBe` Nothing
+      Project.integratedPullRequests state' `shouldBe` []
 
     it "shows an appropriate message when the commit is changed on an approved PR" $ do
       let
@@ -1036,7 +1041,7 @@ main = hspec $ do
         ]
 
       Project.approval pr `shouldBe` Nothing
-      Project.integrationCandidate state' `shouldBe` Nothing
+      Project.integratedPullRequests state' `shouldBe` []
 
 
   describe "Logic.proceedUntilFixedPoint" $ do
@@ -1051,7 +1056,7 @@ main = hspec $ do
           , resultPush = [PushRejected "test"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
+        [(prId, pullRequest)] = getIntegrationCandidates state'
       Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") (Project.BuildPending Nothing)
       prId    `shouldBe` PullRequestId 1
       actions `shouldBe`
@@ -1072,7 +1077,7 @@ main = hspec $ do
           , resultPush = [PushRejected "test"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        (prId, pullRequest) = fromJust $ Project.getIntegrationCandidate state'
+        [(prId, pullRequest)] = getIntegrationCandidates state'
       Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") (Project.BuildPending Nothing)
       prId    `shouldBe` PullRequestId 2
       actions `shouldBe`
@@ -1095,15 +1100,14 @@ main = hspec $ do
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
-          , Project.integrationCandidate = Just $ PullRequestId 1
           , Project.pullRequestApprovalIndex = 1
           }
         results = defaultResults { resultIntegrate = [Right (Sha "38e")] }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        candidate = Project.getIntegrationCandidate state'
+        candidates = getIntegrationCandidates state'
       -- After a successful push, the candidate should be gone.
-      candidate `shouldBe` Nothing
-      actions   `shouldBe` [ATryPromote (Branch "results/rachael") (Sha "38d")]
+      candidates `shouldBe` []
+      actions    `shouldBe` [ATryPromote (Branch "results/rachael") (Sha "38d")]
 
     it "pushes and tags with a new version after a successful build (merge and tag)" $ do
       let
@@ -1120,7 +1124,6 @@ main = hspec $ do
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
-          , Project.integrationCandidate = Just $ PullRequestId 1
           , Project.pullRequestApprovalIndex = 1
           }
         results = defaultResults
@@ -1128,10 +1131,10 @@ main = hspec $ do
           , resultGetChangelog = [Just "changelog"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        candidate = Project.getIntegrationCandidate state'
+        candidates = getIntegrationCandidates state'
       -- After a successful push, the candidate should be gone.
-      candidate `shouldBe` Nothing
-      actions   `shouldBe`
+      candidates `shouldBe` []
+      actions    `shouldBe`
         [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2")
             (TagMessage "v2\n\nchangelog")
         , ALeaveComment (PullRequestId 1)
@@ -1153,7 +1156,6 @@ main = hspec $ do
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
-          , Project.integrationCandidate = Just $ PullRequestId 1
           , Project.pullRequestApprovalIndex = 1
           }
         results = defaultResults
@@ -1161,10 +1163,10 @@ main = hspec $ do
           , resultGetChangelog = [Just "changelog"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        candidate = Project.getIntegrationCandidate state'
+        candidates = getIntegrationCandidates state'
       -- After a successful push, the candidate should be gone.
-      candidate `shouldBe` Nothing
-      actions   `shouldBe`
+      candidates `shouldBe` []
+      actions    `shouldBe`
         [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2")
             (TagMessage "v2 (autodeploy)\n\nchangelog")
         , ALeaveComment (PullRequestId 1)
@@ -1186,16 +1188,15 @@ main = hspec $ do
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
-          , Project.integrationCandidate = Just $ PullRequestId 1
           , Project.pullRequestApprovalIndex = 1
           }
         results = defaultResults { resultIntegrate = [Right (Sha "38e")]
                                  , resultGetLatestVersion = [Left (TagName "abcdef")] }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        candidate = Project.getIntegrationCandidate state'
+        candidates = getIntegrationCandidates state'
       -- After a successful push, the candidate should be gone.
-      candidate `shouldBe` Nothing
-      actions   `shouldBe` [ ALeaveComment (PullRequestId 1) "@deckard Sorry, I could not tag your PR. The previous tag `abcdef` seems invalid"
+      candidates `shouldBe` []
+      actions    `shouldBe` [ ALeaveComment (PullRequestId 1) "@deckard Sorry, I could not tag your PR. The previous tag `abcdef` seems invalid"
                            , ATryPromote (Branch "results/rachael") (Sha "38d")]
 
 
@@ -1216,7 +1217,6 @@ main = hspec $ do
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
-          , Project.integrationCandidate = Just $ PullRequestId 1
           , Project.pullRequestApprovalIndex = 1
           }
         -- Run 'proceedUntilFixedPoint', and pretend that pushes fail (because
@@ -1226,7 +1226,7 @@ main = hspec $ do
           , resultPush = [PushRejected "test"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
+        [(_, pullRequest')] = getIntegrationCandidates state'
 
       Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") (Project.BuildPending Nothing)
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
@@ -1253,7 +1253,6 @@ main = hspec $ do
           }
         state = ProjectState
           { Project.pullRequests         = IntMap.singleton 1 pullRequest
-          , Project.integrationCandidate = Just $ PullRequestId 1
           , Project.pullRequestApprovalIndex = 1
           }
         -- Run 'proceedUntilFixedPoint', and pretend that pushes fail (because
@@ -1264,7 +1263,7 @@ main = hspec $ do
           , resultGetChangelog = [Just "changelog"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        (_, pullRequest') = fromJust $ Project.getIntegrationCandidate state'
+        [(_, pullRequest')] = getIntegrationCandidates state'
 
       Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") (Project.BuildPending Nothing)
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
@@ -1353,16 +1352,16 @@ main = hspec $ do
           state = ProjectState
             {
               Project.pullRequests         = prMap,
-              Project.integrationCandidate = Nothing,
               Project.pullRequestApprovalIndex = 2
             }
           -- Proceeding should pick the next pull request as candidate.
           results = defaultResults { resultIntegrate = [Right (Sha "38e")] }
           (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-          Just (cId, _candidate) = Project.getIntegrationCandidate state'
+          [(cId, _candidate)] = getIntegrationCandidates state'
       cId     `shouldBe` PullRequestId 2
       actions `shouldBe`
-        [ ATryIntegrate "Merge #2: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/2/head", Sha "f37") False
+        [ ATryPromote (Branch "results/leon") (Sha "38d")
+        , ATryIntegrate "Merge #2: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n" (Branch "refs/pull/2/head", Sha "f37") False
         , ALeaveComment (PullRequestId 2) "Rebased as 38e, waiting for CI \x2026"
         ]
 
@@ -1694,3 +1693,179 @@ main = hspec $ do
       Right state' <- Project.loadProjectState fname
       state `shouldBe` state'
       removeFile fname
+
+    it "handles a sequence of merges: success, success, success" $ do
+      -- An afternoon of work on PRs:
+      -- * three PRs are merged and approved in order
+      -- * build always succeeds
+      -- * Hoff is notified of its own comments and of GH closing merged PRs
+      -- Hoff should process albeit ignore its own comments.
+      --
+      -- This serves to test and document a complete workflow.
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.insertPullRequest (PullRequestId 3) (Branch "trd") masterBranch (Sha "ef3") "Third PR"  (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ BuildStatusChanged (Sha "ab1") (Project.BuildSucceeded) -- PR#1 sha, ignored
+          , CommentAdded (PullRequestId 1) "deckard" "@someone Thanks for your review."
+          , CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 1) "bot" "Pull request approved for merge, rebasing now."
+          , CommentAdded (PullRequestId 1) "bot" "Rebased as 1ab, waiting for CI …"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "bot" "Pull request approved for merge behind 1 PR."
+          , BuildStatusChanged (Sha "ef3") (Project.BuildSucceeded) -- PR#3 sha, ignored
+          , BuildStatusChanged (Sha "1ab") (Project.BuildPending Nothing) -- same status, ignored
+          , BuildStatusChanged (Sha "1ab") (Project.BuildPending (Just "example.com/1ab"))
+          , CommentAdded (PullRequestId 1) "bot" "Waiting on CI job: example.com/1ab"
+          , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 3) "bot" "Pull request approved for merge behind 2 PRs."
+          , BuildStatusChanged (Sha "cd2") (Project.BuildSucceeded) -- PR#2 sha, ignored
+          , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded) -- PR#1
+          , PullRequestClosed (PullRequestId 1)
+          , CommentAdded (PullRequestId 2) "bot" "Rebased as 2bc, waiting for CI …"
+          , BuildStatusChanged (Sha "2bc") (Project.BuildPending (Just "example.com/2bc"))
+          , CommentAdded (PullRequestId 2) "bot" "Waiting on CI job: example.com/2bc"
+          , BuildStatusChanged (Sha "36a") (Project.BuildSucceeded) -- arbitrary sha, ignored
+          , BuildStatusChanged (Sha "2bc") (Project.BuildSucceeded) -- PR#2
+          , PullRequestClosed (PullRequestId 2)
+          , CommentAdded (PullRequestId 3) "bot" "Rebased as 3cd, waiting for CI …"
+          , BuildStatusChanged (Sha "3cd") (Project.BuildPending (Just "example.com/3cd"))
+          , BuildStatusChanged (Sha "3cd") (Project.BuildSucceeded) -- PR#3
+          , PullRequestClosed (PullRequestId 3)
+          ]
+        -- For this test, we assume all integrations and pushes succeed.
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2bc")
+                                                     , Right (Sha "3cd") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (Branch "refs/pull/1/head", Sha "ab1")
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ALeaveComment (PullRequestId 1) "Waiting on CI job: example.com/1ab"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 3)
+                        "Pull request approved for merge by @deckard, \
+                        \waiting for rebase behind 2 pull requests."
+        , ATryPromote (Branch "fst") (Sha "1ab")
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (Branch "refs/pull/2/head", Sha "cd2")
+                        False
+        , ALeaveComment (PullRequestId 2) "Rebased as 2bc, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Waiting on CI job: example.com/2bc"
+        , ATryPromote (Branch "snd") (Sha "2bc")
+        , ATryIntegrate "Merge #3: Third PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (Branch "refs/pull/3/head", Sha "ef3")
+                        False
+        , ALeaveComment (PullRequestId 3) "Rebased as 3cd, waiting for CI …"
+        , ALeaveComment (PullRequestId 3) "Waiting on CI job: example.com/3cd"
+        , ATryPromote (Branch "trd") (Sha "3cd")
+        ]
+
+    it "handles a sequence of merges: success, failure, success" $ do
+      -- An afternoon of work on PRs:
+      -- * three PRs are merged and approved in reverse order
+      -- * build does not always succeeds
+      -- * Hoff is notified of its own comments and of GH auto-closing PRs
+      -- Hoff should process albeit ignore its own comments.
+      --
+      -- This serves to test and document a complete workflow.
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 9) (Branch "nth") masterBranch (Sha "ab9") "Ninth PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 8) (Branch "eth") masterBranch (Sha "cd8") "Eighth PR" (Username "rachael")
+          $ Project.insertPullRequest (PullRequestId 7) (Branch "sth") masterBranch (Sha "ef7") "Seventh PR"  (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ BuildStatusChanged (Sha "ab9") (Project.BuildSucceeded) -- PR#9 sha, ignored
+          , CommentAdded (PullRequestId 9) "deckard" "@someone Thanks for your review."
+          , CommentAdded (PullRequestId 9) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 9) "bot" "Pull request approved for merge, rebasing now."
+          , CommentAdded (PullRequestId 9) "bot" "Rebased as 1ab, waiting for CI …"
+          , CommentAdded (PullRequestId 8) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 8) "bot" "Pull request approved for merge behind 1 PR."
+          , BuildStatusChanged (Sha "ef7") (Project.BuildSucceeded) -- PR#7 sha, ignored
+          , BuildStatusChanged (Sha "1ab") (Project.BuildPending Nothing) -- same status, ignored
+          , BuildStatusChanged (Sha "1ab") (Project.BuildPending (Just "example.com/1ab"))
+          , CommentAdded (PullRequestId 9) "bot" "Waiting on CI job: example.com/1ab"
+          , CommentAdded (PullRequestId 7) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 7) "bot" "Pull request approved for merge behind 2 PRs."
+          , BuildStatusChanged (Sha "cd8") (Project.BuildSucceeded) -- PR#8 sha, ignored
+          , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded) -- PR#9
+          , PullRequestClosed (PullRequestId 9)
+          , CommentAdded (PullRequestId 8) "bot" "Rebased as 2bc, waiting for CI …"
+          , BuildStatusChanged (Sha "2bc") (Project.BuildPending (Just "example.com/2bc"))
+          , CommentAdded (PullRequestId 8) "bot" "Waiting on CI job: example.com/2bc"
+          , BuildStatusChanged (Sha "36a") (Project.BuildSucceeded) -- arbitrary sha, ignored
+          , BuildStatusChanged (Sha "2bc") (Project.BuildFailed (Just "example.com/2bc")) -- PR#8
+          , CommentAdded (PullRequestId 8) "bot" "The build failed: example.com/2bc"
+          , CommentAdded (PullRequestId 7) "bot" "Rebased as 3cd, waiting for CI …"
+          , BuildStatusChanged (Sha "3cd") (Project.BuildPending (Just "example.com/3cd"))
+          , BuildStatusChanged (Sha "3cd") (Project.BuildSucceeded) -- testing build passed on PR#7
+          , PullRequestClosed (PullRequestId 7)
+          ]
+        -- For this test, we assume all integrations and pushes succeed.
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2bc")
+                                                     , Right (Sha "3cd") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 9)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #9: Ninth PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (Branch "refs/pull/9/head", Sha "ab9")
+                        False
+        , ALeaveComment (PullRequestId 9) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 8)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ALeaveComment (PullRequestId 9) "Waiting on CI job: example.com/1ab"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 7)
+                        "Pull request approved for merge by @deckard, \
+                        \waiting for rebase behind 2 pull requests."
+        , ATryPromote (Branch "nth") (Sha "1ab")
+        , ATryIntegrate "Merge #8: Eighth PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (Branch "refs/pull/8/head", Sha "cd8")
+                        False
+        , ALeaveComment (PullRequestId 8) "Rebased as 2bc, waiting for CI …"
+        , ALeaveComment (PullRequestId 8) "Waiting on CI job: example.com/2bc"
+        , ALeaveComment (PullRequestId 8)
+                        "The build failed: example.com/2bc\n\
+                        \If this is the result of a flaky test, \
+                        \close and reopen the PR, then tag me again.\n\
+                        \Otherwise, push a new commit and tag me again."
+        , ATryIntegrate "Merge #7: Seventh PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (Branch "refs/pull/7/head", Sha "ef7")
+                        False
+        , ALeaveComment (PullRequestId 7) "Rebased as 3cd, waiting for CI …"
+        , ALeaveComment (PullRequestId 7) "Waiting on CI job: example.com/3cd"
+        , ATryPromote (Branch "sth") (Sha "3cd")
+        ]
