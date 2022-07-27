@@ -1788,7 +1788,7 @@ main = hspec $ do
         , ATryIntegrate "Merge #1: First PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
-                        (Branch "refs/pull/1/head", Sha "ab1")
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
                         False
         , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
         , AIsReviewer "deckard"
@@ -1801,22 +1801,25 @@ main = hspec $ do
                         "Pull request approved for merge by @deckard, \
                         \waiting for rebase behind 2 pull requests."
         , ATryPromote (Branch "fst") (Sha "1ab")
+        , ACleanupTestBranch (PullRequestId 1)
         , ATryIntegrate "Merge #2: Second PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
-                        (Branch "refs/pull/2/head", Sha "cd2")
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
                         False
         , ALeaveComment (PullRequestId 2) "Rebased as 2bc, waiting for CI …"
         , ALeaveComment (PullRequestId 2) "Waiting on CI job: example.com/2bc"
         , ATryPromote (Branch "snd") (Sha "2bc")
+        , ACleanupTestBranch (PullRequestId 2)
         , ATryIntegrate "Merge #3: Third PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
-                        (Branch "refs/pull/3/head", Sha "ef3")
+                        (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
                         False
         , ALeaveComment (PullRequestId 3) "Rebased as 3cd, waiting for CI …"
         , ALeaveComment (PullRequestId 3) "Waiting on CI job: example.com/3cd"
         , ATryPromote (Branch "trd") (Sha "3cd")
+        , ACleanupTestBranch (PullRequestId 3)
         ]
 
     it "handles a sequence of merges: success, failure, success" $ do
@@ -1875,7 +1878,7 @@ main = hspec $ do
         , ATryIntegrate "Merge #9: Ninth PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
-                        (Branch "refs/pull/9/head", Sha "ab9")
+                        (PullRequestId 9, Branch "refs/pull/9/head", Sha "ab9")
                         False
         , ALeaveComment (PullRequestId 9) "Rebased as 1ab, waiting for CI …"
         , AIsReviewer "deckard"
@@ -1888,10 +1891,11 @@ main = hspec $ do
                         "Pull request approved for merge by @deckard, \
                         \waiting for rebase behind 2 pull requests."
         , ATryPromote (Branch "nth") (Sha "1ab")
+        , ACleanupTestBranch (PullRequestId 9)
         , ATryIntegrate "Merge #8: Eighth PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
-                        (Branch "refs/pull/8/head", Sha "cd8")
+                        (PullRequestId 8, Branch "refs/pull/8/head", Sha "cd8")
                         False
         , ALeaveComment (PullRequestId 8) "Rebased as 2bc, waiting for CI …"
         , ALeaveComment (PullRequestId 8) "Waiting on CI job: example.com/2bc"
@@ -1903,9 +1907,10 @@ main = hspec $ do
         , ATryIntegrate "Merge #7: Seventh PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
-                        (Branch "refs/pull/7/head", Sha "ef7")
+                        (PullRequestId 7, Branch "refs/pull/7/head", Sha "ef7")
                         False
         , ALeaveComment (PullRequestId 7) "Rebased as 3cd, waiting for CI …"
         , ALeaveComment (PullRequestId 7) "Waiting on CI job: example.com/3cd"
         , ATryPromote (Branch "sth") (Sha "3cd")
+        , ACleanupTestBranch (PullRequestId 7)
         ]
