@@ -1719,6 +1719,7 @@ main = hspec $ do
           , BuildStatusChanged (Sha "ef3") (Project.BuildSucceeded) -- PR#3 sha, ignored
           , BuildStatusChanged (Sha "1ab") (Project.BuildPending Nothing) -- same status, ignored
           , BuildStatusChanged (Sha "1ab") (Project.BuildPending (Just "example.com/1ab"))
+          , BuildStatusChanged (Sha "1ab") (Project.BuildPending (Just "example.com/1ab")) -- dup!
           , CommentAdded (PullRequestId 1) "bot" "Waiting on CI job: example.com/1ab"
           , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 3) "bot" "Pull request approved for merge behind 2 PRs."
@@ -1816,6 +1817,7 @@ main = hspec $ do
           , CommentAdded (PullRequestId 8) "bot" "Waiting on CI job: example.com/2bc"
           , BuildStatusChanged (Sha "36a") (Project.BuildSucceeded) -- arbitrary sha, ignored
           , BuildStatusChanged (Sha "2bc") (Project.BuildFailed (Just "example.com/2bc")) -- PR#8
+          , BuildStatusChanged (Sha "2bc") (Project.BuildFailed (Just "example.com/2bc")) -- dup!
           , CommentAdded (PullRequestId 8) "bot" "The build failed: example.com/2bc"
           , CommentAdded (PullRequestId 7) "bot" "Rebased as 3cd, waiting for CI …"
           , BuildStatusChanged (Sha "3cd") (Project.BuildPending (Just "example.com/3cd"))
