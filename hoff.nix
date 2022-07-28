@@ -4,7 +4,7 @@ let
 in
   haskellPackages.mkDerivation {
     pname = "hoff";
-    version = "0.25.8";
+    version = "0.25.9";
 
     src =
       let
