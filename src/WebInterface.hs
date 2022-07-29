@@ -230,7 +230,7 @@ viewGroupedProjectQueues projects = do
 viewPullRequest :: ProjectInfo -> PullRequestId -> PullRequest -> Html
 viewPullRequest info pullRequestId pullRequest = do
   a ! href (toValue $ pullRequestUrl info pullRequestId) $ toHtml $ Project.title pullRequest
-  span ! class_ "prId" $ toHtml $ showPullRequestId pullRequestId
+  span ! class_ "prId" $ toHtml $ prettyPullRequestId pullRequestId
 
   case integrationStatus pullRequest of
     Integrated _ (BuildStarted ciUrl) -> do
@@ -276,8 +276,8 @@ pullRequestUrl info (PullRequestId n) =
     )
 
 -- | Textual rendering of a PullRequestId as #number
-showPullRequestId :: PullRequestId -> String
-showPullRequestId (PullRequestId n) = "#" <> show n
+prettyPullRequestId :: PullRequestId -> String
+prettyPullRequestId (PullRequestId n) = "#" <> show n
 
 prFailed :: Project.PullRequestStatus -> Bool
 prFailed Project.PrStatusFailedConflict  = True
