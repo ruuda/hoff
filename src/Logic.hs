@@ -551,9 +551,9 @@ handleBuildStatusChanged buildSha newStatus = pure . Pr.updatePullRequests setBu
     Integrated candidateSha oldStatus | candidateSha == buildSha && newStatus /= oldStatus ->
       pr { Pr.integrationStatus = Integrated buildSha newStatus
          , Pr.needsFeedback = case newStatus of
-                              BuildPending (Just _) -> True
-                              BuildFailed _         -> True
-                              _                     -> Pr.needsFeedback pr -- unchanged
+                              BuildStarted _ -> True
+                              BuildFailed _  -> True
+                              _              -> Pr.needsFeedback pr -- unchanged
          }
     _ -> pr
 
@@ -655,7 +655,7 @@ tryIntegratePullRequest pr state =
         -- as pushing should have triggered a build.
         pure
           -- The build pending has no URL here, we need to wait for semaphore
-          $ Pr.setIntegrationStatus pr (Integrated (Sha sha) (BuildPending Nothing))
+          $ Pr.setIntegrationStatus pr (Integrated (Sha sha) BuildPending)
           $ Pr.setNeedsFeedback pr True
           $ state
 
@@ -734,11 +734,9 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
       0 -> format "Pull request approved for {} by @{}, rebasing now." [approvalCommand, approvedBy]
       1 -> format "Pull request approved for {} by @{}, waiting for rebase behind one pull request." [approvalCommand, approvedBy]
       n -> format "Pull request approved for {} by @{}, waiting for rebase behind {} pull requests." (approvalCommand, approvedBy, n)
-  PrStatusBuildPending url ->
-    let Sha sha = fromJust $ getIntegrationSha pr
-    in case url of
-         Just url' -> Text.concat ["Waiting on CI job: ", url']
-         Nothing   -> Text.concat ["Rebased as ", sha, ", waiting for CI …"]
+  PrStatusBuildPending -> let Sha sha = fromJust $ getIntegrationSha pr
+                          in  Text.concat ["Rebased as ", sha, ", waiting for CI …"]
+  PrStatusBuildStarted url -> Text.concat ["[CI job](", url, ") started."]
   PrStatusIntegrated -> "The build succeeded."
   PrStatusIncorrectBaseBranch -> "Merge rejected: the target branch must be the integration branch."
   PrStatusWrongFixups -> "Pull request cannot be integrated as it contains fixup commits that do not belong to any other commits."

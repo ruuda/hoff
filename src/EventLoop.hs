@@ -73,11 +73,13 @@ eventFromCommentPayload payload =
     _ -> Nothing
 
 mapCommitStatus :: Github.CommitStatus -> Maybe Text.Text -> Project.BuildStatus
-mapCommitStatus status url = case status of
-  Github.Pending -> Project.BuildPending url
+mapCommitStatus status murl = case status of
+  Github.Pending -> case murl of
+                    Nothing -> Project.BuildPending
+                    Just url -> Project.BuildStarted url
   Github.Success -> Project.BuildSucceeded
-  Github.Failure -> Project.BuildFailed url
-  Github.Error   -> Project.BuildFailed url
+  Github.Failure -> Project.BuildFailed murl
+  Github.Error   -> Project.BuildFailed murl
 
 eventFromCommitStatusPayload :: CommitStatusPayload -> Logic.Event
 eventFromCommitStatusPayload payload =

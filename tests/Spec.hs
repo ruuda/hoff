@@ -79,7 +79,7 @@ singlePullRequestState pr prBranch baseBranch prSha prAuthor =
 candidateState
   :: PullRequestId -> Branch -> BaseBranch -> Sha -> Username -> Username -> Sha -> ProjectState
 candidateState pr prBranch baseBranch prSha prAuthor approvedBy candidateSha
-  = Project.setIntegrationStatus pr (Project.Integrated candidateSha (Project.BuildPending Nothing))
+  = Project.setIntegrationStatus pr (Project.Integrated candidateSha Project.BuildPending)
   $ Project.setApproval pr (Just (Approval approvedBy Project.Merge 0))
   $ singlePullRequestState pr prBranch baseBranch prSha prAuthor
 
@@ -313,8 +313,8 @@ main = hspec $ do
       let
         state0 = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "abc") "alice"
         state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge 0)) state0
-        state2 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc0") (Project.BuildPending Nothing)) state1
-        state3 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc1") (Project.BuildPending Nothing)) state2
+        state2 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc0") Project.BuildPending) state1
+        state3 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc1") Project.BuildPending) state2
         event  = PullRequestCommitChanged (PullRequestId 1) (Sha "dc0")
         stateAfterEvent = fst . runAction . handleEventTest event
       -- The commit changed, but to the sha that is the integration candidate,
@@ -333,7 +333,7 @@ main = hspec $ do
         prAt1   = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
         prAt2   = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
       Project.approval          prAt1 `shouldBe` Just (Approval "deckard" Project.Merge 0)
-      Project.integrationStatus prAt1 `shouldBe` Project.Integrated (Sha "bcd") (Project.BuildPending Nothing)
+      Project.integrationStatus prAt1 `shouldBe` Project.Integrated (Sha "bcd") Project.BuildPending
       Project.approval          prAt2 `shouldBe` Nothing
       Project.integrationStatus prAt2 `shouldBe` Project.NotIntegrated
 
@@ -440,7 +440,7 @@ main = hspec $ do
         pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 2) state'
       -- Even though the build status changed for "0ad" which is a known commit,
       -- only the build status of the integration candidate can be changed.
-      Project.integrationStatus pr1 `shouldBe` Project.Integrated (Sha "84c") (Project.BuildPending Nothing)
+      Project.integrationStatus pr1 `shouldBe` Project.Integrated (Sha "84c") Project.BuildPending
       Project.integrationStatus pr2 `shouldBe` Project.NotIntegrated
 
     it "only checks if a comment author is a reviewer for comment commands" $ do
@@ -527,7 +527,7 @@ main = hspec $ do
             title = "Add Nexus 7 experiment",
             author = Username "tyrell",
             approval = Just (Approval (Username "deckard") Project.Merge 0),
-            integrationStatus = Project.Integrated (Sha "b71") (Project.BuildPending Nothing),
+            integrationStatus = Project.Integrated (Sha "b71") Project.BuildPending,
             integrationAttempts = [],
             needsFeedback = False
             })
@@ -1012,7 +1012,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.integrationStatus pr == Project.Integrated (Sha "def2345") (Project.BuildPending Nothing))
+        (\pr -> Project.integrationStatus pr == Project.Integrated (Sha "def2345") Project.BuildPending)
 
     it "loses approval after an invalid base branch change" $ do
       let
@@ -1080,7 +1080,7 @@ main = hspec $ do
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         [(prId, pullRequest)] = getIntegrationCandidates state'
-      Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") (Project.BuildPending Nothing)
+      Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") Project.BuildPending
       prId    `shouldBe` PullRequestId 1
       actions `shouldBe`
         [ ATryIntegrate "Merge #1: Untitled\n\nApproved-by: fred\nAuto-deploy: false\n"
@@ -1102,7 +1102,7 @@ main = hspec $ do
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         [(prId, pullRequest)] = getIntegrationCandidates state'
-      Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") (Project.BuildPending Nothing)
+      Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") Project.BuildPending
       prId    `shouldBe` PullRequestId 2
       actions `shouldBe`
         [ ATryIntegrate "Merge #2: Another untitled\n\nApproved-by: fred\nAuto-deploy: false\n"
@@ -1259,7 +1259,7 @@ main = hspec $ do
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         [(_, pullRequest')] = getIntegrationCandidates state'
 
-      Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") (Project.BuildPending Nothing)
+      Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") Project.BuildPending
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
       actions `shouldBe`
         [ ATryPromote (Branch "results/rachael") (Sha "38d")
@@ -1297,7 +1297,7 @@ main = hspec $ do
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         [(_, pullRequest')] = getIntegrationCandidates state'
 
-      Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") (Project.BuildPending Nothing)
+      Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") Project.BuildPending
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
       actions `shouldBe`
         [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2") (TagMessage "v2\n\nchangelog")
@@ -1325,7 +1325,7 @@ main = hspec $ do
           $ Project.emptyProjectState
         events =
           [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
-          , BuildStatusChanged (Sha "b71") (Project.BuildPending Nothing)
+          , BuildStatusChanged (Sha "b71") Project.BuildPending
           , BuildStatusChanged (Sha "b71") Project.BuildSucceeded
           ]
         -- For this test, the first integration succeeds. Then we push, which
@@ -1415,8 +1415,8 @@ main = hspec $ do
           $ Project.emptyProjectState
         events =
           [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
-          , BuildStatusChanged (Sha "b71") (Project.BuildPending Nothing)
-          , BuildStatusChanged (Sha "b71") (Project.BuildPending (Just "https://status.example.com/b71"))
+          , BuildStatusChanged (Sha "b71") Project.BuildPending
+          , BuildStatusChanged (Sha "b71") (Project.BuildStarted "https://status.example.com/b71")
           , BuildStatusChanged (Sha "b71") $ Project.BuildFailed $ Just $ pack "https://example.com/build-status"
             -- User summons bot again because CI failed for an external reason.
           , CommentAdded (PullRequestId 1) "deckard" "@bot merge"
@@ -1433,7 +1433,7 @@ main = hspec $ do
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n"
                         (PullRequestId 1, Branch "refs/pull/1/head", Sha "a39") False
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI \x2026"
-        , ALeaveComment (PullRequestId 1) "Waiting on CI job: https://status.example.com/b71"
+        , ALeaveComment (PullRequestId 1) "[CI job](https://status.example.com/b71) started."
         , ALeaveComment (PullRequestId 1) "The build failed: https://example.com/build-status\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.\nOtherwise, push a new commit and tag me again."
         , AIsReviewer "deckard"
           -- Nothing has changed for the bot because b71 has already failed, so
@@ -1688,7 +1688,7 @@ main = hspec $ do
     it "converts a commit status pending event" $ do
       let payload = testCommitStatusPayload Github.Pending
           Just event = convertGithubEvent $ Github.CommitStatus payload
-      event `shouldBe` (BuildStatusChanged (Sha "b26354") (Project.BuildPending (Just "https://travis-ci.org/rachael/owl/builds/1982")))
+      event `shouldBe` (BuildStatusChanged (Sha "b26354") (Project.BuildStarted "https://travis-ci.org/rachael/owl/builds/1982"))
 
     it "converts a commit status success event" $ do
       let payload = testCommitStatusPayload Github.Success
@@ -1755,23 +1755,23 @@ main = hspec $ do
           , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 2) "bot" "Pull request approved for merge behind 1 PR."
           , BuildStatusChanged (Sha "ef3") (Project.BuildSucceeded) -- PR#3 sha, ignored
-          , BuildStatusChanged (Sha "1ab") (Project.BuildPending Nothing) -- same status, ignored
-          , BuildStatusChanged (Sha "1ab") (Project.BuildPending (Just "example.com/1ab"))
-          , BuildStatusChanged (Sha "1ab") (Project.BuildPending (Just "example.com/1ab")) -- dup!
-          , CommentAdded (PullRequestId 1) "bot" "Waiting on CI job: example.com/1ab"
+          , BuildStatusChanged (Sha "1ab") (Project.BuildPending) -- same status, ignored
+          , BuildStatusChanged (Sha "1ab") (Project.BuildStarted "example.com/1ab")
+          , BuildStatusChanged (Sha "1ab") (Project.BuildStarted "example.com/1ab") -- dup!
+          , CommentAdded (PullRequestId 1) "bot" "[CI job](example.com/1ab) started."
           , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 3) "bot" "Pull request approved for merge behind 2 PRs."
           , BuildStatusChanged (Sha "cd2") (Project.BuildSucceeded) -- PR#2 sha, ignored
           , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded) -- PR#1
           , PullRequestClosed (PullRequestId 1)
           , CommentAdded (PullRequestId 2) "bot" "Rebased as 2bc, waiting for CI …"
-          , BuildStatusChanged (Sha "2bc") (Project.BuildPending (Just "example.com/2bc"))
-          , CommentAdded (PullRequestId 2) "bot" "Waiting on CI job: example.com/2bc"
+          , BuildStatusChanged (Sha "2bc") (Project.BuildStarted "example.com/2bc")
+          , CommentAdded (PullRequestId 2) "bot" "[CI job](example.com/2bc) started."
           , BuildStatusChanged (Sha "36a") (Project.BuildSucceeded) -- arbitrary sha, ignored
           , BuildStatusChanged (Sha "2bc") (Project.BuildSucceeded) -- PR#2
           , PullRequestClosed (PullRequestId 2)
           , CommentAdded (PullRequestId 3) "bot" "Rebased as 3cd, waiting for CI …"
-          , BuildStatusChanged (Sha "3cd") (Project.BuildPending (Just "example.com/3cd"))
+          , BuildStatusChanged (Sha "3cd") (Project.BuildStarted "example.com/3cd")
           , BuildStatusChanged (Sha "3cd") (Project.BuildSucceeded) -- PR#3
           , PullRequestClosed (PullRequestId 3)
           ]
@@ -1795,7 +1795,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2)
                        "Pull request approved for merge by @deckard, \
                        \waiting for rebase behind one pull request."
-        , ALeaveComment (PullRequestId 1) "Waiting on CI job: example.com/1ab"
+        , ALeaveComment (PullRequestId 1) "[CI job](example.com/1ab) started."
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 3)
                         "Pull request approved for merge by @deckard, \
@@ -1808,7 +1808,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
                         False
         , ALeaveComment (PullRequestId 2) "Rebased as 2bc, waiting for CI …"
-        , ALeaveComment (PullRequestId 2) "Waiting on CI job: example.com/2bc"
+        , ALeaveComment (PullRequestId 2) "[CI job](example.com/2bc) started."
         , ATryPromote (Branch "snd") (Sha "2bc")
         , ACleanupTestBranch (PullRequestId 2)
         , ATryIntegrate "Merge #3: Third PR\n\n\
@@ -1817,7 +1817,7 @@ main = hspec $ do
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
                         False
         , ALeaveComment (PullRequestId 3) "Rebased as 3cd, waiting for CI …"
-        , ALeaveComment (PullRequestId 3) "Waiting on CI job: example.com/3cd"
+        , ALeaveComment (PullRequestId 3) "[CI job](example.com/3cd) started."
         , ATryPromote (Branch "trd") (Sha "3cd")
         , ACleanupTestBranch (PullRequestId 3)
         ]
@@ -1845,23 +1845,23 @@ main = hspec $ do
           , CommentAdded (PullRequestId 8) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 8) "bot" "Pull request approved for merge behind 1 PR."
           , BuildStatusChanged (Sha "ef7") (Project.BuildSucceeded) -- PR#7 sha, ignored
-          , BuildStatusChanged (Sha "1ab") (Project.BuildPending Nothing) -- same status, ignored
-          , BuildStatusChanged (Sha "1ab") (Project.BuildPending (Just "example.com/1ab"))
-          , CommentAdded (PullRequestId 9) "bot" "Waiting on CI job: example.com/1ab"
+          , BuildStatusChanged (Sha "1ab") (Project.BuildPending) -- same status, ignored
+          , BuildStatusChanged (Sha "1ab") (Project.BuildStarted "example.com/1ab")
+          , CommentAdded (PullRequestId 9) "bot" "[CI job](example.com/1ab) started."
           , CommentAdded (PullRequestId 7) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 7) "bot" "Pull request approved for merge behind 2 PRs."
           , BuildStatusChanged (Sha "cd8") (Project.BuildSucceeded) -- PR#8 sha, ignored
           , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded) -- PR#9
           , PullRequestClosed (PullRequestId 9)
           , CommentAdded (PullRequestId 8) "bot" "Rebased as 2bc, waiting for CI …"
-          , BuildStatusChanged (Sha "2bc") (Project.BuildPending (Just "example.com/2bc"))
-          , CommentAdded (PullRequestId 8) "bot" "Waiting on CI job: example.com/2bc"
+          , BuildStatusChanged (Sha "2bc") (Project.BuildStarted "example.com/2bc")
+          , CommentAdded (PullRequestId 8) "bot" "[CI job](example.com/2bc) started."
           , BuildStatusChanged (Sha "36a") (Project.BuildSucceeded) -- arbitrary sha, ignored
           , BuildStatusChanged (Sha "2bc") (Project.BuildFailed (Just "example.com/2bc")) -- PR#8
           , BuildStatusChanged (Sha "2bc") (Project.BuildFailed (Just "example.com/2bc")) -- dup!
           , CommentAdded (PullRequestId 8) "bot" "The build failed: example.com/2bc"
           , CommentAdded (PullRequestId 7) "bot" "Rebased as 3cd, waiting for CI …"
-          , BuildStatusChanged (Sha "3cd") (Project.BuildPending (Just "example.com/3cd"))
+          , BuildStatusChanged (Sha "3cd") (Project.BuildStarted "example.com/3cd")
           , BuildStatusChanged (Sha "3cd") (Project.BuildSucceeded) -- testing build passed on PR#7
           , PullRequestClosed (PullRequestId 7)
           ]
@@ -1885,7 +1885,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 8)
                        "Pull request approved for merge by @deckard, \
                        \waiting for rebase behind one pull request."
-        , ALeaveComment (PullRequestId 9) "Waiting on CI job: example.com/1ab"
+        , ALeaveComment (PullRequestId 9) "[CI job](example.com/1ab) started."
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 7)
                         "Pull request approved for merge by @deckard, \
@@ -1898,7 +1898,7 @@ main = hspec $ do
                         (PullRequestId 8, Branch "refs/pull/8/head", Sha "cd8")
                         False
         , ALeaveComment (PullRequestId 8) "Rebased as 2bc, waiting for CI …"
-        , ALeaveComment (PullRequestId 8) "Waiting on CI job: example.com/2bc"
+        , ALeaveComment (PullRequestId 8) "[CI job](example.com/2bc) started."
         , ALeaveComment (PullRequestId 8)
                         "The build failed: example.com/2bc\n\
                         \If this is the result of a flaky test, \
@@ -1910,7 +1910,7 @@ main = hspec $ do
                         (PullRequestId 7, Branch "refs/pull/7/head", Sha "ef7")
                         False
         , ALeaveComment (PullRequestId 7) "Rebased as 3cd, waiting for CI …"
-        , ALeaveComment (PullRequestId 7) "Waiting on CI job: example.com/3cd"
+        , ALeaveComment (PullRequestId 7) "[CI job](example.com/3cd) started."
         , ATryPromote (Branch "sth") (Sha "3cd")
         , ACleanupTestBranch (PullRequestId 7)
         ]

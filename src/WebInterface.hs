@@ -237,7 +237,7 @@ viewPullRequest info (PullRequestId n) pullRequest =
     span ! class_ "prId" $ toHtml $ "#" <> (show n)
 
     case integrationStatus pullRequest of
-      Integrated _ (BuildPending (Just ciUrl)) -> do
+      Integrated _ (BuildStarted ciUrl) -> do
         span "  | "
         a ! href (toValue ciUrl) $ "View in CI"
 
@@ -276,5 +276,6 @@ prFailed (Project.PrStatusFailedBuild _) = True
 prFailed _                               = False
 
 prPending :: Project.PullRequestStatus -> Bool
-prPending (Project.PrStatusBuildPending _) = True
+prPending Project.PrStatusBuildPending     = True
+prPending (Project.PrStatusBuildStarted _) = True
 prPending _                                = False
