@@ -30,6 +30,7 @@ import qualified Data.ByteString.Lazy as LazyByteString
 import qualified Data.Text as Text
 
 import Format (format)
+import Git (Sha(..))
 import Project (Approval (..), BuildStatus (..), IntegrationStatus (..), Owner, ProjectInfo,
                 ProjectState, PullRequest (integrationStatus))
 import Types (PullRequestId (..), Username (..))
@@ -233,13 +234,21 @@ viewPullRequest info pullRequestId pullRequest = do
   span ! class_ "prId" $ toHtml $ prettyPullRequestId pullRequestId
 
   case integrationStatus pullRequest of
-    Integrated _ (BuildStarted ciUrl) -> do
+    Integrated sha BuildPending -> do
       span "  | "
-      a ! href (toValue ciUrl) $ "View in CI"
+      a ! href (toValue $ commitUrl info sha) $ toHtml $ prettySha sha
 
-    Integrated _ (BuildFailed (Just ciUrl)) -> do
+    Integrated sha (BuildStarted ciUrl) -> do
       span "  | "
-      a ! href (toValue ciUrl) $ "View in CI"
+      a ! href (toValue ciUrl) $ "🟡"
+      span " "
+      a ! href (toValue $ commitUrl info sha) $ toHtml $ prettySha sha
+
+    Integrated sha (BuildFailed (Just ciUrl)) -> do
+      span "  | "
+      a ! href (toValue ciUrl) $ "❌"
+      span " "
+      a ! href (toValue $ commitUrl info sha) $ toHtml $ prettySha sha
 
     _ -> pure ()
 
@@ -275,9 +284,21 @@ pullRequestUrl info (PullRequestId n) =
     , n
     )
 
+commitUrl :: ProjectInfo -> Sha -> Text
+commitUrl info (Sha sha) =
+  format "https://github.com/{}/{}/commit/{}"
+    ( Project.owner info
+    , Project.repository info
+    , sha
+    )
+
 -- | Textual rendering of a PullRequestId as #number
 prettyPullRequestId :: PullRequestId -> String
 prettyPullRequestId (PullRequestId n) = "#" <> show n
+
+-- | Textual rendering of a Sha with just the first 7 characters
+prettySha :: Sha -> Text
+prettySha (Sha sha) = Text.take 7 sha
 
 prFailed :: Project.PullRequestStatus -> Bool
 prFailed Project.PrStatusFailedConflict  = True
