@@ -237,15 +237,15 @@ viewPullRequest info pullRequestId pullRequest = do
     Integrated sha buildStatus -> do
       span "  | "
       case buildStatus of
-        (BuildStarted ciUrl) -> do
-          a ! href (toValue ciUrl) $ "🟡"
-          span " "
-        (BuildFailed (Just ciUrl)) -> do
-          a ! href (toValue ciUrl) $ "❌"
-          span " "
-        _ -> pure ()
+        (BuildStarted ciUrl)       -> ciLink ciUrl "🟡"
+        (BuildFailed (Just ciUrl)) -> ciLink ciUrl "❌"
+        _                          -> pure ()
       a ! href (toValue $ commitUrl info sha) $ toHtml $ prettySha sha
     _ -> pure ()
+  where
+  ciLink url text = do
+    a ! href (toValue url) $ text
+    span " "
 
 viewPullRequestWithApproval :: ProjectInfo -> PullRequestId -> PullRequest -> Html
 viewPullRequestWithApproval info prId pullRequest = do
