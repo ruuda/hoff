@@ -78,12 +78,13 @@ data ActionFree a
   = TryIntegrate
     -- This is a record type, but the names are currently only used for documentation.
     { _mergeCommitMessage   :: Text
-    , _integrationCandidate :: (Branch, Sha)
+    , _integrationCandidate :: (PullRequestId, Branch, Sha)
     , _alwaysAddMergeCommit :: Bool
     , _cont                 :: Either IntegrationFailure Sha -> a
     }
   | TryPromote Branch Sha (PushResult -> a)
   | TryPromoteWithTag Branch Sha TagName TagMessage (PushWithTagResult -> a)
+  | CleanupTestBranch PullRequestId a
   | LeaveComment PullRequestId Text a
   | IsReviewer Username (Bool -> a)
   | GetPullRequest PullRequestId (Maybe GithubApi.PullRequest -> a)
@@ -117,7 +118,7 @@ doGit = hoistFree (InR . InL)
 doGithub :: GithubOperation a -> Operation a
 doGithub = hoistFree (InR . InR)
 
-tryIntegrate :: Text -> (Branch, Sha) -> Bool -> Action (Either IntegrationFailure Sha)
+tryIntegrate :: Text -> (PullRequestId, Branch, Sha) -> Bool -> Action (Either IntegrationFailure Sha)
 tryIntegrate mergeMessage candidate alwaysAddMergeCommit = liftF $ TryIntegrate mergeMessage candidate alwaysAddMergeCommit id
 
 -- Try to fast-forward the remote target branch (usually master) to the new sha.
@@ -130,6 +131,9 @@ tryPromote prBranch newHead = liftF $ TryPromote prBranch newHead id
 tryPromoteWithTag :: Branch -> Sha -> TagName -> TagMessage -> Action PushWithTagResult
 tryPromoteWithTag prBranch newHead tagName tagMessage =
   liftF $ TryPromoteWithTag prBranch newHead tagName tagMessage id
+
+cleanupTestBranch :: PullRequestId -> Action ()
+cleanupTestBranch pullRequestId = liftF $ CleanupTestBranch pullRequestId ()
 
 -- Leave a comment on the given pull request.
 leaveComment :: PullRequestId -> Text -> Action ()
@@ -157,14 +161,20 @@ getDateTime = liftF $ GetDateTime id
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
 runAction config = foldFree $ \case
-  TryIntegrate message (ref, sha) alwaysAddMergeCommit cont -> do
+  TryIntegrate message (pr, ref, sha) alwaysAddMergeCommit cont -> do
     doGit $ ensureCloned config
+
+    -- Needed for backwards compatibility with existing repositories
+    -- as we now test at testing/<pr_id> instead of testing.
+    -- When no repositories have a testing branch, this can safely be removed.
+    _ <- doGit $ Git.deleteRemoteBranch $ Git.Branch $ Config.testBranch config
+
     shaOrFailed <- doGit $ Git.tryIntegrate
       message
       ref
       sha
       (Git.RemoteBranch $ Config.branch config)
-      (Git.Branch $ Config.testBranch config)
+      (testBranch config pr)
       alwaysAddMergeCommit
 
     case shaOrFailed of
@@ -190,6 +200,12 @@ runAction config = foldFree $ \case
             <*  Git.deleteTag tagName
             -- Deleting tag after atomic push is important to maintain one "source of truth", namely
             -- the origin
+
+  CleanupTestBranch pr cont -> do
+    let branch = testBranch config pr
+    doGit $ Git.deleteBranch branch
+    _ <- doGit $ Git.deleteRemoteBranch branch
+    pure cont
 
   LeaveComment pr body cont -> do
     doGithub $ GithubApi.leaveComment pr body
@@ -617,7 +633,7 @@ tryIntegratePullRequest pr state =
     Approval (Username approvedBy) approvalType _prOrder = fromJust $ Pr.approval pullRequest
     candidateSha = Pr.sha pullRequest
     candidateRef = getPullRequestRef pr
-    candidate = (candidateRef, candidateSha)
+    candidate = (pr, candidateRef, candidateSha)
     mergeMessageLines =
       [ format "Merge #{}: {}" (prNumber, title)
       , ""
@@ -688,7 +704,9 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       -- GitHub will mark the pull request as closed, and when we receive that
       -- event, we delete the pull request from the state. Until then, reset
       -- the integration candidate, so we proceed with the next pull request.
-      PushOk -> pure $ Pr.setIntegrationStatus pullRequestId Promoted state
+      PushOk -> do
+        cleanupTestBranch pullRequestId
+        pure $ Pr.setIntegrationStatus pullRequestId Promoted state
       -- If something was pushed to the target branch while the candidate was
       -- being tested, try to integrate again and hope that next time the push
       -- succeeds.
@@ -792,3 +810,9 @@ messageForTag :: TagName -> ApprovedFor -> Text -> TagMessage
 messageForTag (TagName tagName) tagOrDeploy changelog =
   TagMessage $ tagName <> mark <> "\n\n" <> changelog
   where mark = if Pr.needsDeploy tagOrDeploy then " (autodeploy)" else ""
+
+pullRequestIdToText :: PullRequestId -> Text
+pullRequestIdToText (PullRequestId prid) = Text.pack $ show prid
+
+testBranch :: ProjectConfiguration -> PullRequestId -> Git.Branch
+testBranch config pullRequestId = Git.Branch $ Config.testBranch config <> "/" <> pullRequestIdToText pullRequestId

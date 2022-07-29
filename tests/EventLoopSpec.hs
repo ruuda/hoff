@@ -409,7 +409,33 @@ eventLoopSpec = parallel $ do
       -- if there are no other PRs depending on it.
       -- The other branches should be left untouched.
       branches `shouldMatchList`
-        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused", "integration"]
+        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused"]
+
+    it "keeps the integration test branch on a failing build" $ do
+      (history, branches, _tagRefs, _tagAnns) <- withTestEnv' $ \ shas runLoop _git -> do
+        let
+          [_c0, _c1, _c2, _c3, _c3', c4, _c5, _c6, _c7, _c7f, _c8] = shas
+          -- Note that at the remote, refs/pull/4/head points to c4.
+          pr4 = PullRequestId 4
+          branch = Branch "ahead"
+          baseBranch = masterBranch
+
+        void $ runLoop Project.emptyProjectState
+          [
+            Logic.PullRequestOpened pr4 branch baseBranch c4 "Add Leon test results" "deckard",
+            Logic.CommentAdded pr4 "rachael" "@bot merge",
+            Logic.BuildStatusChanged c4 (BuildFailed Nothing)
+          ]
+      -- the build failed, so master's history is unchanged
+      -- ... and the integration/4 branch is kept for inpection of the CI build
+      history `shouldBe`
+        [ "* c3"
+        , "* c2"
+        , "* c1"
+        , "* c0"
+        ]
+      branches `shouldMatchList`
+        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused", "integration/4"]
 
     it "handles a fast-forwardable pull request with tag" $ do
       (history, _branches, tagRefs, tagAnns) <- withTestEnv' $ \ shas runLoop _git -> do
@@ -555,7 +581,7 @@ eventLoopSpec = parallel $ do
       -- if there are no other PRs depending on it.
       -- The other branches should be left untouched.
       branches `shouldMatchList`
-        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused", "integration"]
+        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused"]
 
     it "handles a non-conflicting non-fast-forwardable pull request with tag" $ do
       (history, _branches, tagRefs, tagAnns) <- withTestEnv' $ \ shas runLoop _git -> do
@@ -1210,4 +1236,4 @@ eventLoopSpec = parallel $ do
         , "* c0"
         ]
       branches `shouldMatchList`
-        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused", "integration"]
+        fmap Branch ["ahead", "intro", "master", "alternative", "fixup", "unused"]
