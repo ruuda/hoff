@@ -22,6 +22,8 @@ module Project
   Owner,
   approvedPullRequests,
   integratedPullRequests,
+  integratedPullRequestsAfter,
+  unfailingIntegratedPullRequests,
   candidatePullRequests,
   classifyPullRequest,
   classifyPullRequests,
@@ -30,6 +32,8 @@ module Project
   existsPullRequest,
   getQueuePosition,
   insertPullRequest,
+  integrationSha,
+  lookupIntegrationSha,
   loadProjectState,
   lookupPullRequest,
   saveProjectState,
@@ -44,11 +48,14 @@ module Project
   updatePullRequest,
   updatePullRequestM,
   updatePullRequests,
+  updatePullRequestsWithId,
   getOwners,
   wasIntegrationAttemptFor,
+  filterPullRequestsBy,
   MergeWindow(..))
 where
 
+import Control.Monad ((<=<))
 import Data.Aeson (FromJSON, ToJSON)
 import Data.ByteString (readFile)
 import Data.ByteString.Lazy (writeFile)
@@ -259,6 +266,11 @@ updatePullRequests f state = state {
   pullRequests = IntMap.map f $ pullRequests state
 }
 
+updatePullRequestsWithId :: (PullRequestId -> PullRequest -> PullRequest) -> ProjectState -> ProjectState
+updatePullRequestsWithId f state = state {
+  pullRequests = IntMap.mapWithKey (f . PullRequestId) $ pullRequests state
+}
+
 -- Marks the pull request as approved by somebody or nobody.
 setApproval :: PullRequestId -> Maybe Approval -> ProjectState -> ProjectState
 setApproval pr newApproval = updatePullRequest pr changeApproval
@@ -383,10 +395,28 @@ wasIntegrationAttemptFor commit pr = case integrationStatus pr of
 integratedPullRequests :: ProjectState -> [PullRequestId]
 integratedPullRequests = filterPullRequestsBy $ isIntegrated . integrationStatus
   where
-  isIntegrated (Integrated _ BuildPending)     = True
-  isIntegrated (Integrated _ (BuildStarted _)) = True
-  isIntegrated (Integrated _ BuildSucceeded)   = True
-  isIntegrated _                               = False
+  isIntegrated (Integrated _ _) = True
+  isIntegrated _                = False
+
+-- | Lists the pull requests that are integrated on top of the given id.
+integratedPullRequestsAfter :: PullRequestId -> ProjectState -> [PullRequestId]
+integratedPullRequestsAfter pid state =
+  case approvalOrder <$> (approval =<< lookupPullRequest pid state) of
+  Nothing    -> []
+  Just order -> filterPullRequestsBy (isIntegratedAfter order) state
+  where
+  isIntegratedAfter order pr = isIntegrated (integrationStatus pr)
+                            && (approvalOrder <$> approval pr) > Just order
+  isIntegrated (Integrated _ _) = True
+  isIntegrated _                = False
+
+unfailingIntegratedPullRequests :: ProjectState -> [PullRequestId]
+unfailingIntegratedPullRequests = filterPullRequestsBy $ isUnfailingIntegrated . integrationStatus
+  where
+  isUnfailingIntegrated (Integrated _ BuildPending)     = True
+  isUnfailingIntegrated (Integrated _ (BuildStarted _)) = True
+  isUnfailingIntegrated (Integrated _ BuildSucceeded)   = True
+  isUnfailingIntegrated _                               = False
 
 -- Returns the pull requests that have not been integrated yet, in order of
 -- ascending id.
@@ -425,3 +455,10 @@ needsTag :: ApprovedFor -> Bool
 needsTag Merge          = False
 needsTag MergeAndDeploy = True
 needsTag MergeAndTag    = True
+
+integrationSha :: PullRequest -> Maybe Sha
+integrationSha PullRequest{integrationStatus = Integrated s _} = Just s
+integrationSha _                                               = Nothing
+
+lookupIntegrationSha :: PullRequestId -> ProjectState -> Maybe Sha
+lookupIntegrationSha pid = integrationSha <=< lookupPullRequest pid

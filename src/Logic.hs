@@ -36,14 +36,14 @@ where
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Concurrent.STM.TMVar (TMVar, newTMVarIO, readTMVar, swapTMVar)
 import Control.Exception (assert)
-import Control.Monad (foldM, unless, void, when)
+import Control.Monad (foldM, unless, void, when, (>=>))
 import Control.Monad.Free (Free (..), foldFree, hoistFree, liftF)
 import Control.Monad.STM (atomically)
 import Data.Bifunctor (first)
 import Data.Either.Extra (maybeToEither)
 import Data.Functor.Sum (Sum (InL, InR))
 import Data.IntSet (IntSet)
-import Data.Maybe (fromJust, isJust, listToMaybe)
+import Data.Maybe (fromJust, isJust, listToMaybe, fromMaybe)
 import Data.Text (Text)
 import Data.Text.Lazy (toStrict)
 import GHC.Natural (Natural)
@@ -79,6 +79,7 @@ data ActionFree a
     -- This is a record type, but the names are currently only used for documentation.
     { _mergeCommitMessage   :: Text
     , _integrationCandidate :: (PullRequestId, Branch, Sha)
+    , _train                :: [PullRequestId]
     , _alwaysAddMergeCommit :: Bool
     , _cont                 :: Either IntegrationFailure Sha -> a
     }
@@ -97,6 +98,7 @@ data ActionFree a
 data PRCloseCause =
       User            -- ^ The user closed the PR.
     | StopIntegration -- ^ We close and reopen the PR internally to stop its integration if it is approved.
+  deriving Show
 
 type Action = Free ActionFree
 
@@ -118,8 +120,8 @@ doGit = hoistFree (InR . InL)
 doGithub :: GithubOperation a -> Operation a
 doGithub = hoistFree (InR . InR)
 
-tryIntegrate :: Text -> (PullRequestId, Branch, Sha) -> Bool -> Action (Either IntegrationFailure Sha)
-tryIntegrate mergeMessage candidate alwaysAddMergeCommit = liftF $ TryIntegrate mergeMessage candidate alwaysAddMergeCommit id
+tryIntegrate :: Text -> (PullRequestId, Branch, Sha) -> [PullRequestId] -> Bool -> Action (Either IntegrationFailure Sha)
+tryIntegrate mergeMessage candidate train alwaysAddMergeCommit = liftF $ TryIntegrate mergeMessage candidate train alwaysAddMergeCommit id
 
 -- Try to fast-forward the remote target branch (usually master) to the new sha.
 -- Before doing so, force-push that SHA to the pull request branch, and after
@@ -161,7 +163,7 @@ getDateTime = liftF $ GetDateTime id
 -- Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
 runAction config = foldFree $ \case
-  TryIntegrate message (pr, ref, sha) alwaysAddMergeCommit cont -> do
+  TryIntegrate message (pr, ref, sha) train alwaysAddMergeCommit cont -> do
     doGit $ ensureCloned config
 
     -- Needed for backwards compatibility with existing repositories
@@ -173,7 +175,7 @@ runAction config = foldFree $ \case
       message
       ref
       sha
-      (Git.RemoteBranch $ Config.branch config)
+      (fromMaybe (Git.RemoteBranch $ Config.branch config) (trainBranch train))
       (testBranch config pr)
       alwaysAddMergeCommit
 
@@ -223,13 +225,19 @@ runAction config = foldFree $ \case
     openPrIds <- doGithub GithubApi.getOpenPullRequests
     pure $ cont openPrIds
 
-  GetLatestVersion sha cont -> doGit $
+  GetLatestVersion sha cont -> doGit $ do
+    Git.fetchBranchWithTags $ Branch (Config.branch config)
     cont . maybe (Right 0) (\t -> maybeToEither t $ parseVersion t) <$> Git.lastTag sha
 
   GetChangelog prevTag curHead cont -> doGit $
     cont <$> Git.shortlog (AsRefSpec prevTag) (AsRefSpec curHead)
 
   GetDateTime cont -> doTime $ cont <$> Time.getDateTime
+
+  where
+  trainBranch :: [PullRequestId] -> Maybe Git.RemoteBranch
+  trainBranch [] = Nothing
+  trainBranch train = Just $ last [testRemoteBranch config pr | pr <- train]
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
@@ -370,9 +378,14 @@ handlePullRequestClosedByUser = handlePullRequestClosed User
 
 handlePullRequestClosed :: PRCloseCause -> PullRequestId -> ProjectState -> Action ProjectState
 handlePullRequestClosed closingReason pr state = do
-  when (pr `elem` Pr.integratedPullRequests state) $
+  when (pr `elem` Pr.unfailingIntegratedPullRequests state) $
     leaveComment pr $ prClosingMessage closingReason
-  pure $ Pr.deletePullRequest pr state
+  -- actually delete the pull request
+  pure . Pr.deletePullRequest pr
+       $ case Pr.lookupPullRequest pr state of
+         Just (Pr.PullRequest{Pr.integrationStatus = Promoted}) -> state
+         -- we unintegrate PRs after it if it has not been promoted to master
+         _ -> unintegrateAfter pr $ state
 
 handlePullRequestEdited :: PullRequestId -> Text -> BaseBranch -> ProjectState -> Action ProjectState
 handlePullRequestEdited prId newTitle newBaseBranch state =
@@ -542,20 +555,36 @@ handleMergeRequested projectConfig prId author state pr approvalType = do
     then pure $ Pr.setIntegrationStatus prId IncorrectBaseBranch state''
     else pure state''
 
-handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
-handleBuildStatusChanged buildSha newStatus = pure . Pr.updatePullRequests setBuildStatus
+-- | Given a pull request id, mark all pull requests that follow from it
+--   in the merge train as NotIntegrated
+unintegrateAfter :: PullRequestId -> ProjectState -> ProjectState
+unintegrateAfter pid state =
+  compose [ Pr.updatePullRequest pid' unintegrate
+          | pid' <- Pr.integratedPullRequestsAfter pid state] state
   where
-  setBuildStatus pr = case Pr.integrationStatus pr of
-    -- If there is an integration candidate, and its integration sha matches that of the build,
-    -- then update the build status for that pull request. Otherwise do nothing.
-    Integrated candidateSha oldStatus | candidateSha == buildSha && newStatus `supersedes` oldStatus ->
-      pr { Pr.integrationStatus = Integrated buildSha newStatus
-         , Pr.needsFeedback = case newStatus of
-                              BuildStarted _ -> True
-                              BuildFailed _  -> True
-                              _              -> Pr.needsFeedback pr -- unchanged
-         }
-    _ -> pr
+  unintegrate pr = pr{Pr.integrationStatus = NotIntegrated}
+
+-- | If there is an integration candidate, and its integration sha matches that of the build,
+--   then update the build status for that pull request. Otherwise do nothing.
+handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
+handleBuildStatusChanged buildSha newStatus state = pure $
+  compose [ Pr.updatePullRequest pid setBuildStatus
+          . case newStatus of
+            BuildFailed _ -> unintegrateAfter pid
+            _             -> id
+          | pid <- Pr.filterPullRequestsBy shouldUpdate state
+          ] state
+  where
+  shouldUpdate pr = case Pr.integrationStatus pr of
+    Integrated candidateSha oldStatus -> candidateSha == buildSha && newStatus `supersedes` oldStatus
+    _                                 -> False
+  setBuildStatus pr = pr
+                    { Pr.integrationStatus = Integrated buildSha newStatus
+                    , Pr.needsFeedback = case newStatus of
+                                         BuildStarted _ -> True
+                                         BuildFailed _  -> True
+                                         _              -> Pr.needsFeedback pr -- unchanged
+                    }
 
 -- | Does the first build status supersedes the second?
 --
@@ -612,15 +641,19 @@ synchronizeState stateInitial =
 -- should find a new candidate. Or after the pull request for which a build is
 -- in progress is closed, we should find a new candidate.
 proceed :: ProjectState -> Action ProjectState
-proceed state = do
-  state' <- provideFeedback state
-  case (Pr.integratedPullRequests state', Pr.candidatePullRequests state') of
-                           -- Proceed with an already integrated candidate
-    (candidate:_, _)    -> proceedCandidate candidate state'
-                           -- Found a new candidate, try to integrate it.
-    (_,           pr:_) -> tryIntegratePullRequest pr state'
-                           -- No pull requests eligible, do nothing.
-    (_,           _)    -> return state'
+proceed = provideFeedback
+      >=> proceedSomeCandidate
+      >=> tryIntegrateSomePullRequest
+
+proceedSomeCandidate :: ProjectState -> Action ProjectState
+proceedSomeCandidate state = case Pr.unfailingIntegratedPullRequests state of
+  (candidate:_) -> proceedCandidate candidate state
+  _ -> pure state
+
+tryIntegrateSomePullRequest :: ProjectState -> Action ProjectState
+tryIntegrateSomePullRequest state = case Pr.candidatePullRequests state of
+  (pr:_) -> tryIntegratePullRequest pr state
+  _ -> pure state
 
 -- | Pushes the given integrated PR to be the new master if the build succeeded
 proceedCandidate :: PullRequestId -> ProjectState -> Action ProjectState
@@ -636,6 +669,19 @@ proceedCandidate pullRequestId state =
 -- request, so it can be fetched.
 getPullRequestRef :: PullRequestId -> Branch
 getPullRequestRef (PullRequestId n) = Branch $ format "refs/pull/{}/head" [n]
+
+-- TODO: get rid of the getTrain function in favour of just *integratedPullRequests?
+getTrain :: ProjectState -> [PullRequestId]
+getTrain state =
+  [ pid
+  | pid <- Pr.unfailingIntegratedPullRequests state
+  , Just pr <- [Pr.lookupPullRequest pid state]
+  , Integrated _ buildStatus <- [Pr.integrationStatus pr]
+  , case buildStatus of
+    BuildPending   -> True
+    BuildStarted _ -> True
+    _              -> False
+  ]
 
 -- Integrates proposed changes from the pull request into the target branch.
 -- The pull request must exist in the project.
@@ -657,7 +703,7 @@ tryIntegratePullRequest pr state =
       ]
     mergeMessage = Text.unlines mergeMessageLines
   in do
-    result <- tryIntegrate mergeMessage candidate $ Pr.alwaysAddMergeCommit approvalType
+    result <- tryIntegrate mergeMessage candidate (getTrain state) $ Pr.alwaysAddMergeCommit approvalType
     case result of
       Left (IntegrationFailure targetBranch reason) ->
         -- If integrating failed, perform no further actions but do set the
@@ -749,8 +795,14 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
       0 -> format "Pull request approved for {} by @{}, rebasing now." [approvalCommand, approvedBy]
       1 -> format "Pull request approved for {} by @{}, waiting for rebase behind one pull request." [approvalCommand, approvedBy]
       n -> format "Pull request approved for {} by @{}, waiting for rebase behind {} pull requests." (approvalCommand, approvedBy, n)
-  PrStatusBuildPending -> let Sha sha = fromJust $ getIntegrationSha pr
-                          in  Text.concat ["Rebased as ", sha, ", waiting for CI …"]
+  PrStatusBuildPending -> let Sha sha = fromJust $ Pr.integrationSha pr
+                              train = takeWhile (/= prId) $ getTrain state
+                          in case train of
+                             []    -> Text.concat ["Rebased as ", sha, ", waiting for CI …"]
+                             (_:_) -> Text.concat [ "Speculatively rebased as ", sha
+                                                  , " behind ", prettyPullRequestIds train
+                                                  , ", waiting for CI …"
+                                                  ]
   PrStatusBuildStarted url -> Text.concat ["[CI job](", url, ") started."]
   PrStatusIntegrated -> "The build succeeded."
   PrStatusIncorrectBaseBranch -> "Merge rejected: the target branch must be the integration branch."
@@ -773,12 +825,6 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
                               Just url' -> format "The build failed: {}\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.\nOtherwise, push a new commit and tag me again." [url']
                               -- This should probably never happen
                               Nothing   -> "The build failed, but GitHub did not provide an URL to the build failure."
-  where
-    getIntegrationSha :: PullRequest -> Maybe Sha
-    getIntegrationSha pullRequest =
-      case Pr.integrationStatus pullRequest of
-        Integrated sha _ -> Just sha
-        _                -> Nothing
 
 -- Leave a comment with the feedback from 'describeStatus' and set the
 -- 'needsFeedback' flag to 'False'.
@@ -829,3 +875,29 @@ pullRequestIdToText (PullRequestId prid) = Text.pack $ show prid
 
 testBranch :: ProjectConfiguration -> PullRequestId -> Git.Branch
 testBranch config pullRequestId = Git.Branch $ Config.testBranch config <> "/" <> pullRequestIdToText pullRequestId
+
+testRemoteBranch :: ProjectConfiguration -> PullRequestId -> Git.RemoteBranch
+testRemoteBranch config pullRequestId = Git.RemoteBranch $ Config.testBranch config <> "/" <> pullRequestIdToText pullRequestId
+
+-- | Textual rendering of a list of 'PullRequestId's
+--
+-- >>> prettyPullRequestIds [PullRequestId 12, PullRequestId 60, PullRequestId 1337]
+-- "#12, #60 and #1337"
+prettyPullRequestIds :: [PullRequestId] -> Text
+prettyPullRequestIds = commaAnd . map prettyPullRequestId
+  where
+  prettyPullRequestId (PullRequestId n) = "#" <> Text.pack (show n)
+
+-- | Pretty printing of a list of Text with comma and and.
+--
+-- >>> commaAnd ["a", "b", "c" :: Text]
+-- "a, b and c"
+commaAnd :: [Text] -> Text
+commaAnd [] = "none"
+commaAnd ss = case init ss of
+              [] -> last ss
+              is -> Text.intercalate ", " is <> " and " <> last ss
+
+-- | Fold a list of unary functions by composition
+compose :: [a -> a] -> a -> a
+compose = foldr (.) id
