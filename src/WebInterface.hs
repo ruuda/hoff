@@ -228,24 +228,20 @@ viewGroupedProjectQueues projects = do
 
 -- Renders the contents of a list item with a link for a pull request.
 viewPullRequest :: ProjectInfo -> PullRequestId -> PullRequest -> Html
-viewPullRequest info (PullRequestId n) pullRequest =
-  let
-    url = format "https://github.com/{}/{}/pull/{}"
-      (Project.owner info, Project.repository info, n)
-  in do
-    a ! href (toValue url) $ toHtml $ Project.title pullRequest
-    span ! class_ "prId" $ toHtml $ "#" <> (show n)
+viewPullRequest info pullRequestId pullRequest = do
+  a ! href (toValue $ pullRequestUrl info pullRequestId) $ toHtml $ Project.title pullRequest
+  span ! class_ "prId" $ toHtml $ showPullRequestId pullRequestId
 
-    case integrationStatus pullRequest of
-      Integrated _ (BuildStarted ciUrl) -> do
-        span "  | "
-        a ! href (toValue ciUrl) $ "View in CI"
+  case integrationStatus pullRequest of
+    Integrated _ (BuildStarted ciUrl) -> do
+      span "  | "
+      a ! href (toValue ciUrl) $ "View in CI"
 
-      Integrated _ (BuildFailed (Just ciUrl)) -> do
-        span "  | "
-        a ! href (toValue ciUrl) $ "View in CI"
+    Integrated _ (BuildFailed (Just ciUrl)) -> do
+      span "  | "
+      a ! href (toValue ciUrl) $ "View in CI"
 
-      _ -> pure ()
+    _ -> pure ()
 
 viewPullRequestWithApproval :: ProjectInfo -> PullRequestId -> PullRequest -> Html
 viewPullRequestWithApproval info prId pullRequest = do
@@ -269,6 +265,19 @@ viewList  :: (ProjectInfo -> PullRequestId -> PullRequest -> Html)
           -> [(PullRequestId, PullRequest, status)]
           -> Html
 viewList view info prs = forM_  prs $ \(prId, pr, _) -> p $ view info prId pr
+
+-- | Formats a pull request URL
+pullRequestUrl :: ProjectInfo -> PullRequestId -> Text
+pullRequestUrl info (PullRequestId n) =
+  format "https://github.com/{}/{}/pull/{}"
+    ( Project.owner info
+    , Project.repository info
+    , n
+    )
+
+-- | Textual rendering of a PullRequestId as #number
+showPullRequestId :: PullRequestId -> String
+showPullRequestId (PullRequestId n) = "#" <> show n
 
 prFailed :: Project.PullRequestStatus -> Bool
 prFailed Project.PrStatusFailedConflict  = True
