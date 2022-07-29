@@ -234,22 +234,17 @@ viewPullRequest info pullRequestId pullRequest = do
   span ! class_ "prId" $ toHtml $ prettyPullRequestId pullRequestId
 
   case integrationStatus pullRequest of
-    Integrated sha BuildPending -> do
+    Integrated sha buildStatus -> do
       span "  | "
+      case buildStatus of
+        (BuildStarted ciUrl) -> do
+          a ! href (toValue ciUrl) $ "🟡"
+          span " "
+        (BuildFailed (Just ciUrl)) -> do
+          a ! href (toValue ciUrl) $ "❌"
+          span " "
+        _ -> pure ()
       a ! href (toValue $ commitUrl info sha) $ toHtml $ prettySha sha
-
-    Integrated sha (BuildStarted ciUrl) -> do
-      span "  | "
-      a ! href (toValue ciUrl) $ "🟡"
-      span " "
-      a ! href (toValue $ commitUrl info sha) $ toHtml $ prettySha sha
-
-    Integrated sha (BuildFailed (Just ciUrl)) -> do
-      span "  | "
-      a ! href (toValue ciUrl) $ "❌"
-      span " "
-      a ! href (toValue $ commitUrl info sha) $ toHtml $ prettySha sha
-
     _ -> pure ()
 
 viewPullRequestWithApproval :: ProjectInfo -> PullRequestId -> PullRequest -> Html
