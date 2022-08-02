@@ -30,6 +30,7 @@ import qualified Data.ByteString.Lazy as LazyByteString
 import qualified Data.Text as Text
 
 import Format (format)
+import Git (Sha(..))
 import Project (Approval (..), BuildStatus (..), IntegrationStatus (..), Owner, ProjectInfo,
                 ProjectState, PullRequest (integrationStatus))
 import Types (PullRequestId (..), Username (..))
@@ -228,24 +229,27 @@ viewGroupedProjectQueues projects = do
 
 -- Renders the contents of a list item with a link for a pull request.
 viewPullRequest :: ProjectInfo -> PullRequestId -> PullRequest -> Html
-viewPullRequest info (PullRequestId n) pullRequest =
-  let
-    url = format "https://github.com/{}/{}/pull/{}"
-      (Project.owner info, Project.repository info, n)
-  in do
-    a ! href (toValue url) $ toHtml $ Project.title pullRequest
-    span ! class_ "prId" $ toHtml $ "#" <> (show n)
+viewPullRequest info pullRequestId pullRequest = do
+  a ! href (toValue $ pullRequestUrl info pullRequestId) $ toHtml $ Project.title pullRequest
+  span ! class_ "prId" $ toHtml $ prettyPullRequestId pullRequestId
 
-    case integrationStatus pullRequest of
-      Integrated _ (BuildPending (Just ciUrl)) -> do
-        span "  | "
-        a ! href (toValue ciUrl) $ "View in CI"
-
-      Integrated _ (BuildFailed (Just ciUrl)) -> do
-        span "  | "
-        a ! href (toValue ciUrl) $ "View in CI"
-
-      _ -> pure ()
+  case integrationStatus pullRequest of
+    Integrated sha buildStatus -> do
+      span "  | "
+      case buildStatus of
+        (BuildStarted ciUrl)       -> ciLink ciUrl "🟡"
+        (BuildFailed (Just ciUrl)) -> ciLink ciUrl "❌"
+        _                          -> pure ()
+      a ! href (toValue $ commitUrl info sha) $ toHtml $ prettySha sha
+      case buildStatus of
+        (BuildStarted ciUrl)       -> span " | " >> ciLink ciUrl "CI build"
+        (BuildFailed (Just ciUrl)) -> span " | " >> ciLink ciUrl "CI build"
+        _                          -> pure ()
+    _ -> pure ()
+  where
+  ciLink url text = do
+    a ! href (toValue url) $ text
+    span " "
 
 viewPullRequestWithApproval :: ProjectInfo -> PullRequestId -> PullRequest -> Html
 viewPullRequestWithApproval info prId pullRequest = do
@@ -270,11 +274,37 @@ viewList  :: (ProjectInfo -> PullRequestId -> PullRequest -> Html)
           -> Html
 viewList view info prs = forM_  prs $ \(prId, pr, _) -> p $ view info prId pr
 
+-- | Formats a pull request URL
+pullRequestUrl :: ProjectInfo -> PullRequestId -> Text
+pullRequestUrl info (PullRequestId n) =
+  format "https://github.com/{}/{}/pull/{}"
+    ( Project.owner info
+    , Project.repository info
+    , n
+    )
+
+commitUrl :: ProjectInfo -> Sha -> Text
+commitUrl info (Sha sha) =
+  format "https://github.com/{}/{}/commit/{}"
+    ( Project.owner info
+    , Project.repository info
+    , sha
+    )
+
+-- | Textual rendering of a PullRequestId as #number
+prettyPullRequestId :: PullRequestId -> String
+prettyPullRequestId (PullRequestId n) = "#" <> show n
+
+-- | Textual rendering of a Sha with just the first 7 characters
+prettySha :: Sha -> Text
+prettySha (Sha sha) = Text.take 7 sha
+
 prFailed :: Project.PullRequestStatus -> Bool
 prFailed Project.PrStatusFailedConflict  = True
 prFailed (Project.PrStatusFailedBuild _) = True
 prFailed _                               = False
 
 prPending :: Project.PullRequestStatus -> Bool
-prPending (Project.PrStatusBuildPending _) = True
+prPending Project.PrStatusBuildPending     = True
+prPending (Project.PrStatusBuildStarted _) = True
 prPending _                                = False

@@ -71,7 +71,8 @@ import qualified Data.IntMap.Strict as IntMap
 import Types (PullRequestId (..), Username)
 
 data BuildStatus
-  = BuildPending (Maybe Text)
+  = BuildPending
+  | BuildStarted Text
   | BuildSucceeded
   | BuildFailed (Maybe Text)
   deriving (Eq, Show, Generic)
@@ -97,7 +98,8 @@ data IntegrationStatus
 data PullRequestStatus
   = PrStatusAwaitingApproval          -- New, awaiting review.
   | PrStatusApproved                  -- Approved, but not yet integrated or built.
-  | PrStatusBuildPending (Maybe Text) -- Integrated, and build pending or in progress.
+  | PrStatusBuildPending              -- Integrated, and build pending or in progress.
+  | PrStatusBuildStarted Text         -- Integrated, and build pending or in progress.
   | PrStatusIntegrated                -- Integrated, build passed, merged into target branch.
   | PrStatusIncorrectBaseBranch       -- ^ Integration branch not being valid.
   | PrStatusWrongFixups               -- Failed to integrate due to the presence of orphan fixup commits.
@@ -294,7 +296,8 @@ classifyPullRequest pr = case approval pr of
     Conflicted _ EmptyRebase -> PrStatusEmptyRebase
     Conflicted _ _  -> PrStatusFailedConflict
     Integrated _ buildStatus -> case buildStatus of
-      BuildPending url -> PrStatusBuildPending url
+      BuildPending     -> PrStatusBuildPending
+      BuildStarted url -> PrStatusBuildStarted url
       BuildSucceeded   -> PrStatusIntegrated
       BuildFailed url  -> PrStatusFailedBuild url
     Promoted -> PrStatusIntegrated
@@ -364,7 +367,8 @@ isInProgress pr = case approval pr of
     IncorrectBaseBranch -> False
     Conflicted _ _ -> False
     Integrated _ buildStatus -> case buildStatus of
-      BuildPending _ -> True
+      BuildPending   -> True
+      BuildStarted _ -> True
       BuildSucceeded -> False
       BuildFailed _  -> False
     Promoted -> False
@@ -379,7 +383,8 @@ wasIntegrationAttemptFor commit pr = case integrationStatus pr of
 integratedPullRequests :: ProjectState -> [PullRequestId]
 integratedPullRequests = filterPullRequestsBy $ isIntegrated . integrationStatus
   where
-  isIntegrated (Integrated _ (BuildPending _)) = True
+  isIntegrated (Integrated _ BuildPending)     = True
+  isIntegrated (Integrated _ (BuildStarted _)) = True
   isIntegrated (Integrated _ BuildSucceeded)   = True
   isIntegrated _                               = False
 
