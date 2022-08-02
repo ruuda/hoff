@@ -1683,6 +1683,7 @@ main = hspec $ do
           , status     = status
           , url        = Just "https://travis-ci.org/rachael/owl/builds/1982"
           , sha        = Sha "b26354"
+          , branches   = [Branch "some-branch"]
           }
 
     it "converts a commit status pending event" $ do
