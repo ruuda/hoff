@@ -424,7 +424,7 @@ main = hspec $ do
 
     it "handles a build status change of the integration candidate" $ do
       let
-        event  = BuildStatusChanged (Sha "84c") Project.BuildSucceeded
+        event  = BuildStatusChanged [Branch "testing/1"] (Sha "84c") Project.BuildSucceeded
         state  = candidateState (PullRequestId 1) (Branch "p") masterBranch (Sha "a38") "johanna" "deckard" (Sha "84c")
         state' = fst $ runAction $ handleEventTest event state
         pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
@@ -433,7 +433,7 @@ main = hspec $ do
     it "ignores a build status change for commits that are not the integration candidate" $ do
       let
         event0 = PullRequestOpened (PullRequestId 2) (Branch "p") masterBranch (Sha "0ad") "title" "harry"
-        event1 = BuildStatusChanged (Sha "0ad") Project.BuildSucceeded
+        event1 = BuildStatusChanged [Branch "testing/1"] (Sha "0ad") Project.BuildSucceeded
         state  = candidateState (PullRequestId 1) (Branch "p") masterBranch (Sha "a38") "harry" "deckard" (Sha "84c")
         state' = fst $ runAction $ handleEventsTest [event0, event1] state
         pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
@@ -1325,8 +1325,8 @@ main = hspec $ do
           $ Project.emptyProjectState
         events =
           [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
-          , BuildStatusChanged (Sha "b71") Project.BuildPending
-          , BuildStatusChanged (Sha "b71") Project.BuildSucceeded
+          , BuildStatusChanged [Branch "testing/1"] (Sha "b71") Project.BuildPending
+          , BuildStatusChanged [Branch "testing/1"] (Sha "b71") Project.BuildSucceeded
           ]
         -- For this test, the first integration succeeds. Then we push, which
         -- fails. Then we try to integrate again, but that fails.
@@ -1415,9 +1415,9 @@ main = hspec $ do
           $ Project.emptyProjectState
         events =
           [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
-          , BuildStatusChanged (Sha "b71") Project.BuildPending
-          , BuildStatusChanged (Sha "b71") (Project.BuildStarted "https://status.example.com/b71")
-          , BuildStatusChanged (Sha "b71") $ Project.BuildFailed $ Just $ pack "https://example.com/build-status"
+          , BuildStatusChanged [Branch "testing/1"] (Sha "b71") Project.BuildPending
+          , BuildStatusChanged [Branch "testing/1"] (Sha "b71") (Project.BuildStarted "https://status.example.com/b71")
+          , BuildStatusChanged [Branch "testing/1"] (Sha "b71") $ Project.BuildFailed $ Just $ pack "https://example.com/build-status"
             -- User summons bot again because CI failed for an external reason.
           , CommentAdded (PullRequestId 1) "deckard" "@bot merge"
           -- GitHub notifies Hoff of new comments sent by Hoff:
@@ -1689,23 +1689,23 @@ main = hspec $ do
     it "converts a commit status pending event" $ do
       let payload = testCommitStatusPayload Github.Pending
           Just event = convertGithubEvent $ Github.CommitStatus payload
-      event `shouldBe` (BuildStatusChanged (Sha "b26354") (Project.BuildStarted "https://travis-ci.org/rachael/owl/builds/1982"))
+      event `shouldBe` (BuildStatusChanged [Branch "some-branch"] (Sha "b26354") (Project.BuildStarted "https://travis-ci.org/rachael/owl/builds/1982"))
 
     it "converts a commit status success event" $ do
       let payload = testCommitStatusPayload Github.Success
           Just event = convertGithubEvent $ Github.CommitStatus payload
-      event `shouldBe` (BuildStatusChanged (Sha "b26354") Project.BuildSucceeded)
+      event `shouldBe` (BuildStatusChanged [Branch "some-branch"] (Sha "b26354") Project.BuildSucceeded)
 
     it "converts a commit status failure event" $ do
       let payload = testCommitStatusPayload Github.Failure
           Just event = convertGithubEvent $ Github.CommitStatus payload
-      event `shouldBe` (BuildStatusChanged (Sha "b26354") $ Project.BuildFailed $ Just $ pack "https://travis-ci.org/rachael/owl/builds/1982")
+      event `shouldBe` (BuildStatusChanged [Branch "some-branch"] (Sha "b26354") $ Project.BuildFailed $ Just $ pack "https://travis-ci.org/rachael/owl/builds/1982")
 
     it "converts a commit status error event" $ do
       let payload = testCommitStatusPayload Github.Error
           Just event = convertGithubEvent $ Github.CommitStatus payload
       -- The error and failure statuses are both converted to "failed".
-      event `shouldBe` (BuildStatusChanged (Sha "b26354") $ Project.BuildFailed $ Just $ pack "https://travis-ci.org/rachael/owl/builds/1982")
+      event `shouldBe` (BuildStatusChanged [Branch "some-branch"] (Sha "b26354") $ Project.BuildFailed $ Just $ pack "https://travis-ci.org/rachael/owl/builds/1982")
 
   describe "ProjectState" $ do
 
@@ -1748,32 +1748,32 @@ main = hspec $ do
           $ Project.insertPullRequest (PullRequestId 3) (Branch "trd") masterBranch (Sha "ef3") "Third PR"  (Username "rachael")
           $ Project.emptyProjectState
         events =
-          [ BuildStatusChanged (Sha "ab1") (Project.BuildSucceeded) -- PR#1 sha, ignored
+          [ BuildStatusChanged [Branch "fst"] (Sha "ab1") (Project.BuildSucceeded) -- PR#1 sha, ignored
           , CommentAdded (PullRequestId 1) "deckard" "@someone Thanks for your review."
           , CommentAdded (PullRequestId 1) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 1) "bot" "Pull request approved for merge, rebasing now."
           , CommentAdded (PullRequestId 1) "bot" "Rebased as 1ab, waiting for CI …"
           , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 2) "bot" "Pull request approved for merge behind 1 PR."
-          , BuildStatusChanged (Sha "ef3") (Project.BuildSucceeded) -- PR#3 sha, ignored
-          , BuildStatusChanged (Sha "1ab") (Project.BuildPending) -- same status, ignored
-          , BuildStatusChanged (Sha "1ab") (Project.BuildStarted "example.com/1ab")
-          , BuildStatusChanged (Sha "1ab") (Project.BuildStarted "example.com/1ab") -- dup!
+          , BuildStatusChanged [Branch "trd"] (Sha "ef3") (Project.BuildSucceeded) -- PR#3 sha, ignored
+          , BuildStatusChanged [Branch "testing/1"] (Sha "1ab") (Project.BuildPending) -- same status, ignored
+          , BuildStatusChanged [Branch "testing/1"] (Sha "1ab") (Project.BuildStarted "example.com/1ab")
+          , BuildStatusChanged [Branch "testing/1"] (Sha "1ab") (Project.BuildStarted "example.com/1ab") -- dup!
           , CommentAdded (PullRequestId 1) "bot" "[CI job](example.com/1ab) started."
           , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 3) "bot" "Pull request approved for merge behind 2 PRs."
-          , BuildStatusChanged (Sha "cd2") (Project.BuildSucceeded) -- PR#2 sha, ignored
-          , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded) -- PR#1
+          , BuildStatusChanged [Branch "snd"] (Sha "cd2") (Project.BuildSucceeded) -- PR#2 sha, ignored
+          , BuildStatusChanged [Branch "testing/1"] (Sha "1ab") (Project.BuildSucceeded) -- PR#1
           , PullRequestClosed (PullRequestId 1)
           , CommentAdded (PullRequestId 2) "bot" "Rebased as 2bc, waiting for CI …"
-          , BuildStatusChanged (Sha "2bc") (Project.BuildStarted "example.com/2bc")
+          , BuildStatusChanged [Branch "testing/2"] (Sha "2bc") (Project.BuildStarted "example.com/2bc")
           , CommentAdded (PullRequestId 2) "bot" "[CI job](example.com/2bc) started."
-          , BuildStatusChanged (Sha "36a") (Project.BuildSucceeded) -- arbitrary sha, ignored
-          , BuildStatusChanged (Sha "2bc") (Project.BuildSucceeded) -- PR#2
+          , BuildStatusChanged [Branch "testing/3"] (Sha "36a") (Project.BuildSucceeded) -- arbitrary sha, ignored
+          , BuildStatusChanged [Branch "testing/2"] (Sha "2bc") (Project.BuildSucceeded) -- PR#2
           , PullRequestClosed (PullRequestId 2)
           , CommentAdded (PullRequestId 3) "bot" "Rebased as 3cd, waiting for CI …"
-          , BuildStatusChanged (Sha "3cd") (Project.BuildStarted "example.com/3cd")
-          , BuildStatusChanged (Sha "3cd") (Project.BuildSucceeded) -- PR#3
+          , BuildStatusChanged [Branch "testing/3"] (Sha "3cd") (Project.BuildStarted "example.com/3cd")
+          , BuildStatusChanged [Branch "testing/3"] (Sha "3cd") (Project.BuildSucceeded) -- PR#3
           , PullRequestClosed (PullRequestId 3)
           ]
         -- For this test, we assume all integrations and pushes succeed.
@@ -1838,32 +1838,32 @@ main = hspec $ do
           $ Project.insertPullRequest (PullRequestId 7) (Branch "sth") masterBranch (Sha "ef7") "Seventh PR"  (Username "rachael")
           $ Project.emptyProjectState
         events =
-          [ BuildStatusChanged (Sha "ab9") (Project.BuildSucceeded) -- PR#9 sha, ignored
+          [ BuildStatusChanged [Branch "nth"] (Sha "ab9") (Project.BuildSucceeded) -- PR#9 sha, ignored
           , CommentAdded (PullRequestId 9) "deckard" "@someone Thanks for your review."
           , CommentAdded (PullRequestId 9) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 9) "bot" "Pull request approved for merge, rebasing now."
           , CommentAdded (PullRequestId 9) "bot" "Rebased as 1ab, waiting for CI …"
           , CommentAdded (PullRequestId 8) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 8) "bot" "Pull request approved for merge behind 1 PR."
-          , BuildStatusChanged (Sha "ef7") (Project.BuildSucceeded) -- PR#7 sha, ignored
-          , BuildStatusChanged (Sha "1ab") (Project.BuildPending) -- same status, ignored
-          , BuildStatusChanged (Sha "1ab") (Project.BuildStarted "example.com/1ab")
+          , BuildStatusChanged [Branch "sth"] (Sha "ef7") (Project.BuildSucceeded) -- PR#7 sha, ignored
+          , BuildStatusChanged [Branch "testing/9"] (Sha "1ab") (Project.BuildPending) -- same status, ignored
+          , BuildStatusChanged [Branch "testing/9"] (Sha "1ab") (Project.BuildStarted "example.com/1ab")
           , CommentAdded (PullRequestId 9) "bot" "[CI job](example.com/1ab) started."
           , CommentAdded (PullRequestId 7) "deckard" "@bot merge"
           , CommentAdded (PullRequestId 7) "bot" "Pull request approved for merge behind 2 PRs."
-          , BuildStatusChanged (Sha "cd8") (Project.BuildSucceeded) -- PR#8 sha, ignored
-          , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded) -- PR#9
+          , BuildStatusChanged [Branch "eth"] (Sha "cd8") (Project.BuildSucceeded) -- PR#8 sha, ignored
+          , BuildStatusChanged [Branch "testing/9"] (Sha "1ab") (Project.BuildSucceeded)
           , PullRequestClosed (PullRequestId 9)
           , CommentAdded (PullRequestId 8) "bot" "Rebased as 2bc, waiting for CI …"
-          , BuildStatusChanged (Sha "2bc") (Project.BuildStarted "example.com/2bc")
+          , BuildStatusChanged [Branch "testing/8"] (Sha "2bc") (Project.BuildStarted "example.com/2bc")
           , CommentAdded (PullRequestId 8) "bot" "[CI job](example.com/2bc) started."
-          , BuildStatusChanged (Sha "36a") (Project.BuildSucceeded) -- arbitrary sha, ignored
-          , BuildStatusChanged (Sha "2bc") (Project.BuildFailed (Just "example.com/2bc")) -- PR#8
-          , BuildStatusChanged (Sha "2bc") (Project.BuildFailed (Just "example.com/2bc")) -- dup!
+          , BuildStatusChanged [Branch "other"] (Sha "36a") (Project.BuildSucceeded) -- arbitrary sha, ignored
+          , BuildStatusChanged [Branch "testing/8"] (Sha "2bc") (Project.BuildFailed (Just "example.com/2bc")) -- PR#8
+          , BuildStatusChanged [Branch "testing/8"] (Sha "2bc") (Project.BuildFailed (Just "example.com/2bc")) -- dup!
           , CommentAdded (PullRequestId 8) "bot" "The build failed: example.com/2bc"
           , CommentAdded (PullRequestId 7) "bot" "Rebased as 3cd, waiting for CI …"
-          , BuildStatusChanged (Sha "3cd") (Project.BuildStarted "example.com/3cd")
-          , BuildStatusChanged (Sha "3cd") (Project.BuildSucceeded) -- testing build passed on PR#7
+          , BuildStatusChanged [Branch "testing/7"] (Sha "3cd") (Project.BuildStarted "example.com/3cd")
+          , BuildStatusChanged [Branch "testing/7"] (Sha "3cd") (Project.BuildSucceeded) -- testing build passed on PR#7
           , PullRequestClosed (PullRequestId 7)
           ]
         -- For this test, we assume all integrations and pushes succeed.
