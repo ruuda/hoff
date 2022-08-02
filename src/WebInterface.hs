@@ -241,6 +241,10 @@ viewPullRequest info pullRequestId pullRequest = do
         (BuildFailed (Just ciUrl)) -> ciLink ciUrl "❌"
         _                          -> pure ()
       a ! href (toValue $ commitUrl info sha) $ toHtml $ prettySha sha
+      case buildStatus of
+        (BuildStarted ciUrl)       -> span " | " >> ciLink ciUrl "CI build"
+        (BuildFailed (Just ciUrl)) -> span " | " >> ciLink ciUrl "CI build"
+        _                          -> pure ()
     _ -> pure ()
   where
   ciLink url text = do
