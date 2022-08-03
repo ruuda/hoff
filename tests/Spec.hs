@@ -1733,6 +1733,64 @@ main = hspec $ do
       state `shouldBe` state'
       removeFile fname
 
+    it "ignores builds on other branches" $ do
+      let
+        state = Project.insertPullRequest
+                  (PullRequestId 360)
+                  (Branch "add-package")
+                  masterBranch
+                  (Sha "c6b")
+                  "Three hundred and sixtieth PR"
+                  (Username "tyrell")
+              $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 360) "deckard" "@someone Thanks for your review."
+          , CommentAdded (PullRequestId 360) "deckard" "@bot merge"
+
+          -- same status, ignored:
+          , BuildStatusChanged [Branch "testing/360"] (Sha "c6b") Project.BuildPending
+          -- correct branch but different sha (old build?), ignored
+          , BuildStatusChanged [Branch "testing/360"] (Sha "ab0") (Project.BuildStarted "ci.example.com/diff-sha")
+          -- correct sha but different branch
+          , BuildStatusChanged [Branch "add-package"] (Sha "c6b") (Project.BuildStarted "ci.exmaple.com/diff-branch")
+
+          -- unrecognized command to act as a separator
+          , CommentAdded (PullRequestId 360) "deckard" "@bot do something"
+
+          -- correct branch and sha
+          , BuildStatusChanged [Branch "testing/360"] (Sha "c6b") (Project.BuildStarted "ci.example.com/correct")
+
+          -- correct branch but different sha (old build?), ignored
+          , BuildStatusChanged [Branch "testing/360"] (Sha "ab0") (Project.BuildFailed (Just "ci.example.com/diff-sha"))
+          -- correct sha but different branch
+          -- older versions would fail to merge this PR, even though it's "official" build passed
+          , BuildStatusChanged [Branch "add-package"] (Sha "c6b") (Project.BuildFailed (Just "ci.exmaple.com/diff-branch"))
+          -- correct branch and sha
+          , BuildStatusChanged [Branch "testing/360"] (Sha "c6b") Project.BuildSucceeded
+          ]
+        results = defaultResults{resultIntegrate = [Right (Sha "c6b")]} -- fastforward
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        -- comment: @bot merge!
+        , ALeaveComment (PullRequestId 360)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #360: Three hundred and sixtieth PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 360, Branch "refs/pull/360/head", Sha "c6b")
+                        False
+        , ALeaveComment (PullRequestId 360) "Rebased as c6b, waiting for CI …"
+        -- incorrect CI link webhooks arrive
+        -- comment: @bot do something!
+        , ALeaveComment (PullRequestId 360) "`do something` was not recognized as a valid command."
+        -- correct CI link webhook arrives
+        , ALeaveComment (PullRequestId 360) "[CI job](ci.example.com/correct) started."
+        , ATryPromote (Branch "add-package") (Sha "c6b")
+        , ACleanupTestBranch (PullRequestId 360)
+        ]
+
     it "handles a sequence of merges: success, success, success" $ do
       -- An afternoon of work on PRs:
       -- * three PRs are merged and approved in order
