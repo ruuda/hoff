@@ -95,7 +95,7 @@ to simulate those:
 
     $ ./tools/comment deckard 31337 @hoffbot merge
 
-	$ ./tools/build-status c033170123456789abcdef0123456789abcdef01
+	$ ./tools/build-status 31337 c033170123456789abcdef0123456789abcdef01
 
 [Comment]: https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#issue_comment
 [build status]: https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status

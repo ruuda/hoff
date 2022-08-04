@@ -91,7 +91,8 @@ data CommitStatusPayload = CommitStatusPayload {
   repository :: Text,         -- Corresponds to "repository.name".
   status     :: CommitStatus, -- Corresponds to "action".
   url        :: Maybe Text,   -- Corresponds to "target_url".
-  sha        :: Sha           -- Corresponds to "sha".
+  sha        :: Sha,          -- Corresponds to "sha".
+  branches   :: [Branch]      -- Corresponds to "branches[*].name".
 } deriving (Eq, Show)
 
 instance FromJSON PullRequestAction where
@@ -168,6 +169,7 @@ instance FromJSON CommitStatusPayload where
     <*> (v .: "state")
     <*> (v .: "target_url")
     <*> (v .: "sha")
+    <*> ((v .: "branches") >>= traverse (.: "name"))
   parseJSON nonObject = typeMismatch "status payload" nonObject
 
 -- Note that GitHub calls pull requests "issues" for the sake of comments: the

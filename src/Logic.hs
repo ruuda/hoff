@@ -259,7 +259,7 @@ data Event
   | PullRequestEdited PullRequestId Text BaseBranch -- ^ PR, new title, new base branch.
   | CommentAdded PullRequestId Username Text   -- ^ PR, author and body.
   -- CI events
-  | BuildStatusChanged Sha BuildStatus
+  | BuildStatusChanged [Git.Branch] Sha BuildStatus
   -- Internal events
   | Synchronize
   deriving (Eq, Show)
@@ -327,7 +327,8 @@ handleEventInternal triggerConfig projectConfig mergeWindowExemption event = cas
   PullRequestEdited pr title baseBranch -> handlePullRequestEdited pr title baseBranch
   CommentAdded pr author body
     -> handleCommentAdded triggerConfig projectConfig mergeWindowExemption pr author body
-  BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
+  BuildStatusChanged branches sha status
+    -> handleBuildStatusChanged projectConfig branches sha status
   Synchronize                     -> synchronizeState
 
 handlePullRequestOpened
@@ -542,13 +543,19 @@ handleMergeRequested projectConfig prId author state pr approvalType = do
     then pure $ Pr.setIntegrationStatus prId IncorrectBaseBranch state''
     else pure state''
 
-handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
-handleBuildStatusChanged buildSha newStatus = pure . Pr.updatePullRequests setBuildStatus
+handleBuildStatusChanged :: ProjectConfiguration
+                         -> [Git.Branch]
+                         -> Sha -> BuildStatus
+                         -> ProjectState -> Action ProjectState
+handleBuildStatusChanged config branches buildSha newStatus =
+  pure . Pr.updatePullRequestsWithId setBuildStatus
   where
-  setBuildStatus pr = case Pr.integrationStatus pr of
+  setBuildStatus pid pr = case Pr.integrationStatus pr of
     -- If there is an integration candidate, and its integration sha matches that of the build,
     -- then update the build status for that pull request. Otherwise do nothing.
-    Integrated candidateSha oldStatus | candidateSha == buildSha && newStatus /= oldStatus ->
+    Integrated candidateSha oldStatus | testBranch config pid `elem` branches
+                                     && candidateSha == buildSha
+                                     && newStatus /= oldStatus ->
       pr { Pr.integrationStatus = Integrated buildSha newStatus
          , Pr.needsFeedback = case newStatus of
                               BuildStarted _ -> True
