@@ -259,7 +259,7 @@ data Event
   | PullRequestEdited PullRequestId Text BaseBranch -- ^ PR, new title, new base branch.
   | CommentAdded PullRequestId Username Text   -- ^ PR, author and body.
   -- CI events
-  | BuildStatusChanged [Git.Branch] Sha BuildStatus
+  | BuildStatusChanged Sha BuildStatus
   -- Internal events
   | Synchronize
   deriving (Eq, Show)
@@ -327,8 +327,7 @@ handleEventInternal triggerConfig projectConfig mergeWindowExemption event = cas
   PullRequestEdited pr title baseBranch -> handlePullRequestEdited pr title baseBranch
   CommentAdded pr author body
     -> handleCommentAdded triggerConfig projectConfig mergeWindowExemption pr author body
-  BuildStatusChanged branches sha status
-    -> handleBuildStatusChanged projectConfig branches sha status
+  BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
   Synchronize                     -> synchronizeState
 
 handlePullRequestOpened
@@ -543,19 +542,13 @@ handleMergeRequested projectConfig prId author state pr approvalType = do
     then pure $ Pr.setIntegrationStatus prId IncorrectBaseBranch state''
     else pure state''
 
-handleBuildStatusChanged :: ProjectConfiguration
-                         -> [Git.Branch]
-                         -> Sha -> BuildStatus
-                         -> ProjectState -> Action ProjectState
-handleBuildStatusChanged config branches buildSha newStatus =
-  pure . Pr.updatePullRequestsWithId setBuildStatus
+handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
+handleBuildStatusChanged buildSha newStatus = pure . Pr.updatePullRequests setBuildStatus
   where
-  setBuildStatus pid pr = case Pr.integrationStatus pr of
+  setBuildStatus pr = case Pr.integrationStatus pr of
     -- If there is an integration candidate, and its integration sha matches that of the build,
     -- then update the build status for that pull request. Otherwise do nothing.
-    Integrated candidateSha oldStatus | testBranch config pid `elem` branches
-                                     && candidateSha == buildSha
-                                     && newStatus /= oldStatus ->
+    Integrated candidateSha oldStatus | candidateSha == buildSha && newStatus /= oldStatus ->
       pr { Pr.integrationStatus = Integrated buildSha newStatus
          , Pr.needsFeedback = case newStatus of
                               BuildStarted _ -> True

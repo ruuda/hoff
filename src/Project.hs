@@ -44,7 +44,6 @@ module Project
   updatePullRequest,
   updatePullRequestM,
   updatePullRequests,
-  updatePullRequestsWithId,
   getOwners,
   wasIntegrationAttemptFor,
   MergeWindow(..))
@@ -260,10 +259,6 @@ updatePullRequests f state = state {
   pullRequests = IntMap.map f $ pullRequests state
 }
 
-updatePullRequestsWithId :: (PullRequestId -> PullRequest -> PullRequest) -> ProjectState -> ProjectState
-updatePullRequestsWithId f state = state {
-  pullRequests = IntMap.mapWithKey (f . PullRequestId) $ pullRequests state
-}
 -- Marks the pull request as approved by somebody or nobody.
 setApproval :: PullRequestId -> Maybe Approval -> ProjectState -> ProjectState
 setApproval pr newApproval = updatePullRequest pr changeApproval

@@ -10,7 +10,7 @@
 #
 # $ ./tools/comment deckard 1337 @hoffbot merge
 #
-# $ ./tools/build-status 1337 c033170123456789abcdef0123456789abcdef01
+# $ ./tools/build-status c033170123456789abcdef0123456789abcdef01
 #
 # The files ./tools/comment and ./tools/build-status are set up as symlinks.
 #
@@ -94,9 +94,6 @@ cat <<JSON
 	},
 	"sha": "$commit",
 	"state": "$state",
-	"branches": [
-		{ "name": "$branch/$number" }
-	],
 	"target_url": $target
 }
 JSON
@@ -105,7 +102,6 @@ JSON
 secret=$(get secret)
 owner=$(get owner)
 repository=$(get repository)
-branch=$(get testBranch)
 
 [ -n "$secret" ]     || errxit "could not parse secret from config.json"
 [ -n "$owner"  ]     || errxit "could not parse owner from config.json"
@@ -126,13 +122,11 @@ comment)
 	;;
 build-status)
 	event=
-	number="$1"
-	commit="$2"
-	state="$3"
-	target="$4"
+	commit="$1"
+	state="$2"
+	target="$3"
 
-	[ -n "$number" ] || errxit "PR number should be provided as the 1st argument"
-	[ -n "$commit" ] || errxit "Full commit sha should be provided as the 2nd argument"
+	[ -n "$commit" ] || errxit "Full commit sha should be provided as the 1st argument"
 	[ -n "$state" ] || state=success
 
 	# If this is a URL make sure it has quote marks, if null make sure it doesn't.
