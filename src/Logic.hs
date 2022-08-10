@@ -569,7 +569,6 @@ supersedes :: BuildStatus -> BuildStatus -> Bool
 newStatus       `supersedes` oldStatus       | newStatus == oldStatus = False
 (BuildFailed _) `supersedes` (BuildFailed _) = True
 _               `supersedes` (BuildFailed _) = False
-BuildSucceeded  `supersedes` BuildSucceeded  = True
 _               `supersedes` BuildSucceeded  = False
 _               `supersedes` _               = True
 
