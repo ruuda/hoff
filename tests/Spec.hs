@@ -1746,6 +1746,7 @@ main = hspec $ do
           , BuildStatusChanged (Sha "1b2") (Project.BuildStarted "example.com/1b2")
           , CommentAdded (PullRequestId 1) "bot" "[CI job](example.com/1b2) started."
           , BuildStatusChanged (Sha "1b2") (Project.BuildFailed (Just "example.com/1b2"))
+          , BuildStatusChanged (Sha "1b2") Project.BuildPending -- ignored
           , BuildStatusChanged (Sha "1b2") (Project.BuildStarted "example.com/1b2") -- ignored
           , BuildStatusChanged (Sha "1b2") (Project.BuildFailed (Just "example.com/alt/1b2"))
           , BuildStatusChanged (Sha "1b2") Project.BuildSucceeded -- ignored
@@ -1785,6 +1786,7 @@ main = hspec $ do
           , BuildStatusChanged (Sha "1b2") (Project.BuildStarted "example.com/1b2")
           , CommentAdded (PullRequestId 1) "bot" "[CI job](example.com/1b2) started."
           , BuildStatusChanged (Sha "1b2") Project.BuildSucceeded
+          , BuildStatusChanged (Sha "1b2") Project.BuildPending -- ignored
           , BuildStatusChanged (Sha "1b2") (Project.BuildStarted "example.com/1b2") -- ignored
           , BuildStatusChanged (Sha "1b2") (Project.BuildFailed (Just "example.com/1b2")) -- ignored
           ]
