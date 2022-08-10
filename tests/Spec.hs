@@ -1732,6 +1732,73 @@ main = hspec $ do
       state `shouldBe` state'
       removeFile fname
 
+    it "build failures cannot be superseded by other statuses" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 12)
+              (Branch "tth") masterBranch (Sha "12a") "Twelfth PR"  (Username "person")
+          $ Project.emptyProjectState
+        results = defaultResults {resultIntegrate = [Right (Sha "1b2")]}
+        events =
+          [ CommentAdded (PullRequestId 12) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 12) "bot" "Pull request approved for merge, rebasing now."
+          , CommentAdded (PullRequestId 12) "bot" "Rebased as 1b2, waiting for CI …"
+          , BuildStatusChanged (Sha "1b2") (Project.BuildStarted "example.com/1b2")
+          , CommentAdded (PullRequestId 1) "bot" "[CI job](example.com/1b2) started."
+          , BuildStatusChanged (Sha "1b2") (Project.BuildFailed (Just "example.com/1b2"))
+          , BuildStatusChanged (Sha "1b2") (Project.BuildStarted "example.com/1b2") -- ignored
+          , BuildStatusChanged (Sha "1b2") (Project.BuildFailed (Just "example.com/alt/1b2"))
+          , BuildStatusChanged (Sha "1b2") Project.BuildSucceeded -- ignored
+          ]
+        actions = snd $ runActionCustom results $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer (Username "deckard")
+        , ALeaveComment (PullRequestId 12) "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #12: Twelfth PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 12,Branch "refs/pull/12/head",Sha "12a")
+                        False
+        , ALeaveComment (PullRequestId 12) "Rebased as 1b2, waiting for CI …"
+        , ALeaveComment (PullRequestId 12) "[CI job](example.com/1b2) started."
+        , ALeaveComment (PullRequestId 12) "The build failed: example.com/1b2\n\
+                                           \If this is the result of a flaky test, \
+                                           \close and reopen the PR, then tag me again.\n\
+                                           \Otherwise, push a new commit and tag me again."
+        ]
+
+    it "build successes cannot be superseded by other statuses" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 12)
+              (Branch "tth") masterBranch (Sha "12a") "Twelfth PR"  (Username "person")
+          $ Project.emptyProjectState
+        results = defaultResults {resultIntegrate = [Right (Sha "1b2")]}
+        events =
+          [ CommentAdded (PullRequestId 12) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 12) "bot" "Pull request approved for merge, rebasing now."
+          , CommentAdded (PullRequestId 12) "bot" "Rebased as 1b2, waiting for CI …"
+          , BuildStatusChanged (Sha "1b2") (Project.BuildStarted "example.com/1b2")
+          , CommentAdded (PullRequestId 1) "bot" "[CI job](example.com/1b2) started."
+          , BuildStatusChanged (Sha "1b2") Project.BuildSucceeded
+          , BuildStatusChanged (Sha "1b2") (Project.BuildStarted "example.com/1b2") -- ignored
+          , BuildStatusChanged (Sha "1b2") (Project.BuildFailed (Just "example.com/1b2")) -- ignored
+          ]
+        actions = snd $ runActionCustom results $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer (Username "deckard")
+        , ALeaveComment (PullRequestId 12) "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #12: Twelfth PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 12,Branch "refs/pull/12/head",Sha "12a")
+                        False
+        , ALeaveComment (PullRequestId 12) "Rebased as 1b2, waiting for CI …"
+        , ALeaveComment (PullRequestId 12) "[CI job](example.com/1b2) started."
+        , ATryPromote (Branch "tth") (Sha "1b2")
+        , ACleanupTestBranch (PullRequestId 12)
+        ]
+
     it "handles a sequence of merges: success, success, success" $ do
       -- An afternoon of work on PRs:
       -- * three PRs are merged and approved in order
