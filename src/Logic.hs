@@ -548,7 +548,7 @@ handleBuildStatusChanged buildSha newStatus = pure . Pr.updatePullRequests setBu
   setBuildStatus pr = case Pr.integrationStatus pr of
     -- If there is an integration candidate, and its integration sha matches that of the build,
     -- then update the build status for that pull request. Otherwise do nothing.
-    Integrated candidateSha oldStatus | candidateSha == buildSha && newStatus /= oldStatus ->
+    Integrated candidateSha oldStatus | candidateSha == buildSha && newStatus `supersedes` oldStatus ->
       pr { Pr.integrationStatus = Integrated buildSha newStatus
          , Pr.needsFeedback = case newStatus of
                               BuildStarted _ -> True
@@ -556,6 +556,22 @@ handleBuildStatusChanged buildSha newStatus = pure . Pr.updatePullRequests setBu
                               _              -> Pr.needsFeedback pr -- unchanged
          }
     _ -> pr
+
+-- | Does the first build status supersedes the second?
+--
+-- * The same status does not supersede itself
+--
+-- * Statuses 'BuildSuceeded' and 'BuildFailed' are not
+--   superseded by other statuses
+--
+-- This is used in 'handleBuildStatusChanged`.
+supersedes :: BuildStatus -> BuildStatus -> Bool
+newStatus       `supersedes` oldStatus       | newStatus == oldStatus = False
+(BuildFailed _) `supersedes` (BuildFailed _) = True
+_               `supersedes` (BuildFailed _) = False
+BuildSucceeded  `supersedes` BuildSucceeded  = True
+_               `supersedes` BuildSucceeded  = False
+_               `supersedes` _               = True
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
 synchronizeState :: ProjectState -> Action ProjectState

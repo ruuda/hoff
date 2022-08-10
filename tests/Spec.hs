@@ -1765,6 +1765,10 @@ main = hspec $ do
                                            \If this is the result of a flaky test, \
                                            \close and reopen the PR, then tag me again.\n\
                                            \Otherwise, push a new commit and tag me again."
+        , ALeaveComment (PullRequestId 12) "The build failed: example.com/alt/1b2\n\
+                                           \If this is the result of a flaky test, \
+                                           \close and reopen the PR, then tag me again.\n\
+                                           \Otherwise, push a new commit and tag me again."
         ]
 
     it "build successes cannot be superseded by other statuses" $ do
