@@ -169,10 +169,10 @@ initializeRepository :: FilePath -> FilePath -> IO [Sha]
 initializeRepository originDir repoDir = do
   -- Create the directory for the origin repository, and parent directories.
   FileSystem.createDirectoryIfMissing True originDir
-  -- Populates the repository.
-  -- Making sure to clone at the right time so that we do not have all commits
-  -- in the repo dir: when this is running for real, we won't have new commits
-  -- already in the repository either. They need to be fetched.
+  -- Populates the repository making sure to clone in an early point in
+  -- history before commits in branches other than master are in the repo dir:
+  -- when this is running for real, we won't have new commits already in the
+  -- repository either. They need to be fetched.
   shas <- populateRepository originDir (void $ callGit ["clone", "file://" ++ originDir, repoDir])
   -- Set the author details in the cloned repository as well, to ensure that
   -- there is no implicit dependency on a global Git configuration.
