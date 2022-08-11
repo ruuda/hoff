@@ -57,7 +57,7 @@ masterBranch = BaseBranch "master"
 callGit :: [String] -> IO Text
 callGit args = fmap (either undefined id) $ runNoLoggingT $ Git.callGit userConfig args
 
--- Populates the repository with the following history:
+-- | Populates the repository with the following history:
 --
 --                 .-- c5 -- c6  <-- intro (pr 6)
 --                /
@@ -169,10 +169,11 @@ initializeRepository :: FilePath -> FilePath -> IO [Sha]
 initializeRepository originDir repoDir = do
   -- Create the directory for the origin repository, and parent directories.
   FileSystem.createDirectoryIfMissing True originDir
-  -- Populates the repository making sure to clone in an early point in
-  -- history before commits in branches other than master are in the repo dir:
-  -- when this is running for real, we won't have new commits already in the
-  -- repository either. They need to be fetched.
+  -- Populates the repository.  The function 'populateRepository' calls the
+  -- given callback action in an early point in history before commits in
+  -- branches other than master are in the repo dir: when this is running for
+  -- real, we won't have new commits already in the repository either. They
+  -- need to be fetched.
   shas <- populateRepository originDir (void $ callGit ["clone", "file://" ++ originDir, repoDir])
   -- Set the author details in the cloned repository as well, to ensure that
   -- there is no implicit dependency on a global Git configuration.
