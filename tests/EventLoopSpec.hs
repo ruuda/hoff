@@ -57,7 +57,7 @@ masterBranch = BaseBranch "master"
 callGit :: [String] -> IO Text
 callGit args = fmap (either undefined id) $ runNoLoggingT $ Git.callGit userConfig args
 
--- Populates the repository with the following history:
+-- | Populates the repository with the following history:
 --
 --                 .-- c5 -- c6  <-- intro (pr 6)
 --                /
@@ -67,8 +67,13 @@ callGit args = fmap (either undefined id) $ runNoLoggingT $ Git.callGit userConf
 --
 --   c6 -- c7 -- c8 -- c7f <-------- fixup (pr 8)
 --
-populateRepository :: FilePath -> IO [Sha]
-populateRepository dir =
+--
+-- The given clone action is called when the repository
+-- is only partially populated with:
+--
+--   c0 -- c1 -- c2 -- c3
+populateRepository :: FilePath -> IO () -> IO [Sha]
+populateRepository dir doClone =
   let writeFile fname msg  = Prelude.writeFile (dir </> fname) (msg ++ "\n")
       appendFile fname msg = Prelude.appendFile (dir </> fname) (msg ++ "\n")
       git args             = callGit $ ["-C", dir] ++ args
@@ -101,6 +106,8 @@ populateRepository dir =
       appendFile "roy.txt" "Can the maker repair what he makes?"
       gitAdd "roy.txt"
       c3 <- gitCommit "c3: Add new Roy quote"
+
+      doClone
 
       -- Create a branch "ahead", one commit ahead of master.
       gitBranch "ahead" c3
@@ -162,11 +169,12 @@ initializeRepository :: FilePath -> FilePath -> IO [Sha]
 initializeRepository originDir repoDir = do
   -- Create the directory for the origin repository, and parent directories.
   FileSystem.createDirectoryIfMissing True originDir
-  shas <- populateRepository originDir
-  -- Clone with --single-branch, to make sure that we do not have all commits
-  -- in the repo dir: when this is running for real, we won't have new commits
-  -- already in the repository either. They need to be fetched.
-  _    <- callGit ["clone", "--single-branch", "--branch", "master", "file://" ++ originDir, repoDir]
+  -- Populates the repository.  The function 'populateRepository' calls the
+  -- given callback action in an early point in history before commits in
+  -- branches other than master are in the repo dir: when this is running for
+  -- real, we won't have new commits already in the repository either. They
+  -- need to be fetched.
+  shas <- populateRepository originDir (void $ callGit ["clone", "file://" ++ originDir, repoDir])
   -- Set the author details in the cloned repository as well, to ensure that
   -- there is no implicit dependency on a global Git configuration.
   _    <- callGit ["-C", repoDir, "config", "user.email", "testsuite@example.com"]
