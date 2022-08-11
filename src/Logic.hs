@@ -702,8 +702,9 @@ tryIntegratePullRequest pr state =
       , format "Auto-deploy: {}" [if approvalType == MergeAndDeploy then "true" else "false" :: Text]
       ]
     mergeMessage = Text.unlines mergeMessageLines
+    train = getTrain state
   in do
-    result <- tryIntegrate mergeMessage candidate (getTrain state) $ Pr.alwaysAddMergeCommit approvalType
+    result <- tryIntegrate mergeMessage candidate train $ Pr.alwaysAddMergeCommit approvalType
     case result of
       Left (IntegrationFailure targetBranch reason) ->
         -- If integrating failed, perform no further actions but do set the
