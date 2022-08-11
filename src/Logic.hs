@@ -670,19 +670,6 @@ proceedCandidate pullRequestId state =
 getPullRequestRef :: PullRequestId -> Branch
 getPullRequestRef (PullRequestId n) = Branch $ format "refs/pull/{}/head" [n]
 
--- TODO: get rid of the getTrain function in favour of just *integratedPullRequests?
-getTrain :: ProjectState -> [PullRequestId]
-getTrain state =
-  [ pid
-  | pid <- Pr.unfailingIntegratedPullRequests state
-  , Just pr <- [Pr.lookupPullRequest pid state]
-  , Integrated _ buildStatus <- [Pr.integrationStatus pr]
-  , case buildStatus of
-    BuildPending   -> True
-    BuildStarted _ -> True
-    _              -> False
-  ]
-
 -- Integrates proposed changes from the pull request into the target branch.
 -- The pull request must exist in the project.
 tryIntegratePullRequest :: PullRequestId -> ProjectState -> Action ProjectState
@@ -702,7 +689,8 @@ tryIntegratePullRequest pr state =
       , format "Auto-deploy: {}" [if approvalType == MergeAndDeploy then "true" else "false" :: Text]
       ]
     mergeMessage = Text.unlines mergeMessageLines
-    train = getTrain state
+    -- the takeWhile here is needed in case of reintegrations after failing pushes
+    train = takeWhile (/= pr) $ Pr.unfailingIntegratedPullRequests state
   in do
     result <- tryIntegrate mergeMessage candidate train $ Pr.alwaysAddMergeCommit approvalType
     case result of
