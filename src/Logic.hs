@@ -845,7 +845,10 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
                                  \ I will retry rebasing automatically when the queue clears."
   PrStatusFailedBuild url -> case Pr.unfailingIntegratedPullRequestsBefore pr state of
     [] -> case url of
-          Just url' -> format "The build failed: {}\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.\nOtherwise, push a new commit and tag me again." [url']
+          Just url' -> format "The build failed: {}\n\
+                              \If this is the result of a flaky test, \
+                              \close and reopen the PR, then tag me again.\n\
+                              \Otherwise, push a new commit and tag me again." [url']
           -- This should probably never happen
           Nothing   -> "The build failed, but GitHub did not provide an URL to the build failure."
     trainBefore -> format "Speculative build failed. \
