@@ -399,9 +399,6 @@ wasIntegrationAttemptFor commit pr = case integrationStatus pr of
 
 integratedPullRequests :: ProjectState -> [PullRequestId]
 integratedPullRequests = filterPullRequestsBy $ isIntegrated . integrationStatus
-  where
-  isIntegrated (Integrated _ _) = True
-  isIntegrated _                = False
 
 -- | Lists the pull requests that were approved after a given PR
 --   matching a given property
@@ -414,10 +411,6 @@ pullRequestsAfterThat p pid state =
 -- | Lists the pull requests that are integrated on top of the given id.
 integratedPullRequestsAfter :: PullRequestId -> ProjectState -> [PullRequestId]
 integratedPullRequestsAfter = pullRequestsAfterThat (isIntegrated . integrationStatus)
-  where
-  isIntegrated (Integrated _ _) = True
-  isIntegrated _                = False
-  -- TODO: remove repeated code isIntegrated
 
 speculativelyConflictedPullRequestsAfter :: PullRequestId -> ProjectState -> [PullRequestId]
 speculativelyConflictedPullRequestsAfter = pullRequestsAfterThat isSpeculativelyConflicted
@@ -428,22 +421,11 @@ speculativelyConflictedPullRequestsAfter = pullRequestsAfterThat isSpeculatively
 
 unfailingIntegratedPullRequests :: ProjectState -> [PullRequestId]
 unfailingIntegratedPullRequests = filterPullRequestsBy $ isUnfailingIntegrated . integrationStatus
-  where
-  isUnfailingIntegrated (Integrated _ BuildPending)     = True
-  isUnfailingIntegrated (Integrated _ (BuildStarted _)) = True
-  isUnfailingIntegrated (Integrated _ BuildSucceeded)   = True
-  isUnfailingIntegrated _                               = False
 
 unfailingIntegratedPullRequestsBefore :: PullRequest -> ProjectState -> [PullRequestId]
 unfailingIntegratedPullRequestsBefore referencePullRequest = filterPullRequestsBy $
   \pr -> isUnfailingIntegrated (integrationStatus pr)
       && referencePullRequest `approvedAfter` pr
-  where
-  isUnfailingIntegrated (Integrated _ BuildPending)     = True
-  isUnfailingIntegrated (Integrated _ (BuildStarted _)) = True
-  isUnfailingIntegrated (Integrated _ BuildSucceeded)   = True
-  isUnfailingIntegrated _                               = False
-  -- TODO: remove repeated code isUnfailingIntegrated
 
 -- Returns the pull requests that have not been integrated yet, in order of
 -- ascending id.
@@ -501,3 +483,14 @@ pr1 `approvedAfter` pr2 = case (mo1, mo2) of
   where
   mo1 = approvalOrder <$> approval pr1
   mo2 = approvalOrder <$> approval pr2
+
+isIntegrated :: IntegrationStatus -> Bool
+isIntegrated (Integrated _ _) = True
+isIntegrated _                = False
+
+isUnfailingIntegrated :: IntegrationStatus -> Bool
+isUnfailingIntegrated (Integrated _ BuildPending)     = True
+isUnfailingIntegrated (Integrated _ (BuildStarted _)) = True
+isUnfailingIntegrated (Integrated _ BuildSucceeded)   = True
+isUnfailingIntegrated (Integrated _ (BuildFailed _))  = False
+isUnfailingIntegrated _                               = False
