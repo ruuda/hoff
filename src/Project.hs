@@ -24,6 +24,7 @@ module Project
   integratedPullRequests,
   integratedPullRequestsAfter,
   unfailingIntegratedPullRequests,
+  unfailingIntegratedPullRequestsBefore,
   speculativelyConflictedPullRequestsAfter,
   candidatePullRequests,
   classifyPullRequest,
@@ -416,6 +417,7 @@ integratedPullRequestsAfter = pullRequestsAfterThat (isIntegrated . integrationS
   where
   isIntegrated (Integrated _ _) = True
   isIntegrated _                = False
+  -- TODO: remove repeated code isIntegrated
 
 speculativelyConflictedPullRequestsAfter :: PullRequestId -> ProjectState -> [PullRequestId]
 speculativelyConflictedPullRequestsAfter = pullRequestsAfterThat isSpeculativelyConflicted
@@ -431,6 +433,17 @@ unfailingIntegratedPullRequests = filterPullRequestsBy $ isUnfailingIntegrated .
   isUnfailingIntegrated (Integrated _ (BuildStarted _)) = True
   isUnfailingIntegrated (Integrated _ BuildSucceeded)   = True
   isUnfailingIntegrated _                               = False
+
+unfailingIntegratedPullRequestsBefore :: PullRequest -> ProjectState -> [PullRequestId]
+unfailingIntegratedPullRequestsBefore referencePullRequest = filterPullRequestsBy $
+  \pr -> isUnfailingIntegrated (integrationStatus pr)
+      && referencePullRequest `approvedAfter` pr
+  where
+  isUnfailingIntegrated (Integrated _ BuildPending)     = True
+  isUnfailingIntegrated (Integrated _ (BuildStarted _)) = True
+  isUnfailingIntegrated (Integrated _ BuildSucceeded)   = True
+  isUnfailingIntegrated _                               = False
+  -- TODO: remove repeated code isUnfailingIntegrated
 
 -- Returns the pull requests that have not been integrated yet, in order of
 -- ascending id.

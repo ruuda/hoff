@@ -839,19 +839,15 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
       ]
   PrStatusSpeculativeConflict -> "Failed to speculatively rebase. \
                                  \ I will retry rebasing automatically when the queue clears."
-  PrStatusFailedBuild url
-    -- TODO: specify what the base is here...
-    | speculativeIntegration pr state -> "Speculative build failed. \
-                                         \ I will automatically retry after base build results."
-    | otherwise -> case url of
-                   Just url' -> format "The build failed: {}\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.\nOtherwise, push a new commit and tag me again." [url']
-                   -- This should probably never happen
-                   Nothing   -> "The build failed, but GitHub did not provide an URL to the build failure."
-
-speculativeIntegration :: PullRequest -> ProjectState -> Bool
-speculativeIntegration pr state = case Pr.unfailingIntegratedPullRequests state of
-  [] -> False
-  (trainHead:_) -> maybe False (pr `Pr.approvedAfter`) (Pr.lookupPullRequest trainHead state)
+  PrStatusFailedBuild url -> case Pr.unfailingIntegratedPullRequestsBefore pr state of
+    [] -> case url of
+          Just url' -> format "The build failed: {}\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.\nOtherwise, push a new commit and tag me again." [url']
+          -- This should probably never happen
+          Nothing   -> "The build failed, but GitHub did not provide an URL to the build failure."
+    -- TODO: use build link here somehow
+    trainBefore -> format "Speculative build failed. \
+                          \ I will automatically retry after {} build results."
+                          [prettyPullRequestIds trainBefore]
 
 -- Leave a comment with the feedback from 'describeStatus' and set the
 -- 'needsFeedback' flag to 'False'.
