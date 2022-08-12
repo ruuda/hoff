@@ -1,5 +1,4 @@
--- Hoff -- A gatekeeper for your commits
--- Copyright 2016 Ruud van Asseldonk
+-- Hoff -- A gatekeeper for your commits -- Copyright 2016 Ruud van Asseldonk
 --
 -- Licensed under the Apache License, Version 2.0 (the "License");
 -- you may not use this file except in compliance with the License.
@@ -46,11 +45,12 @@ module Git
   push,
   pushAtomic,
   rebase,
-  remoteToBaseBranch,
   runGit,
   runGitReadOnly,
   tag,
   tag',
+  toBaseBranch,
+  toRemoteBranch,
   tryIntegrate,
 )
 where
@@ -91,8 +91,11 @@ newtype RemoteBranch = RemoteBranch Text deriving newtype (Show, Eq)
 localBranch :: RemoteBranch -> Branch
 localBranch (RemoteBranch name) = Branch name
 
-remoteToBaseBranch :: RemoteBranch -> BaseBranch
-remoteToBaseBranch (RemoteBranch b) = BaseBranch b
+toRemoteBranch :: Branch -> RemoteBranch
+toRemoteBranch (Branch name) = RemoteBranch name
+
+toBaseBranch :: Branch -> BaseBranch
+toBaseBranch (Branch name) = BaseBranch name
 
 -- | A commit hash is stored as its hexadecimal representation.
 newtype Sha = Sha Text deriving newtype (Show, Eq)

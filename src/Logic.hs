@@ -171,18 +171,18 @@ runAction config = foldFree $ \case
     -- When no repositories have a testing branch, this can safely be removed.
     _ <- doGit $ Git.deleteRemoteBranch $ Git.Branch $ Config.testBranch config
 
-    let targetBranch = fromMaybe (Git.RemoteBranch $ Config.branch config) (trainBranch train)
+    let targetBranch = fromMaybe (Git.Branch $ Config.branch config) (trainBranch train)
 
     shaOrFailed <- doGit $ Git.tryIntegrate
       message
       ref
       sha
-      targetBranch
+      (Git.toRemoteBranch targetBranch)
       (testBranch config pr)
       alwaysAddMergeCommit
 
     case shaOrFailed of
-      Left failure -> pure $ cont $ Left $ IntegrationFailure (Git.remoteToBaseBranch targetBranch) failure
+      Left failure -> pure $ cont $ Left $ IntegrationFailure (Git.toBaseBranch targetBranch) failure
       Right integratedSha -> pure $ cont $ Right integratedSha
 
   TryPromote prBranch sha cont -> do
@@ -237,9 +237,9 @@ runAction config = foldFree $ \case
   GetDateTime cont -> doTime $ cont <$> Time.getDateTime
 
   where
-  trainBranch :: [PullRequestId] -> Maybe Git.RemoteBranch
+  trainBranch :: [PullRequestId] -> Maybe Git.Branch
   trainBranch [] = Nothing
-  trainBranch train = Just $ last [testRemoteBranch config pr | pr <- train]
+  trainBranch train = Just $ last [testBranch config pr | pr <- train]
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
@@ -904,9 +904,6 @@ pullRequestIdToText (PullRequestId prid) = Text.pack $ show prid
 
 testBranch :: ProjectConfiguration -> PullRequestId -> Git.Branch
 testBranch config pullRequestId = Git.Branch $ Config.testBranch config <> "/" <> pullRequestIdToText pullRequestId
-
-testRemoteBranch :: ProjectConfiguration -> PullRequestId -> Git.RemoteBranch
-testRemoteBranch config pullRequestId = Git.RemoteBranch $ Config.testBranch config <> "/" <> pullRequestIdToText pullRequestId
 
 -- | Textual rendering of a list of 'PullRequestId's
 --
