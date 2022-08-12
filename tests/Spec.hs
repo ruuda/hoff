@@ -2292,7 +2292,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "The build failed, but GitHub did not provide an URL to the build failure."
         ]
 
-    it "handles a 2-wagon merge train with success and failure coming in the right order: success (2), failure (1)" $ do
+    it "handles a 2-wagon merge train with success and failure coming in the reverse order: success (2), failure (1)" $ do
       pendingWith "TODO: fix behaviour for this test"
       let
         state
