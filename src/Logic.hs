@@ -773,7 +773,12 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       -- succeeds.
       PushRejected _why -> tryIntegratePullRequest pullRequestId state
 
--- TODO: describe unspeculateConflictsAfter
+-- | When a pull request has been promoted to master this means that any
+-- conflicts (failed rebases) build on top of it are not speculative anymore:
+-- they are real conflicts on top of the (new) master.
+--
+-- This function updates the conflicted bases for all pull requests that come
+-- after the given PR and sets them to need feedback.
 unspeculateConflictsAfter :: PullRequest -> PullRequest -> PullRequest
 unspeculateConflictsAfter promotedPullRequest pr
   | Pr.PullRequest{ Pr.integrationStatus = Conflicted specBase reason
@@ -786,7 +791,12 @@ unspeculateConflictsAfter promotedPullRequest pr
   | otherwise
   = pr
 
--- TODO: describe unspeculateFailuresAfter
+-- | When a pull request has been promoted to master this means that any build
+-- failures build on top of it are not speculative anymore: they are real build
+-- failures on top of the (new) master.
+--
+-- This function simply sets them to be sent feedback again this time the build
+-- failure will be reported as a real definitive failure.
 unspeculateFailuresAfter :: PullRequest -> PullRequest -> PullRequest
 unspeculateFailuresAfter promotedPullRequest pr
   | Pr.PullRequest{Pr.integrationStatus = Integrated _ (BuildFailed _)} <- pr
