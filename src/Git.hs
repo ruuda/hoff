@@ -1,4 +1,5 @@
--- Hoff -- A gatekeeper for your commits -- Copyright 2016 Ruud van Asseldonk
+-- Hoff -- A gatekeeper for your commits
+-- Copyright 2016 Ruud van Asseldonk
 --
 -- Licensed under the Apache License, Version 2.0 (the "License");
 -- you may not use this file except in compliance with the License.
