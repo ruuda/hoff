@@ -405,11 +405,9 @@ integratedPullRequests = filterPullRequestsBy $ isIntegrated . integrationStatus
 --   matching a given property
 pullRequestsAfterThat :: (PullRequest -> Bool) -> PullRequestId -> ProjectState -> [PullRequestId]
 pullRequestsAfterThat p pid state =
-  case approvalOrder <$> (approval =<< lookupPullRequest pid state) of
-  Nothing    -> []
-  Just order -> filterPullRequestsBy (isAfter order) state
-  where
-  isAfter order pr = p pr && (approvalOrder <$> approval pr) > Just order
+  case lookupPullRequest pid state of
+  Nothing -> []
+  Just pr0 -> filterPullRequestsBy (\pr -> p pr && pr `approvedAfter` pr0) state
 
 -- | Lists the pull requests that are integrated on top of the given id.
 integratedPullRequestsAfter :: PullRequestId -> ProjectState -> [PullRequestId]
