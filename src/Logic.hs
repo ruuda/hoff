@@ -171,16 +171,18 @@ runAction config = foldFree $ \case
     -- When no repositories have a testing branch, this can safely be removed.
     _ <- doGit $ Git.deleteRemoteBranch $ Git.Branch $ Config.testBranch config
 
+    let targetBranch = fromMaybe (Git.RemoteBranch $ Config.branch config) (trainBranch train)
+
     shaOrFailed <- doGit $ Git.tryIntegrate
       message
       ref
       sha
-      (fromMaybe (Git.RemoteBranch $ Config.branch config) (trainBranch train))
+      targetBranch
       (testBranch config pr)
       alwaysAddMergeCommit
 
     case shaOrFailed of
-      Left failure -> pure $ cont $ Left $ IntegrationFailure (BaseBranch $ Config.branch config) failure
+      Left failure -> pure $ cont $ Left $ IntegrationFailure (Git.remoteToBaseBranch targetBranch) failure
       Right integratedSha -> pure $ cont $ Right integratedSha
 
   TryPromote prBranch sha cont -> do

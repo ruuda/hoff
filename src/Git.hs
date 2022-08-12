@@ -46,6 +46,7 @@ module Git
   push,
   pushAtomic,
   rebase,
+  remoteToBaseBranch,
   runGit,
   runGitReadOnly,
   tag,
@@ -89,6 +90,9 @@ newtype RemoteBranch = RemoteBranch Text deriving newtype (Show, Eq)
 
 localBranch :: RemoteBranch -> Branch
 localBranch (RemoteBranch name) = Branch name
+
+remoteToBaseBranch :: RemoteBranch -> BaseBranch
+remoteToBaseBranch (RemoteBranch b) = BaseBranch b
 
 -- | A commit hash is stored as its hexadecimal representation.
 newtype Sha = Sha Text deriving newtype (Show, Eq)
