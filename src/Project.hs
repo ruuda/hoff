@@ -22,10 +22,8 @@ module Project
   Owner,
   approvedPullRequests,
   integratedPullRequests,
-  integratedPullRequestsAfter,
   unfailingIntegratedPullRequests,
   unfailingIntegratedPullRequestsBefore,
-  speculativelyConflictedPullRequestsAfter,
   candidatePullRequests,
   classifyPullRequest,
   classifyPullRequests,
@@ -400,25 +398,6 @@ wasIntegrationAttemptFor commit pr = case integrationStatus pr of
 
 integratedPullRequests :: ProjectState -> [PullRequestId]
 integratedPullRequests = filterPullRequestsBy $ isIntegrated . integrationStatus
-
--- | Lists the pull requests that were approved after a given PR
---   matching a given property
-pullRequestsAfterThat :: (PullRequest -> Bool) -> PullRequestId -> ProjectState -> [PullRequestId]
-pullRequestsAfterThat p pid state =
-  case lookupPullRequest pid state of
-  Nothing -> []
-  Just pr0 -> filterPullRequestsBy (\pr -> p pr && pr `approvedAfter` pr0) state
-
--- | Lists the pull requests that are integrated on top of the given id.
-integratedPullRequestsAfter :: PullRequestId -> ProjectState -> [PullRequestId]
-integratedPullRequestsAfter = pullRequestsAfterThat (isIntegrated . integrationStatus)
-
-speculativelyConflictedPullRequestsAfter :: PullRequestId -> ProjectState -> [PullRequestId]
-speculativelyConflictedPullRequestsAfter = pullRequestsAfterThat isSpeculativelyConflicted
-  where
-  isSpeculativelyConflicted pr = case integrationStatus pr of
-                                 Conflicted base _ | base /= baseBranch pr -> True
-                                 _ -> False
 
 unfailingIntegratedPullRequests :: ProjectState -> [PullRequestId]
 unfailingIntegratedPullRequests = filterPullRequestsBy $ isUnfailingIntegrated . integrationStatus
