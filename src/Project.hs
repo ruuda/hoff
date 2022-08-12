@@ -400,15 +400,20 @@ integratedPullRequests = filterPullRequestsBy $ isIntegrated . integrationStatus
   isIntegrated (Integrated _ _) = True
   isIntegrated _                = False
 
--- | Lists the pull requests that are integrated on top of the given id.
-integratedPullRequestsAfter :: PullRequestId -> ProjectState -> [PullRequestId]
-integratedPullRequestsAfter pid state =
+-- | Lists the pull requests that were approved after a given PR
+--   matching a given property
+pullRequestsAfterThat :: (PullRequest -> Bool) -> PullRequestId -> ProjectState -> [PullRequestId]
+pullRequestsAfterThat p pid state =
   case approvalOrder <$> (approval =<< lookupPullRequest pid state) of
   Nothing    -> []
-  Just order -> filterPullRequestsBy (isIntegratedAfter order) state
+  Just order -> filterPullRequestsBy (isAfter order) state
   where
-  isIntegratedAfter order pr = isIntegrated (integrationStatus pr)
-                            && (approvalOrder <$> approval pr) > Just order
+  isAfter order pr = p pr && (approvalOrder <$> approval pr) > Just order
+
+-- | Lists the pull requests that are integrated on top of the given id.
+integratedPullRequestsAfter :: PullRequestId -> ProjectState -> [PullRequestId]
+integratedPullRequestsAfter = pullRequestsAfterThat (isIntegrated . integrationStatus)
+  where
   isIntegrated (Integrated _ _) = True
   isIntegrated _                = False
 
