@@ -1915,7 +1915,6 @@ main = hspec $ do
         ]
 
     it "only notifies rebase failures on top of the master branch (success, rebasefailure, success)" $ do
-      pendingWith "TODO: fix code so this test passes"
       let
         state
           = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")

@@ -52,6 +52,7 @@ module Project
   getOwners,
   wasIntegrationAttemptFor,
   filterPullRequestsBy,
+  approvedAfter,
   MergeWindow(..))
 where
 
@@ -469,3 +470,15 @@ integrationSha _                                               = Nothing
 
 lookupIntegrationSha :: PullRequestId -> ProjectState -> Maybe Sha
 lookupIntegrationSha pid = integrationSha <=< lookupPullRequest pid
+
+-- | Returns whether the first pull request was approved after the second.
+-- To be used in infix notation:
+--
+-- > pr1 `approvedAfter` pr2
+approvedAfter :: PullRequest -> PullRequest -> Bool
+pr1 `approvedAfter` pr2 = case (mo1, mo2) of
+                          (Just order1, Just order2) -> order1 > order2
+                          _                          -> False
+  where
+  mo1 = approvalOrder <$> approval pr1
+  mo2 = approvalOrder <$> approval pr2

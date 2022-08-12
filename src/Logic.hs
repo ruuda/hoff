@@ -759,11 +759,25 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       -- the integration candidate, so we proceed with the next pull request.
       PushOk -> do
         cleanupTestBranch pullRequestId
-        pure $ Pr.setIntegrationStatus pullRequestId Promoted state
+        pure $ Pr.updatePullRequests (unspeculateConflictsAfter pullRequest)
+             $ Pr.setIntegrationStatus pullRequestId Promoted state
       -- If something was pushed to the target branch while the candidate was
       -- being tested, try to integrate again and hope that next time the push
       -- succeeds.
       PushRejected _why -> tryIntegratePullRequest pullRequestId state
+
+unspeculateConflictsAfter :: PullRequest -> PullRequest -> PullRequest
+unspeculateConflictsAfter promotedPullRequest pr
+  | Pr.PullRequest{ Pr.integrationStatus = Conflicted specBase reason
+                  , Pr.baseBranch        = realBase
+                  } <- pr
+  , specBase /= realBase && pr `Pr.approvedAfter` promotedPullRequest
+  = pr { Pr.integrationStatus = Conflicted realBase reason
+       , Pr.needsFeedback = True
+       }
+  | otherwise
+  = pr
+
 
 -- Keep doing a proceed step until the state doesn't change any more. For this
 -- to work properly, it is essential that "proceed" does not have any side
