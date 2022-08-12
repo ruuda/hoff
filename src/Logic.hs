@@ -925,5 +925,13 @@ commaAnd ss = case init ss of
               is -> Text.intercalate ", " is <> " and " <> last ss
 
 -- | Fold a list of unary functions by composition
+--
+-- Writing
+--
+-- > compose [f,g,h]
+--
+-- translates to
+--
+-- > f . g . h
 compose :: [a -> a] -> a -> a
 compose = foldr (.) id
