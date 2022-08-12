@@ -1927,13 +1927,9 @@ main = hspec $ do
           , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
           , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded)
           ]
-        -- For this test, we assume all integrations and pushes succeed.
         results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
                                                      , Left (IntegrationFailure (BaseBranch "testing/1") RebaseFailed)
-                                                     , Right (Sha "3cd")
-                                                     , Right (Sha "5bc")
-                                                     , Right (Sha "6cd") ] }
-        -- TODO: cleanup the above resultIntegrate to only what is needed.
+                                                     , Right (Sha "3cd") ] }
         run = runActionCustom results
         actions = snd $ run $ handleEventsTest events state
       actions `shouldBe`
