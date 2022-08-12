@@ -844,7 +844,6 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
           Just url' -> format "The build failed: {}\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.\nOtherwise, push a new commit and tag me again." [url']
           -- This should probably never happen
           Nothing   -> "The build failed, but GitHub did not provide an URL to the build failure."
-    -- TODO: use build link here somehow
     trainBefore -> format "Speculative build failed. \
                           \ I will automatically retry after {} build results."
                           [prettyPullRequestIds trainBefore]
