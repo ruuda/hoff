@@ -1843,6 +1843,78 @@ main = hspec $ do
         , ACleanupTestBranch (PullRequestId 12)
         ]
 
+    it "after the PR commit has changed, resets the integration of PRs in the train (FOCUS)" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.insertPullRequest (PullRequestId 3) (Branch "trd") masterBranch (Sha "ef3") "Third PR"  (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
+          , PullRequestCommitChanged (PullRequestId 1) (Sha "4ba")
+          ]
+        -- For this test, we assume all integrations and pushes succeed.
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2bc")
+                                                     , Right (Sha "3cd")
+                                                     , Right (Sha "5bc")
+                                                     , Right (Sha "6cd") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2bc behind #1, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 3)
+                        "Pull request approved for merge by @deckard, \
+                        \waiting for rebase behind 2 pull requests."
+        , ATryIntegrate "Merge #3: Third PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
+                        [PullRequestId 1, PullRequestId 2]
+                        False
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind #1 and #2, waiting for CI …"
+        , ALeaveComment (PullRequestId 1) "Stopping integration because the PR changed after approval."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 2) "Rebased as 5bc, waiting for CI …"
+        , ATryIntegrate "Merge #3: Third PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
+                        [PullRequestId 2]
+                        False
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 6cd behind #2, waiting for CI …"
+        ]
+
+
     it "handles a sequence of merges: success, success, success" $ do
       -- An afternoon of work on PRs:
       -- * three PRs are merged and approved in order
