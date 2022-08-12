@@ -2293,7 +2293,6 @@ main = hspec $ do
         ]
 
     it "handles a 2-wagon merge train with success and failure coming in the reverse order: success (2), failure (1)" $ do
-      pendingWith "TODO: fix behaviour for this test"
       let
         state
           = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")

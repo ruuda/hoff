@@ -762,6 +762,7 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       PushOk -> do
         cleanupTestBranch pullRequestId
         pure $ Pr.updatePullRequests (unspeculateConflictsAfter pullRequest)
+             $ Pr.updatePullRequests (unspeculateFailuresAfter pullRequest)
              $ Pr.setIntegrationStatus pullRequestId Promoted state
       -- If something was pushed to the target branch while the candidate was
       -- being tested, try to integrate again and hope that next time the push
@@ -780,6 +781,13 @@ unspeculateConflictsAfter promotedPullRequest pr
   | otherwise
   = pr
 
+unspeculateFailuresAfter :: PullRequest -> PullRequest -> PullRequest
+unspeculateFailuresAfter promotedPullRequest pr
+  | Pr.PullRequest{Pr.integrationStatus = Integrated _ (BuildFailed _)} <- pr
+  , pr `Pr.approvedAfter` promotedPullRequest
+  = pr{Pr.needsFeedback = True}
+  | otherwise
+  = pr
 
 -- Keep doing a proceed step until the state doesn't change any more. For this
 -- to work properly, it is essential that "proceed" does not have any side
