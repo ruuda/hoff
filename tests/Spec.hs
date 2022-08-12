@@ -2196,7 +2196,6 @@ main = hspec $ do
         ]
 
     it "handles a 2-wagon merge train with build failures coming in the reverse order: failure (2), failure (1)" $ do
-      pendingWith "TODO: fix this failing test"
       let
         state
           = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
@@ -2237,7 +2236,7 @@ main = hspec $ do
                         [PullRequestId 1]
                         False
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
-        -- Build of #2 fails here, but since it is speculative, we delay reporting.
+        , ALeaveComment (PullRequestId 2) "Speculative build failed.  I will automatically retry after base build results."
         , ALeaveComment (PullRequestId 1) "The build failed, but GitHub did not provide an URL to the build failure."
         -- #2 is integrated again as its speculative base failed
         , ATryIntegrate "Merge #2: Second PR\n\n\

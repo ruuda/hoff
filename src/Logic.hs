@@ -829,10 +829,19 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
       , " "
       , prBranchName
       ]
-  PrStatusFailedBuild url -> case url of
-                              Just url' -> format "The build failed: {}\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.\nOtherwise, push a new commit and tag me again." [url']
-                              -- This should probably never happen
-                              Nothing   -> "The build failed, but GitHub did not provide an URL to the build failure."
+  PrStatusFailedBuild url
+    -- TODO: specify what the base is here...
+    | speculativeIntegration pr state -> "Speculative build failed. \
+                                         \ I will automatically retry after base build results."
+    | otherwise -> case url of
+                   Just url' -> format "The build failed: {}\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.\nOtherwise, push a new commit and tag me again." [url']
+                   -- This should probably never happen
+                   Nothing   -> "The build failed, but GitHub did not provide an URL to the build failure."
+
+speculativeIntegration :: PullRequest -> ProjectState -> Bool
+speculativeIntegration pr state = case Pr.unfailingIntegratedPullRequests state of
+  [] -> False
+  (trainHead:_) -> maybe False (pr `Pr.approvedAfter`) (Pr.lookupPullRequest trainHead state)
 
 -- Leave a comment with the feedback from 'describeStatus' and set the
 -- 'needsFeedback' flag to 'False'.
