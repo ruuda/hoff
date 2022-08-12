@@ -2055,7 +2055,48 @@ main = hspec $ do
         ]
 
     it "handles a 2-wagon merge train with build successes coming in the right order: success (1), success (2)" $ do
-      pendingWith "TODO: implement me"
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded)
+          , BuildStatusChanged (Sha "2cd") (Project.BuildSucceeded)
+          ]
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2cd") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ATryPromote (Branch "fst") (Sha "1ab")
+        , ACleanupTestBranch (PullRequestId 1)
+        , ATryPromote (Branch "snd") (Sha "2cd")
+        , ACleanupTestBranch (PullRequestId 2)
+        ]
 
     it "handles a 2-wagon merge train with build successes coming in the reverse order: success (2), success (1)" $ do
       pendingWith "TODO: implement me"
