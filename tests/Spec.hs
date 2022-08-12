@@ -2037,6 +2037,7 @@ main = hspec $ do
                                           \If this is the result of a flaky test, \
                                           \close and reopen the PR, then tag me again.\n\
                                           \Otherwise, push a new commit and tag me again."
+        -- Since #1 failed, #2 takes over as the head of the new merge train
         , ATryIntegrate "Merge #2: Second PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
@@ -2052,6 +2053,18 @@ main = hspec $ do
                         False
         , ALeaveComment (PullRequestId 3) "Speculatively rebased as 6cd behind #2, waiting for CI …"
         ]
+
+    it "handles a 2-wagon merge train with build successes coming in the right order: success (1), success (2)" $ do
+      pendingWith "TODO: implement me"
+
+    it "handles a 2-wagon merge train with build successes coming in the reverse order: success (2), success (1)" $ do
+      pendingWith "TODO: implement me"
+
+    it "handles a 2-wagon merge train with build failures coming in the right order: failure (1), failure (2)" $ do
+      pendingWith "TODO: implement me"
+
+    it "handles a 2-wagon merge train with build failures coming in the reverse order: failure (2), failure (1)" $ do
+      pendingWith "TODO: implement me"
 
     it "handles a sequence of merges: success, success, success" $ do
       -- An afternoon of work on PRs:
