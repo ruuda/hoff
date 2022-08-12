@@ -773,6 +773,7 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       -- succeeds.
       PushRejected _why -> tryIntegratePullRequest pullRequestId state
 
+-- TODO: describe unspeculateConflictsAfter
 unspeculateConflictsAfter :: PullRequest -> PullRequest -> PullRequest
 unspeculateConflictsAfter promotedPullRequest pr
   | Pr.PullRequest{ Pr.integrationStatus = Conflicted specBase reason
@@ -785,6 +786,7 @@ unspeculateConflictsAfter promotedPullRequest pr
   | otherwise
   = pr
 
+-- TODO: describe unspeculateFailuresAfter
 unspeculateFailuresAfter :: PullRequest -> PullRequest -> PullRequest
 unspeculateFailuresAfter promotedPullRequest pr
   | Pr.PullRequest{Pr.integrationStatus = Integrated _ (BuildFailed _)} <- pr
