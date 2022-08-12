@@ -41,6 +41,7 @@ module Project
   saveProjectState,
   alwaysAddMergeCommit,
   needsDeploy,
+  isIntegratedOrSpeculativelyConflicted,
   needsTag,
   displayApproval,
   setApproval,
@@ -494,3 +495,10 @@ isUnfailingIntegrated (Integrated _ (BuildStarted _)) = True
 isUnfailingIntegrated (Integrated _ BuildSucceeded)   = True
 isUnfailingIntegrated (Integrated _ (BuildFailed _))  = False
 isUnfailingIntegrated _                               = False
+
+isIntegratedOrSpeculativelyConflicted :: PullRequest -> Bool
+isIntegratedOrSpeculativelyConflicted pr =
+  case integrationStatus pr of
+  (Integrated _ _)                            -> True
+  (Conflicted base _) | base /= baseBranch pr -> True
+  _                                           -> False
