@@ -1979,7 +1979,6 @@ main = hspec $ do
         ]
 
     it "recovers from speculative rebase failures by starting a new train (failure, rebasefailure, success)" $ do
-      pendingWith "TODO: make sure this test passes"
       let
         state
           = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
@@ -2041,15 +2040,17 @@ main = hspec $ do
         , ATryIntegrate "Merge #2: Second PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
-                        (PullRequestId 3, Branch "refs/pull/2/head", Sha "cd2")
-                        [PullRequestId 2]
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        []
                         False
+        , ALeaveComment (PullRequestId 2) "Rebased as 5bc, waiting for CI …"
         , ATryIntegrate "Merge #3: Third PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
                         [PullRequestId 2]
                         False
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 6cd behind #2, waiting for CI …"
         ]
 
     it "handles a sequence of merges: success, success, success" $ do

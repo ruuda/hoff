@@ -24,6 +24,7 @@ module Project
   integratedPullRequests,
   integratedPullRequestsAfter,
   unfailingIntegratedPullRequests,
+  speculativelyConflictedPullRequestsAfter,
   candidatePullRequests,
   classifyPullRequest,
   classifyPullRequests,
@@ -415,6 +416,13 @@ integratedPullRequestsAfter = pullRequestsAfterThat (isIntegrated . integrationS
   where
   isIntegrated (Integrated _ _) = True
   isIntegrated _                = False
+
+speculativelyConflictedPullRequestsAfter :: PullRequestId -> ProjectState -> [PullRequestId]
+speculativelyConflictedPullRequestsAfter = pullRequestsAfterThat isSpeculativelyConflicted
+  where
+  isSpeculativelyConflicted pr = case integrationStatus pr of
+                                 Conflicted base _ | base /= baseBranch pr -> True
+                                 _ -> False
 
 unfailingIntegratedPullRequests :: ProjectState -> [PullRequestId]
 unfailingIntegratedPullRequests = filterPullRequestsBy $ isUnfailingIntegrated . integrationStatus

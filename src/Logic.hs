@@ -562,9 +562,11 @@ handleMergeRequested projectConfig prId author state pr approvalType = do
 unintegrateAfter :: PullRequestId -> ProjectState -> ProjectState
 unintegrateAfter pid state =
   compose [ Pr.updatePullRequest pid' unintegrate
-          | pid' <- Pr.integratedPullRequestsAfter pid state] state
+          | pid' <- Pr.integratedPullRequestsAfter pid state
+                 ++ Pr.speculativelyConflictedPullRequestsAfter pid state] state
   where
   unintegrate pr = pr{Pr.integrationStatus = NotIntegrated}
+-- TODO: refactor unintegrateAfter
 
 -- | If there is an integration candidate, and its integration sha matches that of the build,
 --   then update the build status for that pull request. Otherwise do nothing.
