@@ -1843,7 +1843,7 @@ main = hspec $ do
         , ACleanupTestBranch (PullRequestId 12)
         ]
 
-    it "after the PR commit has changed, resets the integration of PRs in the train (FOCUS)" $ do
+    it "after the PR commit has changed, resets the integration of PRs in the train" $ do
       let
         state
           = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
