@@ -114,6 +114,7 @@ data PullRequestStatus
   | PrStatusWrongFixups               -- Failed to integrate due to the presence of orphan fixup commits.
   | PrStatusEmptyRebase               -- Rebase was empty (changes already in the target branch?)
   | PrStatusFailedConflict            -- Failed to integrate due to merge conflict.
+  | PrStatusSpeculativeConflict       -- Failed to integrate but this was a speculative build
   | PrStatusFailedBuild (Maybe Text)  -- Integrated, but the build failed. Field should contain the URL to a page explaining the build failure.
   deriving (Eq)
 
@@ -306,8 +307,7 @@ classifyPullRequest pr = case approval pr of
   Just _  -> case integrationStatus pr of
     NotIntegrated -> PrStatusApproved
     IncorrectBaseBranch -> PrStatusIncorrectBaseBranch
-    -- checks if this is a speculative rebase, if it is, we have to wait for the train status
-    Conflicted baseBranch' _ | baseBranch' /= baseBranch pr -> PrStatusBuildPending -- TODO: proper status?
+    Conflicted base _ | base /= baseBranch pr -> PrStatusSpeculativeConflict
     Conflicted _ WrongFixups -> PrStatusWrongFixups
     Conflicted _ EmptyRebase -> PrStatusEmptyRebase
     Conflicted _ _  -> PrStatusFailedConflict

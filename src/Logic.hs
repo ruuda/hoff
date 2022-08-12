@@ -837,6 +837,8 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
       , " "
       , prBranchName
       ]
+  PrStatusSpeculativeConflict -> "Failed to speculatively rebase. \
+                                 \ I will retry rebasing automatically when the queue clears."
   PrStatusFailedBuild url
     -- TODO: specify what the base is here...
     | speculativeIntegration pr state -> "Speculative build failed. \
