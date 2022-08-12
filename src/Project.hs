@@ -304,6 +304,8 @@ classifyPullRequest pr = case approval pr of
   Just _  -> case integrationStatus pr of
     NotIntegrated -> PrStatusApproved
     IncorrectBaseBranch -> PrStatusIncorrectBaseBranch
+    -- checks if this is a speculative rebase, if it is, we have to wait for the train status
+    Conflicted baseBranch' _ | baseBranch' /= baseBranch pr -> PrStatusBuildPending -- TODO: proper status?
     Conflicted _ WrongFixups -> PrStatusWrongFixups
     Conflicted _ EmptyRebase -> PrStatusEmptyRebase
     Conflicted _ _  -> PrStatusFailedConflict

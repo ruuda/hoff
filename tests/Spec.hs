@@ -1930,7 +1930,7 @@ main = hspec $ do
           ]
         -- For this test, we assume all integrations and pushes succeed.
         results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
-                                                     , Left (IntegrationFailure (BaseBranch "master") RebaseFailed)
+                                                     , Left (IntegrationFailure (BaseBranch "testing/1") RebaseFailed)
                                                      , Right (Sha "3cd")
                                                      , Right (Sha "5bc")
                                                      , Right (Sha "6cd") ] }
