@@ -79,7 +79,8 @@ blocks:
             # Print working directory for debugging purposes
             - "pwd"
 
-            # Check if version in source is the same as in the cabal file
+            # Check version consistency between
+            # hoff.cabal, hoff.nix and src/Version.hs.
             - "./package/check-version.sh"
 
             # Run build and tests in Nix
