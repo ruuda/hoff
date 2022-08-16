@@ -79,6 +79,9 @@ blocks:
             # Print working directory for debugging purposes
             - "pwd"
 
+            # Check if version in source is the same as in the cabal file
+            - "./package/check-version.sh"
+
             # Run build and tests in Nix
             # Because this is a public repository, and not everyone is using Nix,
             # we keep the stack setup around. The Nix build however is used in production.
