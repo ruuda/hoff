@@ -47,8 +47,11 @@ commandLineParser :: Opts.ParserInfo Options
 commandLineParser =
   let
     optConfigFilePath = Opts.argument Opts.str (Opts.metavar "<config-file>")
-    optReadOnly = Opts.switch (Opts.long "read-only")
-    optVersion = Opts.infoOption ("Hoff v" <> Version.version) (Opts.long "version")
+    optReadOnly = Opts.switch $ Opts.long "read-only"
+                             <> Opts.help "Run in read-only mode"
+    optVersion = Opts.infoOption ("Hoff v" <> Version.version)
+               $  Opts.long "version"
+               <> Opts.help "Displays version and exit"
     opts = Options <$> optConfigFilePath <*> optReadOnly <* optVersion
     help = Opts.fullDesc <> Opts.header "A gatekeeper for your commits"
   in
