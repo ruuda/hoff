@@ -167,13 +167,6 @@ viewProjectQueues info state = do
     -- TODO: Also render failure reason: conflicted or build failed.
     viewList viewPullRequestWithApproval info failed
 
-  -- TODO: Keep a list of the last n integrated pull requests, so they stay
-  -- around for a bit after they have been closed.
-  let integrated = filterPrs (== Project.PrStatusIntegrated)
-  unless (null integrated) $ do
-    h2 "Recently integrated"
-    viewList viewPullRequestWithApproval info integrated
-
   let awaitingApproval = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
   unless (null awaitingApproval) $ do
     h2 "Awaiting approval"
@@ -239,6 +232,7 @@ viewPullRequest info pullRequestId pullRequest = do
       case buildStatus of
         (BuildStarted ciUrl)       -> ciLink ciUrl "🟡"
         (BuildFailed (Just ciUrl)) -> ciLink ciUrl "❌"
+        BuildSucceeded             -> ciLink (commitUrl info sha) "✅"
         _                          -> pure ()
       a ! href (toValue $ commitUrl info sha) $ toHtml $ prettySha sha
       case buildStatus of
@@ -307,4 +301,10 @@ prFailed _                               = False
 prPending :: Project.PullRequestStatus -> Bool
 prPending Project.PrStatusBuildPending     = True
 prPending (Project.PrStatusBuildStarted _) = True
+-- PrStatusIntegrated here means that the PR successfully built
+-- but it has not been promoted to master yet for either of two reasons:
+-- 1. this is the split of a second between receiving the status and promoting;
+-- 2. this PR is not at the head of the merge train,
+--    we are waiting for the build status of the previous PR.
+prPending Project.PrStatusIntegrated       = True
 prPending _                                = False
