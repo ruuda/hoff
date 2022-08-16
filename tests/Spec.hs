@@ -459,7 +459,7 @@ main = hspec $ do
                         (PullRequestId 1, Branch "refs/pull/1/head", Sha "a38") [] False
         , ALeaveComment (PullRequestId 1)
             "Failed to rebase, please rebase manually using\n\n\
-            \    git rebase --interactive --autosquash origin/master p"
+            \    git fetch && git rebase --interactive --autosquash origin/master p"
         ]
 
     it "notifies approvers about queue position" $ do
@@ -1389,7 +1389,7 @@ main = hspec $ do
                         (PullRequestId 1, Branch "refs/pull/1/head", Sha "a39") [] False
         , ALeaveComment (PullRequestId 1)
             "Failed to rebase, please rebase manually using\n\n\
-            \    git rebase --interactive --autosquash origin/master n7"
+            \    git fetch && git rebase --interactive --autosquash origin/master n7"
         ]
 
     it "picks a new candidate from the queue after a successful push" $ do
@@ -1971,7 +1971,7 @@ main = hspec $ do
         -- PR#2 is only notified after PR#1 passes or fails
         , ALeaveComment (PullRequestId 2)
                         "Failed to rebase, please rebase manually using\n\n\
-                        \    git rebase --interactive --autosquash origin/master snd"
+                        \    git fetch && git rebase --interactive --autosquash origin/master snd"
         ]
 
     it "recovers from speculative rebase failures by starting a new train (failure, rebasefailure, success)" $ do

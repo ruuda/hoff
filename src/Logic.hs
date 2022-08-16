@@ -851,7 +851,7 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
       Branch prBranchName = Pr.branch pr
     in Text.concat
       [ "Failed to rebase, please rebase manually using\n\n"
-      , "    git rebase --interactive --autosquash origin/"
+      , "    git fetch && git rebase --interactive --autosquash origin/"
       , targetBranchName
       , " "
       , prBranchName
