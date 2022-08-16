@@ -10,4 +10,4 @@ module Version (version) where
 --
 -- To be displayed on the web interface or by running @ hoff --version @.
 version :: String
-version = "0.26.2" -- please also update hoff.cabal
+version = "0.26.2" -- please also update hoff.cabal and hoff.nix
