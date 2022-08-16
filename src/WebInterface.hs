@@ -18,6 +18,7 @@ import Data.ByteArray.Encoding (Base (Base64, Base64URLUnpadded), convertToBase)
 import Data.FileEmbed (embedStringFile)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
+import Data.Version (showVersion)
 import Prelude hiding (div, head, id, span)
 import Text.Blaze (toValue, (!))
 import Text.Blaze.Html.Renderer.Utf8
@@ -36,7 +37,8 @@ import Project (Approval (..), BuildStatus (..), IntegrationStatus (..), Owner, 
 import Types (PullRequestId (..), Username (..))
 
 import qualified Project
-import qualified Version
+
+import Paths_hoff (version)
 
 -- TODO: Minify this css at inclusion time.
 stylesheet :: Text
@@ -82,7 +84,7 @@ renderPage pageTitle bodyHtml = renderHtml $ docTypeHtml $ do
   body $
     div ! id "content" $ do
       bodyHtml
-      p ! style "text-align:right;font-size:smaller;margin-top:2em" $ "Hoff v" <> toHtml Version.version
+      p ! style "text-align:right;font-size:smaller;margin-top:2em" $ "Hoff v" <> toHtml (showVersion version)
 
 -- Integrity attribute for subresource integrity. Blaze doesn't have
 -- this yet, but this is what their implementation would look like.
