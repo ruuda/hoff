@@ -23,7 +23,7 @@ import Text.Blaze (toValue, (!))
 import Text.Blaze.Html.Renderer.Utf8
 import Text.Blaze.Html5 (Html, a, body, div, docTypeHtml, h1, h2, h3, head, link, meta, p, span,
                          title, toHtml)
-import Text.Blaze.Html5.Attributes (charset, class_, content, href, id, name, rel)
+import Text.Blaze.Html5.Attributes (charset, class_, content, href, id, name, rel, style)
 import Text.Blaze.Internal (Attribute, AttributeValue, attribute)
 
 import qualified Data.ByteString.Lazy as LazyByteString
@@ -36,6 +36,7 @@ import Project (Approval (..), BuildStatus (..), IntegrationStatus (..), Owner, 
 import Types (PullRequestId (..), Username (..))
 
 import qualified Project
+import qualified Version
 
 -- TODO: Minify this css at inclusion time.
 stylesheet :: Text
@@ -79,8 +80,9 @@ renderPage pageTitle bodyHtml = renderHtml $ docTypeHtml $ do
     link ! rel "stylesheet" ! href (toValue googlefontsUrl)
     link ! rel "stylesheet" ! href (toValue stylesheetUrl) ! integrity (toValue $ "sha256-" <> stylesheetBase64Digest)
   body $
-    div ! id "content" $
+    div ! id "content" $ do
       bodyHtml
+      p ! style "text-align:right;font-size:smaller;margin-top:2em" $ "Hoff v" <> toHtml Version.version
 
 -- Integrity attribute for subresource integrity. Blaze doesn't have
 -- this yet, but this is what their implementation would look like.
