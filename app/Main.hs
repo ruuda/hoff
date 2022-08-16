@@ -36,6 +36,7 @@ import qualified GithubApi
 import qualified Logic
 import qualified Project
 import qualified Time
+import qualified Version
 
 data Options = Options
   { configFilePath :: FilePath
@@ -47,7 +48,8 @@ commandLineParser =
   let
     optConfigFilePath = Opts.argument Opts.str (Opts.metavar "<config-file>")
     optReadOnly = Opts.switch (Opts.long "read-only")
-    opts = Options <$> optConfigFilePath <*> optReadOnly
+    optVersion = Opts.infoOption ("Hoff v" <> Version.version) (Opts.long "version")
+    opts = Options <$> optConfigFilePath <*> optReadOnly <* optVersion
     help = Opts.fullDesc <> Opts.header "A gatekeeper for your commits"
   in
     Opts.info (opts <**> Opts.helper) help
@@ -92,6 +94,7 @@ runMain options = do
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
 
+  putStrLn $ "Starting Hoff v" ++ Version.version
   putStrLn $ "Config file: " ++ (configFilePath options)
   putStrLn $ "Read-only: " ++ (show $ readOnly options)
 

@@ -1,4 +1,5 @@
 name:                hoff
+-- please also update src/Version.hs
 version:             0.27.0
 category:            Development
 synopsis:            A gatekeeper for your commits
@@ -29,6 +30,7 @@ library
                  , Server
                  , Time
                  , Types
+                 , Version
                  , WebInterface
 
   build-depends: aeson
