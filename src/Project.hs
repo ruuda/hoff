@@ -301,8 +301,9 @@ classifyPullRequest pr = case approval pr of
   Just _  -> case integrationStatus pr of
     NotIntegrated -> PrStatusApproved
     IncorrectBaseBranch -> PrStatusIncorrectBaseBranch
-    Conflicted base _ | base /= baseBranch pr -> PrStatusSpeculativeConflict
+    -- Fixups can be reported regardless of whether we are doing an speculative rebase
     Conflicted _ WrongFixups -> PrStatusWrongFixups
+    Conflicted base _ | base /= baseBranch pr -> PrStatusSpeculativeConflict
     Conflicted _ EmptyRebase -> PrStatusEmptyRebase
     Conflicted _ _  -> PrStatusFailedConflict
     Integrated _ buildStatus -> case buildStatus of

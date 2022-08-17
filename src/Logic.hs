@@ -706,8 +706,9 @@ tryIntegratePullRequest pr state =
         -- If integrating failed, perform no further actions but do set the
         -- state to conflicted.
         -- If this is a speculative rebase, we wait before giving feedback.
+        -- For WrongFixups, we can report issues right away.
         pure $ Pr.setIntegrationStatus pr (Conflicted targetBranch reason) $
-          Pr.setNeedsFeedback pr (null train) state
+          Pr.setNeedsFeedback pr (null train || reason == WrongFixups) state
 
       Right (Sha sha) -> do
         -- If it succeeded, set the build to pending,
