@@ -463,11 +463,12 @@ isIntegrated (Integrated _ _) = True
 isIntegrated _                = False
 
 isUnfailingIntegrated :: IntegrationStatus -> Bool
-isUnfailingIntegrated (Integrated _ BuildPending)     = True
-isUnfailingIntegrated (Integrated _ (BuildStarted _)) = True
-isUnfailingIntegrated (Integrated _ BuildSucceeded)   = True
-isUnfailingIntegrated (Integrated _ (BuildFailed _))  = False
-isUnfailingIntegrated _                               = False
+isUnfailingIntegrated (Integrated _ buildStatus) = case buildStatus of
+                                                   BuildPending     -> True
+                                                   (BuildStarted _) -> True
+                                                   BuildSucceeded   -> True
+                                                   (BuildFailed _)  -> False
+isUnfailingIntegrated _ = False
 
 isIntegratedOrSpeculativelyConflicted :: PullRequest -> Bool
 isIntegratedOrSpeculativelyConflicted pr =
