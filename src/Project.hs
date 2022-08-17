@@ -395,11 +395,11 @@ integratedPullRequests :: ProjectState -> [PullRequestId]
 integratedPullRequests = filterPullRequestsBy $ isIntegrated . integrationStatus
 
 unfailedIntegratedPullRequests :: ProjectState -> [PullRequestId]
-unfailedIntegratedPullRequests = filterPullRequestsBy $ isUnfailingIntegrated . integrationStatus
+unfailedIntegratedPullRequests = filterPullRequestsBy $ isUnfailedIntegrated . integrationStatus
 
 unfailedIntegratedPullRequestsBefore :: PullRequest -> ProjectState -> [PullRequestId]
 unfailedIntegratedPullRequestsBefore referencePullRequest = filterPullRequestsBy $
-  \pr -> isUnfailingIntegrated (integrationStatus pr)
+  \pr -> isUnfailedIntegrated (integrationStatus pr)
       && referencePullRequest `approvedAfter` pr
 
 -- Returns the pull requests that have not been integrated yet, in order of
@@ -463,13 +463,13 @@ isIntegrated :: IntegrationStatus -> Bool
 isIntegrated (Integrated _ _) = True
 isIntegrated _                = False
 
-isUnfailingIntegrated :: IntegrationStatus -> Bool
-isUnfailingIntegrated (Integrated _ buildStatus) = case buildStatus of
-                                                   BuildPending     -> True
-                                                   (BuildStarted _) -> True
-                                                   BuildSucceeded   -> True
-                                                   (BuildFailed _)  -> False
-isUnfailingIntegrated _ = False
+isUnfailedIntegrated :: IntegrationStatus -> Bool
+isUnfailedIntegrated (Integrated _ buildStatus) = case buildStatus of
+                                                  BuildPending     -> True
+                                                  (BuildStarted _) -> True
+                                                  BuildSucceeded   -> True
+                                                  (BuildFailed _)  -> False
+isUnfailedIntegrated _ = False
 
 isIntegratedOrSpeculativelyConflicted :: PullRequest -> Bool
 isIntegratedOrSpeculativelyConflicted pr =
