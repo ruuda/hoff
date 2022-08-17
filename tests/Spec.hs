@@ -1987,7 +1987,6 @@ main = hspec $ do
           , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
           , BuildStatusChanged (Sha "1ab") (Project.BuildFailed (Just "ci.example.com/1ab"))
           ]
-        -- For this test, we assume all integrations and pushes succeed.
         results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
                                                      , Left (IntegrationFailure (BaseBranch "testing/1") RebaseFailed)
                                                      , Right (Sha "3cd")
