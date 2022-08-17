@@ -561,7 +561,7 @@ handleMergeRequested projectConfig prId author state pr approvalType = do
 --   in the merge train as NotIntegrated
 unintegrateAfter :: PullRequestId -> ProjectState -> ProjectState
 unintegrateAfter pid state = case Pr.lookupPullRequest pid state of
-  Nothing -> state -- should not happen
+  Nothing -> state -- PR not found.  Keep the state as it is.
   Just pr -> unintegrateAfter' pr state
   where
   unintegrateAfter' :: PullRequest -> ProjectState -> ProjectState
