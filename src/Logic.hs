@@ -865,7 +865,7 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
           -- This should probably never happen
           Nothing   -> "The build failed, but GitHub did not provide an URL to the build failure."
     trainBefore -> format "Speculative build failed. \
-                          \ I will automatically retry after {} build results."
+                          \ I will automatically retry after getting build results for {}."
                           [prettyPullRequestIds trainBefore]
 
 -- Leave a comment with the feedback from 'describeStatus' and set the

@@ -2273,7 +2273,7 @@ main = hspec $ do
                         [PullRequestId 1]
                         False
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
-        , ALeaveComment (PullRequestId 2) "Speculative build failed.  I will automatically retry after #1 build results."
+        , ALeaveComment (PullRequestId 2) "Speculative build failed.  I will automatically retry after getting build results for #1."
         , ALeaveComment (PullRequestId 1) "The build failed, but GitHub did not provide an URL to the build failure."
         -- #2 is integrated again as its speculative base failed
         , ATryIntegrate "Merge #2: Second PR\n\n\
@@ -2367,7 +2367,7 @@ main = hspec $ do
                         [PullRequestId 1]
                         False
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
-        , ALeaveComment (PullRequestId 2) "Speculative build failed.  I will automatically retry after #1 build results."
+        , ALeaveComment (PullRequestId 2) "Speculative build failed.  I will automatically retry after getting build results for #1."
         , ATryPromote (Branch "fst") (Sha "1ab")
         , ACleanupTestBranch (PullRequestId 1)
         , ALeaveComment (PullRequestId 2) "The build failed, but GitHub did not provide an URL to the build failure."
