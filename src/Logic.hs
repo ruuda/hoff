@@ -775,7 +775,7 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       PushRejected _why -> tryIntegratePullRequest pullRequestId state
 
 -- | When a pull request has been promoted to master this means that any
--- conflicts (failed rebases) build on top of it are not speculative anymore:
+-- conflicts (failed rebases) built on top of it are not speculative anymore:
 -- they are real conflicts on top of the (new) master.
 --
 -- This function updates the conflicted bases for all pull requests that come
