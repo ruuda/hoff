@@ -250,11 +250,11 @@ handleEventTest = Logic.handleEvent testTriggerConfig testProjectConfig testmerg
 handleEventsTest :: [Event] -> ProjectState -> Action ProjectState
 handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig testProjectConfig testmergeWindowExemptionConfig) state events
 
--- Same as 'unfailingIntegratedPullRequests' but paired with the underlying objects.
+-- Same as 'unfailedIntegratedPullRequests' but paired with the underlying objects.
 getIntegrationCandidates :: ProjectState -> [(PullRequestId, PullRequest)]
 getIntegrationCandidates state =
   [ (pullRequestId, candidate)
-  | pullRequestId <- Project.unfailingIntegratedPullRequests state
+  | pullRequestId <- Project.unfailedIntegratedPullRequests state
   , Just candidate <- [Project.lookupPullRequest pullRequestId state]
   ]
 
@@ -292,13 +292,13 @@ main = hspec $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 1) (Branch "p") masterBranch (Sha "ea0") "frank" "deckard" (Sha "cf4")
           state' = fst $ runAction $ handleEventTest event state
-      Project.unfailingIntegratedPullRequests state' `shouldBe` []
+      Project.unfailedIntegratedPullRequests state' `shouldBe` []
 
     it "does not modify the integration candidate if a different PR was closed" $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 2) (Branch "p") masterBranch (Sha "a38") "franz" "deckard" (Sha "ed0")
           state' = fst $ runAction $ handleEventTest event state
-      Project.unfailingIntegratedPullRequests state' `shouldBe` [PullRequestId 2]
+      Project.unfailedIntegratedPullRequests state' `shouldBe` [PullRequestId 2]
 
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
@@ -627,7 +627,7 @@ main = hspec $ do
       -- The first pull request should be dropped, and a comment should be
       -- left indicating why. Then the second pull request should be at the
       -- front of the queue.
-      Project.unfailingIntegratedPullRequests state' `shouldBe` [PullRequestId 2]
+      Project.unfailedIntegratedPullRequests state' `shouldBe` [PullRequestId 2]
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
@@ -1071,7 +1071,7 @@ main = hspec $ do
         ]
 
       Project.approval pr `shouldBe` Nothing
-      Project.unfailingIntegratedPullRequests state' `shouldBe` []
+      Project.unfailedIntegratedPullRequests state' `shouldBe` []
 
     it "shows an appropriate message when the commit is changed on an approved PR" $ do
       let
@@ -1097,7 +1097,7 @@ main = hspec $ do
         ]
 
       Project.approval pr `shouldBe` Nothing
-      Project.unfailingIntegratedPullRequests state' `shouldBe` []
+      Project.unfailedIntegratedPullRequests state' `shouldBe` []
 
 
   describe "Logic.proceedUntilFixedPoint" $ do

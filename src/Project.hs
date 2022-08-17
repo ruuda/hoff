@@ -22,8 +22,8 @@ module Project
   Owner,
   approvedPullRequests,
   integratedPullRequests,
-  unfailingIntegratedPullRequests,
-  unfailingIntegratedPullRequestsBefore,
+  unfailedIntegratedPullRequests,
+  unfailedIntegratedPullRequestsBefore,
   candidatePullRequests,
   classifyPullRequest,
   classifyPullRequests,
@@ -394,11 +394,11 @@ wasIntegrationAttemptFor commit pr = case integrationStatus pr of
 integratedPullRequests :: ProjectState -> [PullRequestId]
 integratedPullRequests = filterPullRequestsBy $ isIntegrated . integrationStatus
 
-unfailingIntegratedPullRequests :: ProjectState -> [PullRequestId]
-unfailingIntegratedPullRequests = filterPullRequestsBy $ isUnfailingIntegrated . integrationStatus
+unfailedIntegratedPullRequests :: ProjectState -> [PullRequestId]
+unfailedIntegratedPullRequests = filterPullRequestsBy $ isUnfailingIntegrated . integrationStatus
 
-unfailingIntegratedPullRequestsBefore :: PullRequest -> ProjectState -> [PullRequestId]
-unfailingIntegratedPullRequestsBefore referencePullRequest = filterPullRequestsBy $
+unfailedIntegratedPullRequestsBefore :: PullRequest -> ProjectState -> [PullRequestId]
+unfailedIntegratedPullRequestsBefore referencePullRequest = filterPullRequestsBy $
   \pr -> isUnfailingIntegrated (integrationStatus pr)
       && referencePullRequest `approvedAfter` pr
 

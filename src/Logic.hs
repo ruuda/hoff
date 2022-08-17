@@ -380,7 +380,7 @@ handlePullRequestClosedByUser = handlePullRequestClosed User
 
 handlePullRequestClosed :: PRCloseCause -> PullRequestId -> ProjectState -> Action ProjectState
 handlePullRequestClosed closingReason pr state = do
-  when (pr `elem` Pr.unfailingIntegratedPullRequests state) $
+  when (pr `elem` Pr.unfailedIntegratedPullRequests state) $
     leaveComment pr $ prClosingMessage closingReason
   -- actually delete the pull request
   pure . Pr.deletePullRequest pr
@@ -654,7 +654,7 @@ proceed = provideFeedback
       >=> tryIntegrateSomePullRequest
 
 proceedSomeCandidate :: ProjectState -> Action ProjectState
-proceedSomeCandidate state = case Pr.unfailingIntegratedPullRequests state of
+proceedSomeCandidate state = case Pr.unfailedIntegratedPullRequests state of
   (candidate:_) -> proceedCandidate candidate state
   _ -> pure state
 
@@ -698,7 +698,7 @@ tryIntegratePullRequest pr state =
       ]
     mergeMessage = Text.unlines mergeMessageLines
     -- the takeWhile here is needed in case of reintegrations after failing pushes
-    train = takeWhile (/= pr) $ Pr.unfailingIntegratedPullRequests state
+    train = takeWhile (/= pr) $ Pr.unfailedIntegratedPullRequests state
   in do
     result <- tryIntegrate mergeMessage candidate train $ Pr.alwaysAddMergeCommit approvalType
     case result of
@@ -829,7 +829,7 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
       1 -> format "Pull request approved for {} by @{}, waiting for rebase behind one pull request." [approvalCommand, approvedBy]
       n -> format "Pull request approved for {} by @{}, waiting for rebase behind {} pull requests." (approvalCommand, approvedBy, n)
   PrStatusBuildPending -> let Sha sha = fromJust $ Pr.integrationSha pr
-                              train = takeWhile (/= prId) $ Pr.unfailingIntegratedPullRequests state
+                              train = takeWhile (/= prId) $ Pr.unfailedIntegratedPullRequests state
                           in case train of
                              []    -> Text.concat ["Rebased as ", sha, ", waiting for CI …"]
                              (_:_) -> Text.concat [ "Speculatively rebased as ", sha
@@ -859,7 +859,7 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
   -- but here in case we decide to show it.
   PrStatusSpeculativeConflict -> "Failed to speculatively rebase. \
                                  \ I will retry rebasing automatically when the queue clears."
-  PrStatusFailedBuild url -> case Pr.unfailingIntegratedPullRequestsBefore pr state of
+  PrStatusFailedBuild url -> case Pr.unfailedIntegratedPullRequestsBefore pr state of
     [] -> case url of
           Just url' -> format "The build failed: {}\n\
                               \If this is the result of a flaky test, \
