@@ -650,16 +650,18 @@ synchronizeState stateInitial =
 -- in progress is closed, we should find a new candidate.
 proceed :: ProjectState -> Action ProjectState
 proceed = provideFeedback
-      >=> proceedSomeCandidate
-      >=> tryIntegrateSomePullRequest
+      >=> proceedFirstCandidate
+      >=> tryIntegrateFirstPullRequest
 
-proceedSomeCandidate :: ProjectState -> Action ProjectState
-proceedSomeCandidate state = case Pr.unfailedIntegratedPullRequests state of
+-- proceeds with the candidate that was approved first
+proceedFirstCandidate :: ProjectState -> Action ProjectState
+proceedFirstCandidate state = case Pr.unfailedIntegratedPullRequests state of
   (candidate:_) -> proceedCandidate candidate state
   _ -> pure state
 
-tryIntegrateSomePullRequest :: ProjectState -> Action ProjectState
-tryIntegrateSomePullRequest state = case Pr.candidatePullRequests state of
+-- try to integrate the pull request that was approved first
+tryIntegrateFirstPullRequest :: ProjectState -> Action ProjectState
+tryIntegrateFirstPullRequest state = case Pr.candidatePullRequests state of
   (pr:_) -> tryIntegratePullRequest pr state
   _ -> pure state
 
