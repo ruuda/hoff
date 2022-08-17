@@ -303,7 +303,7 @@ prPending Project.PrStatusBuildPending     = True
 prPending (Project.PrStatusBuildStarted _) = True
 -- PrStatusIntegrated here means that the PR successfully built
 -- but it has not been promoted to master yet for either of two reasons:
--- 1. this is the split of a second between receiving the status and promoting;
+-- 1. this is the split-second between receiving the status and promoting;
 -- 2. this PR is not at the head of the merge train,
 --    we are waiting for the build status of the previous PR.
 prPending Project.PrStatusIntegrated       = True
