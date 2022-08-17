@@ -22,6 +22,8 @@ module Project
   Owner,
   approvedPullRequests,
   integratedPullRequests,
+  unfailedIntegratedPullRequests,
+  unfailedIntegratedPullRequestsBefore,
   candidatePullRequests,
   classifyPullRequest,
   classifyPullRequests,
@@ -30,11 +32,14 @@ module Project
   existsPullRequest,
   getQueuePosition,
   insertPullRequest,
+  integrationSha,
+  lookupIntegrationSha,
   loadProjectState,
   lookupPullRequest,
   saveProjectState,
   alwaysAddMergeCommit,
   needsDeploy,
+  isIntegratedOrSpeculativelyConflicted,
   needsTag,
   displayApproval,
   setApproval,
@@ -46,9 +51,12 @@ module Project
   updatePullRequests,
   getOwners,
   wasIntegrationAttemptFor,
+  filterPullRequestsBy,
+  approvedAfter,
   MergeWindow(..))
 where
 
+import Control.Monad ((<=<))
 import Data.Aeson (FromJSON, ToJSON)
 import Data.ByteString (readFile)
 import Data.ByteString.Lazy (writeFile)
@@ -105,6 +113,7 @@ data PullRequestStatus
   | PrStatusWrongFixups               -- Failed to integrate due to the presence of orphan fixup commits.
   | PrStatusEmptyRebase               -- Rebase was empty (changes already in the target branch?)
   | PrStatusFailedConflict            -- Failed to integrate due to merge conflict.
+  | PrStatusSpeculativeConflict       -- Failed to integrate but this was a speculative build
   | PrStatusFailedBuild (Maybe Text)  -- Integrated, but the build failed. Field should contain the URL to a page explaining the build failure.
   deriving (Eq)
 
@@ -292,7 +301,9 @@ classifyPullRequest pr = case approval pr of
   Just _  -> case integrationStatus pr of
     NotIntegrated -> PrStatusApproved
     IncorrectBaseBranch -> PrStatusIncorrectBaseBranch
+    -- Fixups can be reported regardless of whether we are doing an speculative rebase
     Conflicted _ WrongFixups -> PrStatusWrongFixups
+    Conflicted base _ | base /= baseBranch pr -> PrStatusSpeculativeConflict
     Conflicted _ EmptyRebase -> PrStatusEmptyRebase
     Conflicted _ _  -> PrStatusFailedConflict
     Integrated _ buildStatus -> case buildStatus of
@@ -382,11 +393,14 @@ wasIntegrationAttemptFor commit pr = case integrationStatus pr of
 
 integratedPullRequests :: ProjectState -> [PullRequestId]
 integratedPullRequests = filterPullRequestsBy $ isIntegrated . integrationStatus
-  where
-  isIntegrated (Integrated _ BuildPending)     = True
-  isIntegrated (Integrated _ (BuildStarted _)) = True
-  isIntegrated (Integrated _ BuildSucceeded)   = True
-  isIntegrated _                               = False
+
+unfailedIntegratedPullRequests :: ProjectState -> [PullRequestId]
+unfailedIntegratedPullRequests = filterPullRequestsBy $ isUnfailedIntegrated . integrationStatus
+
+unfailedIntegratedPullRequestsBefore :: PullRequest -> ProjectState -> [PullRequestId]
+unfailedIntegratedPullRequestsBefore referencePullRequest = filterPullRequestsBy $
+  \pr -> isUnfailedIntegrated (integrationStatus pr)
+      && referencePullRequest `approvedAfter` pr
 
 -- Returns the pull requests that have not been integrated yet, in order of
 -- ascending id.
@@ -425,3 +439,41 @@ needsTag :: ApprovedFor -> Bool
 needsTag Merge          = False
 needsTag MergeAndDeploy = True
 needsTag MergeAndTag    = True
+
+integrationSha :: PullRequest -> Maybe Sha
+integrationSha PullRequest{integrationStatus = Integrated s _} = Just s
+integrationSha _                                               = Nothing
+
+lookupIntegrationSha :: PullRequestId -> ProjectState -> Maybe Sha
+lookupIntegrationSha pid = integrationSha <=< lookupPullRequest pid
+
+-- | Returns whether the first pull request was approved after the second.
+-- To be used in infix notation:
+--
+-- > pr1 `approvedAfter` pr2
+approvedAfter :: PullRequest -> PullRequest -> Bool
+pr1 `approvedAfter` pr2 = case (mo1, mo2) of
+                          (Just order1, Just order2) -> order1 > order2
+                          _                          -> False
+  where
+  mo1 = approvalOrder <$> approval pr1
+  mo2 = approvalOrder <$> approval pr2
+
+isIntegrated :: IntegrationStatus -> Bool
+isIntegrated (Integrated _ _) = True
+isIntegrated _                = False
+
+isUnfailedIntegrated :: IntegrationStatus -> Bool
+isUnfailedIntegrated (Integrated _ buildStatus) = case buildStatus of
+                                                  BuildPending     -> True
+                                                  (BuildStarted _) -> True
+                                                  BuildSucceeded   -> True
+                                                  (BuildFailed _)  -> False
+isUnfailedIntegrated _ = False
+
+isIntegratedOrSpeculativelyConflicted :: PullRequest -> Bool
+isIntegratedOrSpeculativelyConflicted pr =
+  case integrationStatus pr of
+  (Integrated _ _)                            -> True
+  (Conflicted base _) | base /= baseBranch pr -> True
+  _                                           -> False

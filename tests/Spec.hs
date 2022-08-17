@@ -89,6 +89,7 @@ data ActionFlat
   = ATryIntegrate
     { mergeMessage         :: Text
     , integrationCandidate :: (PullRequestId, Branch, Sha)
+    , mergeTrain           :: [PullRequestId]
     , alwaysAddMergeCommit :: Bool
     }
   | ATryPromote Branch Sha
@@ -202,8 +203,8 @@ runActionRws =
     isReviewer username = elem username ["deckard", "bot"]
   in
     foldFree $ \case
-      TryIntegrate msg candidate alwaysAddMergeCommit' cont -> do
-        Rws.tell [ATryIntegrate msg candidate alwaysAddMergeCommit']
+      TryIntegrate msg candidate train alwaysAddMergeCommit' cont -> do
+        Rws.tell [ATryIntegrate msg candidate train alwaysAddMergeCommit']
         cont <$> takeResultIntegrate
       TryPromote prBranch headSha cont -> do
         Rws.tell [ATryPromote prBranch headSha]
@@ -249,11 +250,11 @@ handleEventTest = Logic.handleEvent testTriggerConfig testProjectConfig testmerg
 handleEventsTest :: [Event] -> ProjectState -> Action ProjectState
 handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig testProjectConfig testmergeWindowExemptionConfig) state events
 
--- Same as 'integratedPullRequests' but paired with the underlying objects.
+-- Same as 'unfailedIntegratedPullRequests' but paired with the underlying objects.
 getIntegrationCandidates :: ProjectState -> [(PullRequestId, PullRequest)]
 getIntegrationCandidates state =
   [ (pullRequestId, candidate)
-  | pullRequestId <- Project.integratedPullRequests state
+  | pullRequestId <- Project.unfailedIntegratedPullRequests state
   , Just candidate <- [Project.lookupPullRequest pullRequestId state]
   ]
 
@@ -291,13 +292,13 @@ main = hspec $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 1) (Branch "p") masterBranch (Sha "ea0") "frank" "deckard" (Sha "cf4")
           state' = fst $ runAction $ handleEventTest event state
-      Project.integratedPullRequests state' `shouldBe` []
+      Project.unfailedIntegratedPullRequests state' `shouldBe` []
 
     it "does not modify the integration candidate if a different PR was closed" $ do
       let event  = PullRequestClosed (PullRequestId 1)
           state  = candidateState (PullRequestId 2) (Branch "p") masterBranch (Sha "a38") "franz" "deckard" (Sha "ed0")
           state' = fst $ runAction $ handleEventTest event state
-      Project.integratedPullRequests state' `shouldBe` [PullRequestId 2]
+      Project.unfailedIntegratedPullRequests state' `shouldBe` [PullRequestId 2]
 
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
@@ -455,7 +456,7 @@ main = hspec $ do
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a38") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a38") [] False
         , ALeaveComment (PullRequestId 1)
             "Failed to rebase, please rebase manually using\n\n\
             \    git rebase --interactive --autosquash origin/master p"
@@ -475,19 +476,34 @@ main = hspec $ do
           , CommentAdded (PullRequestId 3) "deckard" "@bot merge and deploy"
           ]
         -- For this test, we assume all integrations and pushes succeed.
-        results = defaultResults { resultIntegrate = [Right (Sha "b71")] }
+        results = defaultResults { resultIntegrate = [ Right (Sha "b71")
+                                                     , Right (Sha "c82")
+                                                     , Right (Sha "d93")
+                                                     ] }
         run = runActionCustom results
         actions = snd $ run $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a38") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a38") [] False
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI …"
+
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "dec")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as c82 behind #1, waiting for CI …"
+
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 3) "Pull request approved for merge and deploy by @deckard, waiting for rebase behind 2 pull requests."
+        , ATryIntegrate "Merge #3: Another PR\n\nApproved-by: deckard\nAuto-deploy: true\n"
+                        (PullRequestId 3, Branch "refs/pull/3/head", Sha "f16")
+                        [PullRequestId 1, PullRequestId 2]
+                        True
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as d93 behind #1 and #2, waiting for CI …"
         ]
     it "keeps the order position for the comments" $ do
       let
@@ -503,19 +519,25 @@ main = hspec $ do
           , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
           ]
         -- For this test, we assume all integrations and pushes succeed.
-        results = defaultResults { resultIntegrate = [Right (Sha "b71")] }
+        results = defaultResults { resultIntegrate = [Right (Sha "b71"), Right (Sha "b72"), Right (Sha "b73")] }
         run = runActionCustom results
         (state', actions) = run $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a38") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a38") [] False
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI …"
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 3) "Pull request approved for merge by @deckard, waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #3: Another PR\n\nApproved-by: deckard\nAuto-deploy: false\n"
+                        (PullRequestId 3, Branch "refs/pull/3/head", Sha "f16") [PullRequestId 1] False
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as b72 behind #1, waiting for CI …"
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase behind 2 pull requests."
+        , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "dec") [PullRequestId 1, PullRequestId 3] False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as b73 behind #1 and #3, waiting for CI …"
         ]
       Project.pullRequestApprovalIndex state' `shouldBe` 3
       Project.pullRequests state' `shouldBe`
@@ -538,7 +560,7 @@ main = hspec $ do
             title = "Some PR",
             author = Username "rachael",
             approval = Just (Approval (Username "deckard") Project.Merge 2),
-            integrationStatus = Project.NotIntegrated,
+            integrationStatus = Project.Integrated (Sha "b73") Project.BuildPending,
             integrationAttempts = [],
             needsFeedback = False
             })
@@ -549,7 +571,7 @@ main = hspec $ do
             title = "Another PR",
             author = Username "rachael",
             approval = Just (Approval (Username "deckard") Project.Merge 1),
-            integrationStatus = Project.NotIntegrated,
+            integrationStatus = Project.Integrated (Sha "b72") Project.BuildPending,
             integrationAttempts = [],
             needsFeedback = False
             })
@@ -568,12 +590,20 @@ main = hspec $ do
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "dec") False
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "dec") [] False
         , ALeaveComment (PullRequestId 2) "Rebased as b71, waiting for CI …"
+
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a38") [PullRequestId 2] False
+        , ALeaveComment (PullRequestId 1) "Speculatively rebased as b72 behind #2, waiting for CI …"
+
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 3) "Pull request approved for merge by @deckard, waiting for rebase behind 2 pull requests."
+        , ATryIntegrate "Merge #3: Another PR\n\nApproved-by: deckard\nAuto-deploy: false\n"
+                        (PullRequestId 3, Branch "refs/pull/3/head", Sha "f16") [PullRequestId 2, PullRequestId 1] False
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as b73 behind #2 and #1, waiting for CI …"
         ]
 
     it "abandons integration when a pull request is closed" $ do
@@ -590,27 +620,29 @@ main = hspec $ do
           ]
         -- For this test, we assume all integrations and pushes succeed.
         results = defaultResults
-          { resultIntegrate = [Right (Sha "b71"), Right (Sha "b72")]
-          }
+          { resultIntegrate = [Right (Sha "b71"), Right (Sha "b72"), Right (Sha "b73")] }
         run = runActionCustom results
         (state', actions) = run $ handleEventsTest events state
 
       -- The first pull request should be dropped, and a comment should be
       -- left indicating why. Then the second pull request should be at the
       -- front of the queue.
-      Project.integratedPullRequests state' `shouldBe` [PullRequestId 2]
+      Project.unfailedIntegratedPullRequests state' `shouldBe` [PullRequestId 2]
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a38") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a38") [] False
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI …"
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "dec") [PullRequestId 1] False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as b72 behind #1, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "Abandoning this pull request because it was closed."
         , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "dec") False
-        , ALeaveComment (PullRequestId 2) "Rebased as b72, waiting for CI …"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "dec") [] False
+        , ALeaveComment (PullRequestId 2) "Rebased as b73, waiting for CI …"
         ]
 
     it "ignores comments on unknown pull requests" $ do
@@ -717,7 +749,7 @@ main = hspec $ do
         [ AIsReviewer "deckard"
         , ALeaveComment prId "Pull request approved for merge and deploy by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") True
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] True
         , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
         ]
 
@@ -738,7 +770,7 @@ main = hspec $ do
         [ AIsReviewer "deckard"
         , ALeaveComment prId "Pull request approved for merge and deploy by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") True
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] True
         , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
         ]
 
@@ -759,7 +791,7 @@ main = hspec $ do
         [ AIsReviewer "deckard"
         , ALeaveComment prId "Pull request approved for merge and tag by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
         , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
         ]
 
@@ -780,7 +812,7 @@ main = hspec $ do
         [ AIsReviewer "deckard"
         , ALeaveComment prId "Pull request approved for merge and tag by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
         , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
         ]
 
@@ -801,7 +833,7 @@ main = hspec $ do
         [ AIsReviewer "deckard"
         , ALeaveComment prId "Pull request approved for merge and tag by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
         , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
         ]
 
@@ -822,7 +854,7 @@ main = hspec $ do
         [ AIsReviewer "deckard"
         , ALeaveComment prId "Pull request approved for merge and tag by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
         , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
         ]
 
@@ -843,7 +875,7 @@ main = hspec $ do
         [ AIsReviewer "deckard"
         , ALeaveComment prId "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
         , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
         ]
 
@@ -864,7 +896,7 @@ main = hspec $ do
         [ AIsReviewer "deckard"
         , ALeaveComment prId "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
         , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
         ]
 
@@ -898,7 +930,7 @@ main = hspec $ do
         [ AIsReviewer "bot"
         , ALeaveComment prId "Pull request approved for merge by @bot, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: bot\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
         , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
         ]
 
@@ -965,6 +997,7 @@ main = hspec $ do
         , ATryIntegrate
             { mergeMessage = "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
             , integrationCandidate = (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234")
+            , mergeTrain = []
             , alwaysAddMergeCommit = False
             }
         , ALeaveComment (PullRequestId 1)
@@ -1007,7 +1040,7 @@ main = hspec $ do
         , AIsReviewer (Username "deckard")
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
         , ALeaveComment (PullRequestId 1) "Rebased as def2345, waiting for CI \8230"
         ]
 
@@ -1032,13 +1065,13 @@ main = hspec $ do
         [ AIsReviewer (Username "deckard")
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
         , ALeaveComment (PullRequestId 1) "Rebased as def2345, waiting for CI \8230"
         , ALeaveComment (PullRequestId 1) "Stopping integration because the PR changed after approval."
         ]
 
       Project.approval pr `shouldBe` Nothing
-      Project.integratedPullRequests state' `shouldBe` []
+      Project.unfailedIntegratedPullRequests state' `shouldBe` []
 
     it "shows an appropriate message when the commit is changed on an approved PR" $ do
       let
@@ -1058,13 +1091,13 @@ main = hspec $ do
         [ AIsReviewer (Username "deckard")
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
         , ALeaveComment (PullRequestId 1) "Rebased as def2345, waiting for CI \8230"
         , ALeaveComment (PullRequestId 1) "Stopping integration because the PR changed after approval."
         ]
 
       Project.approval pr `shouldBe` Nothing
-      Project.integratedPullRequests state' `shouldBe` []
+      Project.unfailedIntegratedPullRequests state' `shouldBe` []
 
 
   describe "Logic.proceedUntilFixedPoint" $ do
@@ -1084,7 +1117,7 @@ main = hspec $ do
       prId    `shouldBe` PullRequestId 1
       actions `shouldBe`
         [ ATryIntegrate "Merge #1: Untitled\n\nApproved-by: fred\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "f34") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "f34") [] False
         , ALeaveComment (PullRequestId 1) "Rebased as 38c, waiting for CI \x2026"
         ]
     it "finds a new candidate with multiple PRs" $ do
@@ -1097,17 +1130,20 @@ main = hspec $ do
             , PullRequestOpened (PullRequestId 2) (Branch "s") masterBranch (Sha "g35") "Another untitled" "rachael"
             ] Project.emptyProjectState
         results = defaultResults
-          { resultIntegrate = [Right (Sha "38c")]
+          { resultIntegrate = [Right (Sha "38c"), Right (Sha "49d")]
           , resultPush = [PushRejected "test"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
-        [(prId, pullRequest)] = getIntegrationCandidates state'
+        (prId, pullRequest):_ = getIntegrationCandidates state'
       Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") Project.BuildPending
       prId    `shouldBe` PullRequestId 2
       actions `shouldBe`
         [ ATryIntegrate "Merge #2: Another untitled\n\nApproved-by: fred\nAuto-deploy: false\n"
-                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "g35") False
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "g35") [] False
         , ALeaveComment (PullRequestId 2) "Rebased as 38c, waiting for CI \x2026"
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: fred\nAuto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "f34") [PullRequestId 2] False
+        , ALeaveComment (PullRequestId 1) "Speculatively rebased as 49d behind #2, waiting for CI \x2026"
         ]
 
     it "pushes after a successful build" $ do
@@ -1264,7 +1300,7 @@ main = hspec $ do
       actions `shouldBe`
         [ ATryPromote (Branch "results/rachael") (Sha "38d")
         , ATryIntegrate "Merge #1: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "f35") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "f35") [] False
         , ALeaveComment (PullRequestId 1) "Rebased as 38e, waiting for CI \x2026"
         ]
 
@@ -1302,7 +1338,7 @@ main = hspec $ do
       actions `shouldBe`
         [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2") (TagMessage "v2\n\nchangelog")
         , ATryIntegrate "Merge #1: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "f35") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "f35") [] False
         , ALeaveComment (PullRequestId 1) "Rebased as 38e, waiting for CI \x2026"
         ]
 
@@ -1343,14 +1379,14 @@ main = hspec $ do
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a39") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a39") [] False
           -- The first rebase succeeds.
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI \x2026"
           -- The first promotion attempt fails
         , ATryPromote (Branch "n7") (Sha "b71")
           -- The second rebase fails.
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a39") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a39") [] False
         , ALeaveComment (PullRequestId 1)
             "Failed to rebase, please rebase manually using\n\n\
             \    git rebase --interactive --autosquash origin/master n7"
@@ -1398,7 +1434,7 @@ main = hspec $ do
         [ ATryPromote (Branch "results/leon") (Sha "38d")
         , ACleanupTestBranch (PullRequestId 1)
         , ATryIntegrate "Merge #2: Add my test results\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "f37") False
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "f37") [] False
         , ALeaveComment (PullRequestId 2) "Rebased as 38e, waiting for CI \x2026"
         ]
 
@@ -1431,7 +1467,7 @@ main = hspec $ do
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a39") False
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "a39") [] False
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI \x2026"
         , ALeaveComment (PullRequestId 1) "[CI job](https://status.example.com/b71) started."
         , ALeaveComment (PullRequestId 1) "The build failed: https://example.com/build-status\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.\nOtherwise, push a new commit and tag me again."
@@ -1759,6 +1795,7 @@ main = hspec $ do
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
                         (PullRequestId 12,Branch "refs/pull/12/head",Sha "12a")
+                        []
                         False
         , ALeaveComment (PullRequestId 12) "Rebased as 1b2, waiting for CI …"
         , ALeaveComment (PullRequestId 12) "[CI job](example.com/1b2) started."
@@ -1798,11 +1835,698 @@ main = hspec $ do
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
                         (PullRequestId 12,Branch "refs/pull/12/head",Sha "12a")
+                        []
                         False
         , ALeaveComment (PullRequestId 12) "Rebased as 1b2, waiting for CI …"
         , ALeaveComment (PullRequestId 12) "[CI job](example.com/1b2) started."
         , ATryPromote (Branch "tth") (Sha "1b2")
         , ACleanupTestBranch (PullRequestId 12)
+        ]
+
+    it "resets the integration of PRs in the train after the PR commit has changed" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.insertPullRequest (PullRequestId 3) (Branch "trd") masterBranch (Sha "ef3") "Third PR"  (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
+          , PullRequestCommitChanged (PullRequestId 1) (Sha "4ba")
+          ]
+        -- For this test, we assume all integrations and pushes succeed.
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2bc")
+                                                     , Right (Sha "3cd")
+                                                     , Right (Sha "5bc")
+                                                     , Right (Sha "6cd") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2bc behind #1, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 3)
+                        "Pull request approved for merge by @deckard, \
+                        \waiting for rebase behind 2 pull requests."
+        , ATryIntegrate "Merge #3: Third PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
+                        [PullRequestId 1, PullRequestId 2]
+                        False
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind #1 and #2, waiting for CI …"
+        , ALeaveComment (PullRequestId 1) "Stopping integration because the PR changed after approval."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 2) "Rebased as 5bc, waiting for CI …"
+        , ATryIntegrate "Merge #3: Third PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
+                        [PullRequestId 2]
+                        False
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 6cd behind #2, waiting for CI …"
+        ]
+
+    it "only notifies rebase failures on top of the master branch (success, rebasefailure, success)" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.insertPullRequest (PullRequestId 3) (Branch "trd") masterBranch (Sha "ef3") "Third PR"  (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded)
+          ]
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Left (IntegrationFailure (BaseBranch "testing/1") RebaseFailed)
+                                                     , Right (Sha "3cd") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        -- We could post a comment like this, but it would be confusing...
+        -- , ALeaveComment (PullRequestId 2) "Failed speculative rebase.  Waiting in the queue for a rebase on master."
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 3)
+                        "Pull request approved for merge by @deckard, \
+                        \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #3: Third PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind #1, waiting for CI …"
+        , ATryPromote (Branch "fst") (Sha "1ab")
+        , ACleanupTestBranch (PullRequestId 1)
+        -- PR#2 is only notified after PR#1 passes or fails
+        , ALeaveComment (PullRequestId 2)
+                        "Failed to rebase, please rebase manually using\n\n\
+                        \    git rebase --interactive --autosquash origin/master snd"
+        ]
+
+    it "recovers from speculative rebase failures by starting a new train (failure, rebasefailure, success)" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.insertPullRequest (PullRequestId 3) (Branch "trd") masterBranch (Sha "ef3") "Third PR"  (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "1ab") (Project.BuildFailed (Just "ci.example.com/1ab"))
+          ]
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Left (IntegrationFailure (BaseBranch "testing/1") RebaseFailed)
+                                                     , Right (Sha "3cd")
+                                                     , Right (Sha "5bc")
+                                                     , Right (Sha "6cd") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        -- We could post a comment like this, but it would be confusing...
+        -- , ALeaveComment (PullRequestId 2) "Failed speculative rebase.  Waiting in the queue for a rebase on master."
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 3)
+                        "Pull request approved for merge by @deckard, \
+                        \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #3: Third PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 1) "The build failed: ci.example.com/1ab\n\
+                                          \If this is the result of a flaky test, \
+                                          \close and reopen the PR, then tag me again.\n\
+                                          \Otherwise, push a new commit and tag me again."
+        -- Since #1 failed, #2 takes over as the head of the new merge train
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 2) "Rebased as 5bc, waiting for CI …"
+        , ATryIntegrate "Merge #3: Third PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
+                        [PullRequestId 2]
+                        False
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 6cd behind #2, waiting for CI …"
+        ]
+
+    it "reports wrongfixups regardless of position in train (success, wrongfixups)" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          ]
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Left (IntegrationFailure (BaseBranch "testing/1") WrongFixups)
+                                                     , Right (Sha "3cd") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2)
+                        "Pull request cannot be integrated\
+                        \ as it contains fixup commits that\
+                        \ do not belong to any other commits."
+        ]
+
+    it "handles a 2-wagon merge train with build successes coming in the right order: success (1), success (2)" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded)
+          , BuildStatusChanged (Sha "2cd") (Project.BuildSucceeded)
+          ]
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2cd") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ATryPromote (Branch "fst") (Sha "1ab")
+        , ACleanupTestBranch (PullRequestId 1)
+        , ATryPromote (Branch "snd") (Sha "2cd")
+        , ACleanupTestBranch (PullRequestId 2)
+        ]
+
+    it "handles a 2-wagon merge train with build successes coming in the reverse order: success (2), success (1)" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          -- Build of #2 finishes before build of #1
+          , BuildStatusChanged (Sha "2cd") (Project.BuildSucceeded)
+          , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded)
+          ]
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2cd") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ATryPromote (Branch "fst") (Sha "1ab")
+        , ACleanupTestBranch (PullRequestId 1)
+        , ATryPromote (Branch "snd") (Sha "2cd")
+        , ACleanupTestBranch (PullRequestId 2)
+        ]
+
+    it "handles a 2-wagon merge train with build failures coming in the right order: failure (1), failure (2)" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "1ab") (Project.BuildFailed Nothing)
+          , BuildStatusChanged (Sha "2cd") (Project.BuildFailed Nothing)
+          , BuildStatusChanged (Sha "22e") (Project.BuildFailed Nothing)
+          ]
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2cd")
+                                                     , Right (Sha "22e") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 1) "The build failed, but GitHub did not provide an URL to the build failure."
+        -- #2 is integrated again as its speculative base failed
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 2) "Rebased as 22e, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "The build failed, but GitHub did not provide an URL to the build failure."
+        ]
+
+    it "handles a 2-wagon merge train with build failures coming in the reverse order: failure (2), failure (1)" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          -- Build of #2 finishes before build of #1
+          , BuildStatusChanged (Sha "2cd") (Project.BuildFailed Nothing)
+          , BuildStatusChanged (Sha "1ab") (Project.BuildFailed Nothing)
+          , BuildStatusChanged (Sha "22e") (Project.BuildFailed Nothing)
+          ]
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2cd")
+                                                     , Right (Sha "22e") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculative build failed.  I will automatically retry after getting build results for #1."
+        , ALeaveComment (PullRequestId 1) "The build failed, but GitHub did not provide an URL to the build failure."
+        -- #2 is integrated again as its speculative base failed
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 2) "Rebased as 22e, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "The build failed, but GitHub did not provide an URL to the build failure."
+        ]
+
+    it "handles a 2-wagon merge train with success and failure coming in the right order: success (1), failure (2)" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "1ab") Project.BuildSucceeded
+          , BuildStatusChanged (Sha "2cd") (Project.BuildFailed Nothing)
+          ]
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2cd") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ATryPromote (Branch "fst") (Sha "1ab")
+        , ACleanupTestBranch (PullRequestId 1)
+        , ALeaveComment (PullRequestId 2) "The build failed, but GitHub did not provide an URL to the build failure."
+        ]
+
+    it "handles a 2-wagon merge train with success and failure coming in the reverse order: success (2), failure (1)" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "2cd") (Project.BuildFailed Nothing)
+          , BuildStatusChanged (Sha "1ab") Project.BuildSucceeded
+          ]
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2cd") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculative build failed.  I will automatically retry after getting build results for #1."
+        , ATryPromote (Branch "fst") (Sha "1ab")
+        , ACleanupTestBranch (PullRequestId 1)
+        , ALeaveComment (PullRequestId 2) "The build failed, but GitHub did not provide an URL to the build failure."
+        ]
+
+    it "handles a 2-wagon merge train with success and failure coming in the right order: failure (1), success (2)" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "1ab") (Project.BuildFailed Nothing)
+          , BuildStatusChanged (Sha "2cd") (Project.BuildFailed Nothing)
+          , BuildStatusChanged (Sha "22e") Project.BuildSucceeded
+          ]
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2cd")
+                                                     , Right (Sha "22e") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 1) "The build failed, but GitHub did not provide an URL to the build failure."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 2) "Rebased as 22e, waiting for CI …"
+        , ATryPromote (Branch "snd") (Sha "22e")
+        , ACleanupTestBranch (PullRequestId 2)
+        ]
+
+    it "handles a 2-wagon merge train with success and failure coming in the reverse order: failure (2), success (1)" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "2cd") Project.BuildSucceeded
+          , BuildStatusChanged (Sha "1ab") (Project.BuildFailed Nothing)
+          , BuildStatusChanged (Sha "22e") Project.BuildSucceeded
+          ]
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2cd")
+                                                     , Right (Sha "22e") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 1) "The build failed, but GitHub did not provide an URL to the build failure."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 2) "Rebased as 22e, waiting for CI …"
+        , ATryPromote (Branch "snd") (Sha "22e")
+        , ACleanupTestBranch (PullRequestId 2)
+        ]
+
+    it "handles a 2-wagon merge train with closing and success coming in the reverse order: closing (2), success (1)" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "2cd") Project.BuildSucceeded
+          , PullRequestClosed (PullRequestId 1)
+          , BuildStatusChanged (Sha "22e") Project.BuildSucceeded
+          ]
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2cd")
+                                                     , Right (Sha "22e") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 1) "Abandoning this pull request because it was closed."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 2) "Rebased as 22e, waiting for CI …"
+        , ATryPromote (Branch "snd") (Sha "22e")
+        , ACleanupTestBranch (PullRequestId 2)
         ]
 
     it "handles a sequence of merges: success, success, success" $ do
@@ -1862,34 +2586,37 @@ main = hspec $ do
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
                         (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
                         False
         , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2)
                        "Pull request approved for merge by @deckard, \
                        \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2bc behind #1, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "[CI job](example.com/1ab) started."
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 3)
                         "Pull request approved for merge by @deckard, \
                         \waiting for rebase behind 2 pull requests."
-        , ATryPromote (Branch "fst") (Sha "1ab")
-        , ACleanupTestBranch (PullRequestId 1)
-        , ATryIntegrate "Merge #2: Second PR\n\n\
-                        \Approved-by: deckard\n\
-                        \Auto-deploy: false\n"
-                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
-                        False
-        , ALeaveComment (PullRequestId 2) "Rebased as 2bc, waiting for CI …"
-        , ALeaveComment (PullRequestId 2) "[CI job](example.com/2bc) started."
-        , ATryPromote (Branch "snd") (Sha "2bc")
-        , ACleanupTestBranch (PullRequestId 2)
         , ATryIntegrate "Merge #3: Third PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
+                        [PullRequestId 1, PullRequestId 2]
                         False
-        , ALeaveComment (PullRequestId 3) "Rebased as 3cd, waiting for CI …"
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind #1 and #2, waiting for CI …"
+        , ATryPromote (Branch "fst") (Sha "1ab")
+        , ACleanupTestBranch (PullRequestId 1)
+        , ALeaveComment (PullRequestId 2) "[CI job](example.com/2bc) started."
+        , ATryPromote (Branch "snd") (Sha "2bc")
+        , ACleanupTestBranch (PullRequestId 2)
         , ALeaveComment (PullRequestId 3) "[CI job](example.com/3cd) started."
         , ATryPromote (Branch "trd") (Sha "3cd")
         , ACleanupTestBranch (PullRequestId 3)
@@ -1929,19 +2656,21 @@ main = hspec $ do
           , CommentAdded (PullRequestId 8) "bot" "Rebased as 2bc, waiting for CI …"
           , BuildStatusChanged (Sha "2bc") (Project.BuildStarted "example.com/2bc")
           , CommentAdded (PullRequestId 8) "bot" "[CI job](example.com/2bc) started."
+          , BuildStatusChanged (Sha "3cd") (Project.BuildSucceeded) -- testing build passed on PR#7
           , BuildStatusChanged (Sha "36a") (Project.BuildSucceeded) -- arbitrary sha, ignored
           , BuildStatusChanged (Sha "2bc") (Project.BuildFailed (Just "example.com/2bc")) -- PR#8
           , BuildStatusChanged (Sha "2bc") (Project.BuildFailed (Just "example.com/2bc")) -- dup!
           , CommentAdded (PullRequestId 8) "bot" "The build failed: example.com/2bc"
           , CommentAdded (PullRequestId 7) "bot" "Rebased as 3cd, waiting for CI …"
-          , BuildStatusChanged (Sha "3cd") (Project.BuildStarted "example.com/3cd")
-          , BuildStatusChanged (Sha "3cd") (Project.BuildSucceeded) -- testing build passed on PR#7
+          , BuildStatusChanged (Sha "3ef") (Project.BuildStarted "example.com/3ef")
+          , BuildStatusChanged (Sha "3ef") (Project.BuildSucceeded) -- testing build passed on PR#7
           , PullRequestClosed (PullRequestId 7)
           ]
         -- For this test, we assume all integrations and pushes succeed.
         results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
                                                      , Right (Sha "2bc")
-                                                     , Right (Sha "3cd") ] }
+                                                     , Right (Sha "3cd")
+                                                     , Right (Sha "3ef") ] }
         run = runActionCustom results
         actions = snd $ run $ handleEventsTest events state
       actions `shouldBe`
@@ -1952,38 +2681,163 @@ main = hspec $ do
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
                         (PullRequestId 9, Branch "refs/pull/9/head", Sha "ab9")
+                        []
                         False
         , ALeaveComment (PullRequestId 9) "Rebased as 1ab, waiting for CI …"
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 8)
                        "Pull request approved for merge by @deckard, \
                        \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #8: Eighth PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 8, Branch "refs/pull/8/head", Sha "cd8")
+                        [PullRequestId 9]
+                        False
+        , ALeaveComment (PullRequestId 8) "Speculatively rebased as 2bc behind #9, waiting for CI …"
         , ALeaveComment (PullRequestId 9) "[CI job](example.com/1ab) started."
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 7)
                         "Pull request approved for merge by @deckard, \
                         \waiting for rebase behind 2 pull requests."
-        , ATryPromote (Branch "nth") (Sha "1ab")
-        , ACleanupTestBranch (PullRequestId 9)
-        , ATryIntegrate "Merge #8: Eighth PR\n\n\
+        , ATryIntegrate "Merge #7: Seventh PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
-                        (PullRequestId 8, Branch "refs/pull/8/head", Sha "cd8")
+                        (PullRequestId 7, Branch "refs/pull/7/head", Sha "ef7")
+                        [PullRequestId 9, PullRequestId 8]
                         False
-        , ALeaveComment (PullRequestId 8) "Rebased as 2bc, waiting for CI …"
+        , ALeaveComment (PullRequestId 7) "Speculatively rebased as 3cd behind #9 and #8, waiting for CI …"
+        , ATryPromote (Branch "nth") (Sha "1ab")
+        , ACleanupTestBranch (PullRequestId 9)
         , ALeaveComment (PullRequestId 8) "[CI job](example.com/2bc) started."
         , ALeaveComment (PullRequestId 8)
                         "The build failed: example.com/2bc\n\
                         \If this is the result of a flaky test, \
                         \close and reopen the PR, then tag me again.\n\
                         \Otherwise, push a new commit and tag me again."
+        -- Since #8 failed, #7 becomes the head of a new train and is rebased again
         , ATryIntegrate "Merge #7: Seventh PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
                         (PullRequestId 7, Branch "refs/pull/7/head", Sha "ef7")
+                        []
                         False
-        , ALeaveComment (PullRequestId 7) "Rebased as 3cd, waiting for CI …"
-        , ALeaveComment (PullRequestId 7) "[CI job](example.com/3cd) started."
-        , ATryPromote (Branch "sth") (Sha "3cd")
+        , ALeaveComment (PullRequestId 7) "Rebased as 3ef, waiting for CI …"
+        , ALeaveComment (PullRequestId 7) "[CI job](example.com/3ef) started."
+        , ATryPromote (Branch "sth") (Sha "3ef")
         , ACleanupTestBranch (PullRequestId 7)
+        ]
+
+    it "handles a sequence of four successful merges: success, success, success, success" $ do
+      -- An afternoon of work on PRs:
+      -- * four PRs are merged and approved in order
+      -- * build always succeeds
+      -- * Hoff is notified of its own comments and of GH closing merged PRs
+      -- Hoff should process albeit ignore its own comments.
+      --
+      -- This serves to test and document a complete workflow.
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR"  (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 2) (Branch "snd") masterBranch (Sha "cd2") "Second PR" (Username "rachael")
+          $ Project.insertPullRequest (PullRequestId 3) (Branch "trd") masterBranch (Sha "ef3") "Third PR"  (Username "rachael")
+          $ Project.insertPullRequest (PullRequestId 4) (Branch "fth") masterBranch (Sha "fe4") "Fourth PR" (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ BuildStatusChanged (Sha "ab1") (Project.BuildSucceeded) -- PR#1 sha, ignored
+          , CommentAdded (PullRequestId 1) "deckard" "@someone Thanks for your review."
+          , CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 1) "bot" "Pull request approved for merge, rebasing now."
+          , CommentAdded (PullRequestId 1) "bot" "Rebased as 1ab, waiting for CI …"
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 2) "bot" "Pull request approved for merge behind 1 PR."
+          , BuildStatusChanged (Sha "ef3") (Project.BuildSucceeded) -- PR#3 sha, ignored
+          , BuildStatusChanged (Sha "1ab") (Project.BuildPending) -- same status, ignored
+          , BuildStatusChanged (Sha "1ab") (Project.BuildStarted "example.com/1ab")
+          , BuildStatusChanged (Sha "1ab") (Project.BuildStarted "example.com/1ab") -- dup!
+          , CommentAdded (PullRequestId 1) "bot" "[CI job](example.com/1ab) started."
+          , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 3) "bot" "Pull request approved for merge behind 2 PRs."
+          , CommentAdded (PullRequestId 4) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 4) "bot" "Pull request approved for merge behind 3 PRs."
+          , BuildStatusChanged (Sha "cd2") (Project.BuildSucceeded) -- PR#2 sha, ignored
+          , BuildStatusChanged (Sha "1ab") (Project.BuildSucceeded) -- PR#1
+          , PullRequestClosed (PullRequestId 1)
+          , CommentAdded (PullRequestId 2) "bot" "Rebased as 2bc, waiting for CI …"
+          , BuildStatusChanged (Sha "2bc") (Project.BuildStarted "example.com/2bc")
+          , CommentAdded (PullRequestId 2) "bot" "[CI job](example.com/2bc) started."
+          , BuildStatusChanged (Sha "36a") (Project.BuildSucceeded) -- arbitrary sha, ignored
+          , BuildStatusChanged (Sha "2bc") (Project.BuildSucceeded) -- PR#2
+          , PullRequestClosed (PullRequestId 2)
+          , CommentAdded (PullRequestId 3) "bot" "Rebased as 3cd, waiting for CI …"
+          , BuildStatusChanged (Sha "3cd") (Project.BuildStarted "example.com/3cd")
+          , BuildStatusChanged (Sha "3cd") (Project.BuildSucceeded) -- PR#3
+          , PullRequestClosed (PullRequestId 3)
+          , BuildStatusChanged (Sha "4de") (Project.BuildStarted "example.com/4de")
+          , BuildStatusChanged (Sha "4de") (Project.BuildSucceeded) -- PR#4
+          , PullRequestClosed (PullRequestId 4)
+          ]
+        -- For this test, we assume all integrations and pushes succeed.
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2bc")
+                                                     , Right (Sha "3cd")
+                                                     , Right (Sha "4de") ] }
+        run = runActionCustom results
+        actions = snd $ run $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 1)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: First PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "ab1")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 1) "Rebased as 1ab, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 2)
+                       "Pull request approved for merge by @deckard, \
+                       \waiting for rebase behind one pull request."
+        , ATryIntegrate "Merge #2: Second PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
+                        [PullRequestId 1]
+                        False
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2bc behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 1) "[CI job](example.com/1ab) started."
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 3)
+                        "Pull request approved for merge by @deckard, \
+                        \waiting for rebase behind 2 pull requests."
+        , ATryIntegrate "Merge #3: Third PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
+                        [PullRequestId 1, PullRequestId 2]
+                        False
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind #1 and #2, waiting for CI …"
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 4)
+                        "Pull request approved for merge by @deckard, \
+                        \waiting for rebase behind 3 pull requests."
+        , ATryIntegrate "Merge #4: Fourth PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 4, Branch "refs/pull/4/head", Sha "fe4")
+                        [PullRequestId 1, PullRequestId 2, PullRequestId 3]
+                        False
+        , ALeaveComment (PullRequestId 4) "Speculatively rebased as 4de behind #1, #2 and #3, waiting for CI …"
+        , ATryPromote (Branch "fst") (Sha "1ab")
+        , ACleanupTestBranch (PullRequestId 1)
+        , ALeaveComment (PullRequestId 2) "[CI job](example.com/2bc) started."
+        , ATryPromote (Branch "snd") (Sha "2bc")
+        , ACleanupTestBranch (PullRequestId 2)
+        , ALeaveComment (PullRequestId 3) "[CI job](example.com/3cd) started."
+        , ATryPromote (Branch "trd") (Sha "3cd")
+        , ACleanupTestBranch (PullRequestId 3)
+        , ALeaveComment (PullRequestId 4) "[CI job](example.com/4de) started."
+        , ATryPromote (Branch "fth") (Sha "4de")
+        , ACleanupTestBranch (PullRequestId 4)
         ]

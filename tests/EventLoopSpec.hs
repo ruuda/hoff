@@ -378,7 +378,7 @@ withTestEnv' body = do
 -- | lists the integration Shas from the state for all PRs which are Integrated
 integrationShas :: ProjectState -> [Sha]
 integrationShas state = [ sha
-                        | prId <- Project.integratedPullRequests state
+                        | prId <- Project.unfailedIntegratedPullRequests state
                         , Just pr <- [Project.lookupPullRequest prId state]
                         , Integrated sha _ <- [Project.integrationStatus pr]
                         ]
@@ -726,7 +726,7 @@ eventLoopSpec = parallel $ do
           ]
 
         -- Extract the sha of the rebased commit from the project state.
-        let [rebasedSha] = integrationShas state
+        let [rebasedSha,_] = integrationShas state
 
         -- The rebased commit should have been pushed to the remote repository
         -- 'integration' branch. Tell that building it succeeded.
@@ -767,7 +767,7 @@ eventLoopSpec = parallel $ do
             Logic.CommentAdded pr4 "rachael" "@bot merge and tag"
           ]
 
-        let [rebasedSha] = integrationShas state
+        let [rebasedSha,_] = integrationShas state
 
         state' <- runLoop state [Logic.BuildStatusChanged rebasedSha BuildSucceeded]
 
@@ -853,7 +853,7 @@ eventLoopSpec = parallel $ do
 
         -- The second pull request should still be pending, awaiting the build
         -- result.
-        Project.integratedPullRequests state `shouldBe` [pr4]
+        Project.unfailedIntegratedPullRequests state `shouldBe` [pr4]
         let Just pullRequest4 = Project.lookupPullRequest pr4 state
             Integrated _ buildStatus = Project.integrationStatus pullRequest4
         -- Expect no CI url
@@ -898,7 +898,7 @@ eventLoopSpec = parallel $ do
 
         -- The push should have failed, hence there should still be an
         -- integration candidate.
-        Project.integratedPullRequests state' `shouldSatisfy` (not . null)
+        Project.unfailedIntegratedPullRequests state' `shouldSatisfy` (not . null)
 
         -- Again notify build success, now for the new commit.
         let [rebasedSha'] = integrationShas state'
@@ -906,7 +906,7 @@ eventLoopSpec = parallel $ do
 
         -- After the second build success, the pull request should have been
         -- integrated properly, so there should not be a new candidate.
-        Project.integratedPullRequests state'' `shouldBe` []
+        Project.unfailedIntegratedPullRequests state'' `shouldBe` []
 
       history `shouldBe`
         [ "*   Merge #6"
@@ -1181,7 +1181,7 @@ eventLoopSpec = parallel $ do
         --The pull request should not be integrated. Moreover, the presence of
         --orphan fixups should make the PR ineligible for being a candidate for integration.
         --That is, we expect no candidates for integration.
-        Project.integratedPullRequests state' `shouldBe` []
+        Project.unfailedIntegratedPullRequests state' `shouldBe` []
 
       -- Here we expect that the fixup commit is not present.
       history `shouldBe`
@@ -1210,7 +1210,7 @@ eventLoopSpec = parallel $ do
             Logic.CommentAdded pr8 "rachael" "@bot merge"
           ]
 
-        Project.integratedPullRequests state `shouldBe` [pr8]
+        Project.unfailedIntegratedPullRequests state `shouldBe` [pr8]
 
         let [rebasedSha] = integrationShas state
 
@@ -1222,7 +1222,7 @@ eventLoopSpec = parallel $ do
             Logic.CommentAdded pr6 "rachael" "@bot merge"
           ]
 
-        Project.integratedPullRequests state' `shouldBe` []
+        Project.unfailedIntegratedPullRequests state' `shouldBe` []
 
         let Just pullRequest' = Project.lookupPullRequest pr6 state'
         Project.integrationStatus pullRequest' `shouldBe`

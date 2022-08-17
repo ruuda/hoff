@@ -50,6 +50,8 @@ module Git
   runGitReadOnly,
   tag,
   tag',
+  toBaseBranch,
+  toRemoteBranch,
   tryIntegrate,
 )
 where
@@ -89,6 +91,12 @@ newtype RemoteBranch = RemoteBranch Text deriving newtype (Show, Eq)
 
 localBranch :: RemoteBranch -> Branch
 localBranch (RemoteBranch name) = Branch name
+
+toRemoteBranch :: Branch -> RemoteBranch
+toRemoteBranch (Branch name) = RemoteBranch name
+
+toBaseBranch :: Branch -> BaseBranch
+toBaseBranch (Branch name) = BaseBranch name
 
 -- | A commit hash is stored as its hexadecimal representation.
 newtype Sha = Sha Text deriving newtype (Show, Eq)
