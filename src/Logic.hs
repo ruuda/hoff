@@ -854,6 +854,9 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
       , " "
       , prBranchName
       ]
+  -- The following is not actually shown to the user
+  -- as it is never set with needsFeedback=True,
+  -- but here in case we decide to show it.
   PrStatusSpeculativeConflict -> "Failed to speculatively rebase. \
                                  \ I will retry rebasing automatically when the queue clears."
   PrStatusFailedBuild url -> case Pr.unfailingIntegratedPullRequestsBefore pr state of
