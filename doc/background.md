@@ -8,7 +8,7 @@ I’ve worked in codebases with sophisticated review systems and testing
 infrastructure. I’ve worked in codebases where there was no code review at all,
 and no continuous integration. (Sometimes not even tests.) No one size fits all,
 though some workflows are definitely better than others. Here I outline some of
-my thoughs on collaborating on a software system.
+my thoughts on collaborating on a software system.
 
 What I am proposing here is a system that manages source control, code review,
 and continuous integration. I don’t think there is a name for such a system yet.
@@ -110,7 +110,7 @@ dependencies), but also issue the right Git rebase commands.
 
 ## Similar projects and further reading
 
-There exists lots of sotware that deals with code review and continuous
+There exists lots of software that deals with code review and continuous
 integration already, but no existing project offered all of the things I wanted.
 Below are some of the projects that inspired this project:
 
