@@ -14,6 +14,7 @@ import Control.Monad (forM, unless, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runStdoutLoggingT)
 import Data.List (zip4)
+import Data.Version (showVersion)
 import System.Exit (die)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 
@@ -29,6 +30,8 @@ import Project (ProjectState, emptyProjectState, loadProjectState, saveProjectSt
 import Project (ProjectInfo (ProjectInfo), Owner)
 import Server (buildServer)
 
+import qualified Paths_hoff (version)
+
 import qualified Configuration as Config
 import qualified Git
 import qualified Github
@@ -36,6 +39,9 @@ import qualified GithubApi
 import qualified Logic
 import qualified Project
 import qualified Time
+
+version :: String
+version = showVersion Paths_hoff.version
 
 data Options = Options
   { configFilePath :: FilePath
@@ -46,8 +52,12 @@ commandLineParser :: Opts.ParserInfo Options
 commandLineParser =
   let
     optConfigFilePath = Opts.argument Opts.str (Opts.metavar "<config-file>")
-    optReadOnly = Opts.switch (Opts.long "read-only")
-    opts = Options <$> optConfigFilePath <*> optReadOnly
+    optReadOnly = Opts.switch $ Opts.long "read-only"
+                             <> Opts.help "Run in read-only mode"
+    optVersion = Opts.infoOption ("Hoff v" <> version)
+               $  Opts.long "version"
+               <> Opts.help "Displays version and exit"
+    opts = Options <$> optConfigFilePath <*> optReadOnly <* optVersion
     help = Opts.fullDesc <> Opts.header "A gatekeeper for your commits"
   in
     Opts.info (opts <**> Opts.helper) help
@@ -92,6 +102,7 @@ runMain options = do
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
 
+  putStrLn $ "Starting Hoff v" ++ version
   putStrLn $ "Config file: " ++ (configFilePath options)
   putStrLn $ "Read-only: " ++ (show $ readOnly options)
 

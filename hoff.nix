@@ -4,7 +4,7 @@ let
 in
   haskellPackages.mkDerivation {
     pname = "hoff";
-    version = "0.27.0";
+    version = "0.27.0"; # please keep consistent with hoff.cabal
 
     src =
       let
