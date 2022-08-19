@@ -152,7 +152,7 @@ notified of changes in all.
 In a regular Hoff workflow, this may happen if the following conditions are
 met: a PR contains a single commit; it can be fastforwarded on top of master;
 and the `@hoffbot merge` comment happens early enough so that builds are
-parallel.  This should happen unfrequently enough for it not to be a nuisance.
+parallel.  This should happen infrequently enough for it not to be a nuisance.
 
 When the PR has multiple commits, this should not happen as Hoff will create a
 unique merge commit.  Unless of course one manually duplicates the Hoff testing
