@@ -1457,8 +1457,14 @@ main = hspec $ do
             -- User summons bot again because CI failed for an external reason.
           , CommentAdded (PullRequestId 1) "deckard" "@bot merge"
           -- GitHub notifies Hoff of new comments sent by Hoff:
-          , CommentAdded (PullRequestId 1) "bot" "The [build failed :x:](https://example.com/build-status).\n\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.  Otherwise, push a new commit and tag me again."
-          , CommentAdded (PullRequestId 1) "bot" "The [build failed :x:](https://example.com/build-status).\n\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.  Otherwise, push a new commit and tag me again."
+          , CommentAdded (PullRequestId 1) "bot"
+              "The [build failed :x:](https://example.com/build-status).\n\n\
+              \If this is the result of a flaky test, close and reopen the PR, then tag me again.  \
+              \Otherwise, push a new commit and tag me again."
+          , CommentAdded (PullRequestId 1) "bot"
+              "The [build failed :x:](https://example.com/build-status).\n\n\
+              \If this is the result of a flaky test, close and reopen the PR, then tag me again.  \
+              \Otherwise, push a new commit and tag me again."
           ]
         results = defaultResults { resultIntegrate = [Right (Sha "b71")] }
         (state', actions) = runActionCustom results $ handleEventsTest events state
@@ -1470,11 +1476,17 @@ main = hspec $ do
                         (PullRequestId 1, Branch "refs/pull/1/head", Sha "a39") [] False
         , ALeaveComment (PullRequestId 1) "Rebased as b71, waiting for CI \x2026"
         , ALeaveComment (PullRequestId 1) "[CI job :yellow_circle:](https://status.example.com/b71) started."
-        , ALeaveComment (PullRequestId 1) "The [build failed :x:](https://example.com/build-status).\n\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.  Otherwise, push a new commit and tag me again."
+        , ALeaveComment (PullRequestId 1)
+            "The [build failed :x:](https://example.com/build-status).\n\n\
+            \If this is the result of a flaky test, close and reopen the PR, then tag me again.  \
+            \Otherwise, push a new commit and tag me again."
         , AIsReviewer "deckard"
           -- Nothing has changed for the bot because b71 has already failed, so
           -- it doesn't retry, but reports the correct state.
-        , ALeaveComment (PullRequestId 1) "The [build failed :x:](https://example.com/build-status).\n\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.  Otherwise, push a new commit and tag me again."
+        , ALeaveComment (PullRequestId 1)
+            "The [build failed :x:](https://example.com/build-status).\n\n\
+            \If this is the result of a flaky test, close and reopen the PR, then tag me again.  \
+            \Otherwise, push a new commit and tag me again."
         ]
 
       -- the pull request should start and end without needing feedback
@@ -2220,7 +2232,10 @@ main = hspec $ do
                         [PullRequestId 1]
                         False
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
-        , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.  Otherwise, push a new commit and tag me again."
+        , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\n\
+                                          \If this is the result of a flaky test, \
+                                          \close and reopen the PR, then tag me again.  \
+                                          \Otherwise, push a new commit and tag me again."
         -- #2 is integrated again as its speculative base failed
         , ATryIntegrate "Merge #2: Second PR\n\n\
                         \Approved-by: deckard\n\
@@ -2229,7 +2244,10 @@ main = hspec $ do
                         []
                         False
         , ALeaveComment (PullRequestId 2) "Rebased as 22e, waiting for CI …"
-        , ALeaveComment (PullRequestId 2) "The build failed :x:.\n\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.  Otherwise, push a new commit and tag me again."
+        , ALeaveComment (PullRequestId 2) "The build failed :x:.\n\n\
+                                          \If this is the result of a flaky test, \
+                                          \close and reopen the PR, then tag me again.  \
+                                          \Otherwise, push a new commit and tag me again."
         ]
 
     it "handles a 2-wagon merge train with build failures coming in the reverse order: failure (2), failure (1)" $ do
@@ -2274,7 +2292,10 @@ main = hspec $ do
                         False
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
         , ALeaveComment (PullRequestId 2) "Speculative build failed :x:.  I will automatically retry after getting build results for #1."
-        , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.  Otherwise, push a new commit and tag me again."
+        , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\n\
+                                          \If this is the result of a flaky test, \
+                                          \close and reopen the PR, then tag me again.  \
+                                          \Otherwise, push a new commit and tag me again."
         -- #2 is integrated again as its speculative base failed
         , ATryIntegrate "Merge #2: Second PR\n\n\
                         \Approved-by: deckard\n\
@@ -2283,7 +2304,10 @@ main = hspec $ do
                         []
                         False
         , ALeaveComment (PullRequestId 2) "Rebased as 22e, waiting for CI …"
-        , ALeaveComment (PullRequestId 2) "The build failed :x:.\n\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.  Otherwise, push a new commit and tag me again."
+        , ALeaveComment (PullRequestId 2) "The build failed :x:.\n\n\
+                                          \If this is the result of a flaky test, \
+                                          \close and reopen the PR, then tag me again.  \
+                                          \Otherwise, push a new commit and tag me again."
         ]
 
     it "handles a 2-wagon merge train with success and failure coming in the right order: success (1), failure (2)" $ do
@@ -2326,7 +2350,10 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
         , ATryPromote (Branch "fst") (Sha "1ab")
         , ACleanupTestBranch (PullRequestId 1)
-        , ALeaveComment (PullRequestId 2) "The build failed :x:.\n\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.  Otherwise, push a new commit and tag me again."
+        , ALeaveComment (PullRequestId 2) "The build failed :x:.\n\n\
+                                          \If this is the result of a flaky test, \
+                                          \close and reopen the PR, then tag me again.  \
+                                          \Otherwise, push a new commit and tag me again."
         ]
 
     it "handles a 2-wagon merge train with success and failure coming in the reverse order: success (2), failure (1)" $ do
@@ -2370,7 +2397,10 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "Speculative build failed :x:.  I will automatically retry after getting build results for #1."
         , ATryPromote (Branch "fst") (Sha "1ab")
         , ACleanupTestBranch (PullRequestId 1)
-        , ALeaveComment (PullRequestId 2) "The build failed :x:.\n\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.  Otherwise, push a new commit and tag me again."
+        , ALeaveComment (PullRequestId 2) "The build failed :x:.\n\n\
+                                          \If this is the result of a flaky test, \
+                                          \close and reopen the PR, then tag me again.  \
+                                          \Otherwise, push a new commit and tag me again."
         ]
 
     it "handles a 2-wagon merge train with success and failure coming in the right order: failure (1), success (2)" $ do
@@ -2413,7 +2443,10 @@ main = hspec $ do
                         [PullRequestId 1]
                         False
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
-        , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.  Otherwise, push a new commit and tag me again."
+        , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\n\
+                                          \If this is the result of a flaky test, \
+                                          \close and reopen the PR, then tag me again.  \
+                                          \Otherwise, push a new commit and tag me again."
         , ATryIntegrate "Merge #2: Second PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
@@ -2465,7 +2498,10 @@ main = hspec $ do
                         [PullRequestId 1]
                         False
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
-        , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\nIf this is the result of a flaky test, close and reopen the PR, then tag me again.  Otherwise, push a new commit and tag me again."
+        , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\n\
+                                          \If this is the result of a flaky test, \
+                                          \close and reopen the PR, then tag me again.  \
+                                          \Otherwise, push a new commit and tag me again."
         , ATryIntegrate "Merge #2: Second PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
