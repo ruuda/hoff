@@ -768,8 +768,10 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
              $ Pr.setIntegrationStatus pullRequestId Promoted state
       -- If something was pushed to the target branch while the candidate was
       -- being tested, try to integrate again and hope that next time the push
-      -- succeeds.
-      PushRejected _why -> tryIntegratePullRequest pullRequestId state
+      -- succeeds.  We also cancel integrations in the merge train.
+      -- These should be automatically restarted when we 'proceed'.
+      PushRejected _why -> tryIntegratePullRequest pullRequestId
+                         $ unintegrateAfter pullRequestId state
 
 -- | When a pull request has been promoted to master this means that any
 -- conflicts (failed rebases) built on top of it are not speculative anymore:
