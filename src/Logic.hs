@@ -862,16 +862,15 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
   PrStatusSpeculativeConflict -> "Failed to speculatively rebase. \
                                  \ I will retry rebasing automatically when the queue clears."
   PrStatusFailedBuild url -> case Pr.unfailedIntegratedPullRequestsBefore pr state of
-    [] -> case url of
-          Just url' -> format "The [build failed :x:]({})\n\n\
-                              \If this is the result of a flaky test, \
-                              \close and reopen the PR, then tag me again.  \
-                              \Otherwise, push a new commit and tag me again." [url']
-          -- This should probably never happen
-          Nothing   -> "The build failed, but GitHub did not provide an URL to the build failure."
-    trainBefore -> format "Speculative build failed. \
+    [] -> format "The {}.\n\n\
+                 \If this is the result of a flaky test, \
+                 \close and reopen the PR, then tag me again.  \
+                 \Otherwise, push a new commit and tag me again."
+                 [markdownLink "build failed :x:" url]
+    trainBefore -> format "Speculative {}. \
                           \ I will automatically retry after getting build results for {}."
-                          [prettyPullRequestIds trainBefore]
+                          [ markdownLink "build failed :x:" url
+                          , prettyPullRequestIds trainBefore ]
 
 -- Leave a comment with the feedback from 'describeStatus' and set the
 -- 'needsFeedback' flag to 'False'.
@@ -953,3 +952,14 @@ commaAnd ss = case init ss of
 -- > f . g . h
 compose :: [a -> a] -> a -> a
 compose = foldr (.) id
+
+-- | Formats a markdown link in the presence of an URL
+--
+-- >>> markdownLink "build failed" Nothing
+-- "build failed"
+--
+-- >>> markdownLink "build failed" (Just "https://example.com")
+-- "[build failed](https://example.com)"
+markdownLink :: Text -> Maybe Text -> Text
+markdownLink text Nothing    = text
+markdownLink text (Just url) = format "[{}]({})" [text, url]
