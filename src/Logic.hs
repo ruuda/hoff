@@ -380,9 +380,10 @@ handlePullRequestClosed closingReason pr state = do
   -- actually delete the pull request
   pure . Pr.deletePullRequest pr
        $ case Pr.lookupPullRequest pr state of
-         Just (Pr.PullRequest{Pr.integrationStatus = Promoted}) -> state
-         -- we unintegrate PRs after it if it has not been promoted to master
-         _ -> unintegrateAfter pr $ state
+         -- we unintegrate PRs after if it has been integrated without promotion
+         -- as everything that was built on top of it needs to be rebuilt
+         Just (Pr.PullRequest{Pr.integrationStatus = Integrated _ _}) -> unintegrateAfter pr state
+         _ -> state
 
 handlePullRequestEdited :: PullRequestId -> Text -> BaseBranch -> ProjectState -> Action ProjectState
 handlePullRequestEdited prId newTitle newBaseBranch state =
