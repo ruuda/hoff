@@ -3,8 +3,6 @@
 Hoff is a bot for GitHub that enforces a clean history, and ensures that master
 always builds.
 
-[![Build Status][travis-img]][travis]
-
 Hoff intends to replace the merge button in the GitHub UI. Unlike GitHub\* and
 many other tools, Hoff integrates changes into master using a *rebase*. This
 keeps the history clean, free of random fork points and merge commits. (TODO:
@@ -78,8 +76,6 @@ Hoff is free software. It is licensed under the [Apache 2.0][apache2] license.
 It may be used both for commercial and non-commercial use under the conditions
 given in the license.
 
-[travis-img]:         https://travis-ci.org/ruuda/hoff.svg?branch=master
-[travis]:             https://travis-ci.org/ruuda/hoff
 [not-rocket-science]: https://graydon2.dreamwidth.org/1597.html
 [stack]:              https://haskellstack.org
 [nix]:                https://nixos.org/nix/
