@@ -3,6 +3,8 @@
 Hoff is a bot for GitHub that enforces a clean history, and ensures that master
 always builds.
 
+**Note, there is a more active fork at <https://github.com/channable/hoff>.**
+
 Hoff intends to replace the merge button in the GitHub UI. Unlike GitHub\* and
 many other tools, Hoff integrates changes into master using a *rebase*. This
 keeps the history clean, free of random fork points and merge commits. (TODO:
