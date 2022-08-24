@@ -151,7 +151,8 @@ viewProjectQueues info state = do
   let
     pullRequests :: [(PullRequestId, PullRequest, Project.PullRequestStatus)]
     pullRequests = Project.classifyPullRequests state
-    filterPrs predicate = filter (\(_, _, status) -> predicate status) pullRequests
+    filterPrs predicate = sortOn (\(_, pr, _) -> approvalOrder <$> Project.approval pr)
+                        $ filter (\(_, _, status) -> predicate status) pullRequests
 
   let building = filterPrs prPending
   h2 "Building"
@@ -162,8 +163,7 @@ viewProjectQueues info state = do
   let approved = filterPrs (== Project.PrStatusApproved)
   unless (null approved) $ do
     h2 "Approved"
-    let approvedSorted = sortOn (\(_, pr, _) -> approvalOrder <$> Project.approval pr) approved
-    viewList viewPullRequestWithApproval info approvedSorted
+    viewList viewPullRequestWithApproval info approved
 
   let failed = filterPrs prFailed
   unless (null failed) $ do
