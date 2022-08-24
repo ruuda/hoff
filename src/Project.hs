@@ -24,6 +24,7 @@ module Project
   integratedPullRequests,
   unfailedIntegratedPullRequests,
   unfailedIntegratedPullRequestsBefore,
+  speculativelyFailedPullRequests,
   candidatePullRequests,
   classifyPullRequest,
   classifyPullRequests,
@@ -394,6 +395,17 @@ wasIntegrationAttemptFor commit pr = case integrationStatus pr of
 integratedPullRequests :: ProjectState -> [PullRequestId]
 integratedPullRequests = filterPullRequestsBy $ isIntegrated . integrationStatus
 
+-- | lists all PR ids that are speculative failures
+speculativelyFailedPullRequests :: ProjectState -> [PullRequestId]
+speculativelyFailedPullRequests state
+  = map fst
+  $ filter (isFailedIntegrated . integrationStatus . snd)
+  $ dropWhile (not . isUnfailedIntegrated . integrationStatus . snd)
+  [ (pid, pr)
+  | pid <- integratedPullRequests state
+  , Just pr <- [lookupPullRequest pid state]
+  ]
+
 unfailedIntegratedPullRequests :: ProjectState -> [PullRequestId]
 unfailedIntegratedPullRequests = filterPullRequestsBy $ isUnfailedIntegrated . integrationStatus
 
@@ -462,6 +474,10 @@ pr1 `approvedAfter` pr2 = case (mo1, mo2) of
 isIntegrated :: IntegrationStatus -> Bool
 isIntegrated (Integrated _ _) = True
 isIntegrated _                = False
+
+isFailedIntegrated :: IntegrationStatus -> Bool
+isFailedIntegrated (Integrated _ (BuildFailed _)) = True
+isFailedIntegrated _ = False
 
 isUnfailedIntegrated :: IntegrationStatus -> Bool
 isUnfailedIntegrated (Integrated _ buildStatus) = case buildStatus of

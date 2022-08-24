@@ -33,7 +33,7 @@ import qualified Data.Text as Text
 import Format (format)
 import Git (Sha(..))
 import Project (Approval (..), BuildStatus (..), IntegrationStatus (..), Owner, ProjectInfo,
-                ProjectState, PullRequest (integrationStatus))
+                ProjectState, PullRequest (integrationStatus), speculativelyFailedPullRequests)
 import Types (PullRequestId (..), Username (..))
 
 import qualified Project
@@ -151,27 +151,30 @@ viewProjectQueues info state = do
   let
     pullRequests :: [(PullRequestId, PullRequest, Project.PullRequestStatus)]
     pullRequests = Project.classifyPullRequests state
-    filterPrs predicate = sortOn (\(_, pr, _) -> approvalOrder <$> Project.approval pr)
-                        $ filter (\(_, _, status) -> predicate status) pullRequests
-
-  let building = filterPrs prPending
+    speculativelyFailedIds = speculativelyFailedPullRequests state
+    sortPrs = sortOn (\(_, pr, _) -> approvalOrder <$> Project.approval pr)
+    filterPrs predicate = filter (\(_, _, status) -> predicate status) pullRequests
+    allFailed           = filterPrs prFailed
+    failed              = filter (\(pid,_,_) -> pid `notElem` speculativelyFailedIds) allFailed
+    speculativelyFailed = filter (\(pid,_,_) -> pid `elem`    speculativelyFailedIds) allFailed
+    building            = filterPrs prPending
+                       ++ speculativelyFailed
+    approved            = filterPrs (== Project.PrStatusApproved)
+    awaitingApproval    = filterPrs (== Project.PrStatusAwaitingApproval)
   h2 "Building"
   if null building
     then p "There are no builds in progress at the moment."
-    else viewList viewPullRequestWithApproval info building
+    else viewList viewPullRequestWithApproval info (sortPrs building)
 
-  let approved = filterPrs (== Project.PrStatusApproved)
   unless (null approved) $ do
     h2 "Approved"
-    viewList viewPullRequestWithApproval info approved
+    viewList viewPullRequestWithApproval info (sortPrs approved)
 
-  let failed = filterPrs prFailed
   unless (null failed) $ do
     h2 "Failed"
     -- TODO: Also render failure reason: conflicted or build failed.
-    viewList viewPullRequestWithApproval info failed
+    viewList viewPullRequestWithApproval info (sortPrs failed)
 
-  let awaitingApproval = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
   unless (null awaitingApproval) $ do
     h2 "Awaiting approval"
     viewList viewPullRequest info awaitingApproval
