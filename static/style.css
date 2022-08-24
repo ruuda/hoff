@@ -122,3 +122,10 @@ span.review a
 {
   color: #8c8e81;
 }
+
+p.version
+{
+  text-align: right;
+  font-size: smaller;
+  margin-top: 2em;
+}
