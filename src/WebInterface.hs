@@ -243,6 +243,9 @@ viewPullRequest info pullRequestId pullRequest = do
         (BuildStarted ciUrl)       -> span " | " >> ciLink ciUrl "CI build"
         (BuildFailed (Just ciUrl)) -> span " | " >> ciLink ciUrl "CI build"
         _                          -> pure ()
+    Conflicted _ _ -> do
+      span "  | "
+      span "‼️"
     _ -> pure ()
   where
   ciLink url text = do
@@ -303,12 +306,16 @@ prFailed (Project.PrStatusFailedBuild _) = True
 prFailed _                               = False
 
 prPending :: Project.PullRequestStatus -> Bool
-prPending Project.PrStatusBuildPending     = True
-prPending (Project.PrStatusBuildStarted _) = True
+prPending Project.PrStatusBuildPending        = True
+prPending (Project.PrStatusBuildStarted _)    = True
 -- PrStatusIntegrated here means that the PR successfully built
 -- but it has not been promoted to master yet for either of two reasons:
 -- 1. this is the split-second between receiving the status and promoting;
 -- 2. this PR is not at the head of the merge train,
 --    we are waiting for the build status of the previous PR.
-prPending Project.PrStatusIntegrated       = True
-prPending _                                = False
+prPending Project.PrStatusIntegrated          = True
+-- A speculative conflict means that the PR is also still "building".
+-- The conflict may have well been fault of a previous PR that will eventually
+-- fail.  At that moment, this PR will be reintegrated automatically.
+prPending Project.PrStatusSpeculativeConflict = True
+prPending _                                   = False
