@@ -204,7 +204,6 @@ viewProjectQueues info state = do
 
   unless (null failed) $ do
     h2 "Failed"
-    -- TODO: Also render failure reason: conflicted or build failed.
     viewList viewPullRequestWithApproval info failed
 
   unless (null awaiting) $ do
@@ -232,7 +231,6 @@ viewGroupedProjectQueues projects = do
 
   unless (null onlyFailed) $ do
     h2 "Failed"
-    -- TODO: Also render failure reason: conflicted or build failed.
     mapM_ (uncurry $ viewList' viewPullRequestWithApproval) onlyFailed
 
   unless (null onlyAwaiting) $ do
