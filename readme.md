@@ -14,10 +14,16 @@ of software engineering:
 > Automatically maintain a repository of code that always passes all the tests.
 
 The application watches a repository for new pull requests. Once a pull request
-has been approved (through an LGTM comment left by a reviewer), it integrates
-the changes into master, and pushes those to a testing branch. When CI reports a
-successful build for this branch, master is forwarded to it. If the build fails,
-the commits never make it into master, keeping the build green at all times.
+has been approved (through an `@hoffbot merge` comment left by the PR author or
+reviewer), it integrates the changes into master, and pushes those to a testing
+branch. When CI reports a successful build for this branch, master is forwarded
+to it. If the build fails, the commits never make it into master, keeping the
+build green at all times.
+
+Merge trains: if a second PR receives a merge comment while a build is still
+happening, Hoff starts a speculative rebase on top of the previous build.  The
+same goes for a third PR.  Assuming all of the three builds pass, the third PR
+is merged after the time of a single build.
 
 
 ## Using Hoff
@@ -129,6 +135,41 @@ with systemd. TODO: Make it work with portablectl.
 
 You can also build Hoff as a deb package by running:
 `./package/build-and-ship.sh`
+
+
+## Features
+
+### Comment interface
+
+The main Hoff interface is through GitHub comments, here is an example:
+
+TODO: add image: ... break then fix build...
+
+
+### Web interface
+
+In addition to the comment interface, you can check the status of running and
+failed builds through a web interface:
+
+TODO: add image: ... break then fix build...
+
+
+### Merge trains
+
+Hoff supports parallel speculative builds of subsequently approved PRs.
+Without merge trains, here is how a timeline of interaction with Hoff
+would go:
+
+![Without merge trains there are delays to start building.](doc/no-merge-train.svg)
+
+With merge trains, here is the same timeline of interaction:
+
+![With merge trains, speculative builds start immediately.](doc/merge-train.svg)
+
+If at some point in the train a build fails, subsequent PRs are (speculatively)
+reintegrated and their builds are restarted:
+
+![A merge train with a failure.](doc/merge-train-failure.svg)
 
 
 ## Further reading

@@ -1,0 +1,9 @@
+#!/bin/bash
+#
+# Converts the ".dia" diagram files in doc/ to ".svg" files.
+#
+# Needs dia installed, use `apt install dia` to install.
+
+dia -e doc/merge-train.{svg,dia}
+dia -e doc/merge-train-failure.{svg,dia}
+dia -e doc/no-merge-train.{svg,dia}
