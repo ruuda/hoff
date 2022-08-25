@@ -185,6 +185,7 @@ viewGroupedProjectQueues projects = do
   let
     pullRequests :: [(ProjectInfo, [(PullRequestId, PullRequest, Project.PullRequestStatus)])]
     pullRequests = map (second Project.classifyPullRequests) projects
+    sortPrs = map (second (sortOn (\(_, pr, _) -> approvalOrder <$> Project.approval pr)))
     filterPrs predicate = let
       predicateTriple (_, _, status) = predicate status
       in  filter (not . null . snd) $ map (second (filter predicateTriple)) pullRequests
@@ -196,16 +197,16 @@ viewGroupedProjectQueues projects = do
   h2 "Building"
   if null building
     then p "There are no builds in progress at the moment."
-    else mapM_ (uncurry $ viewList' viewPullRequestWithApproval) building
+    else mapM_ (uncurry $ viewList' viewPullRequestWithApproval) (sortPrs building)
 
   unless (null approved) $ do
     h2 "Approved"
-    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) approved
+    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) (sortPrs approved)
 
   unless (null failed) $ do
     h2 "Failed"
     -- TODO: Also render failure reason: conflicted or build failed.
-    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) failed
+    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) (sortPrs failed)
 
   unless (null awaitingApproval) $ do
     h2 "Awaiting approval"
