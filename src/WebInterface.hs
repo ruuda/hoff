@@ -146,6 +146,12 @@ viewOwner owner projects = do
     a ! href (toValue ownerUrl) $ toHtml owner
   viewGroupedProjectQueues projects
 
+-- | This record structure contains pull requests classified
+--   by each corresponding section in the UI:
+--   building, failed, approved or awaiting.
+--
+-- Use 'classifiedPullRequests' to construct this structure
+-- from a 'ProjectState'.
 data ClassifiedPullRequests = ClassifiedPullRequests
   { building
   , failed
@@ -153,6 +159,9 @@ data ClassifiedPullRequests = ClassifiedPullRequests
   , awaiting :: [(PullRequestId, PullRequest, Project.PullRequestStatus)]
   }
 
+-- | Given a 'ProjectState', classifies pull requests into
+--   the four sections of the UI (building, failed, approved or awaiting)
+--   in a 'ClassifiedPullRequests' record.
 classifiedPullRequests :: ProjectState -> ClassifiedPullRequests
 classifiedPullRequests state = ClassifiedPullRequests
   { building = sortPrs $ filterPrs prPending ++ speculativelyFailed
