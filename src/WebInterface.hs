@@ -259,7 +259,7 @@ viewPullRequest info pullRequestId pullRequest = do
         _                          -> pure ()
     Conflicted _ _ -> do
       span "  | "
-      span "‼️"
+      span "‼️ conflicted"
     _ -> pure ()
   where
   ciLink url text = do
