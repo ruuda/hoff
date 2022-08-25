@@ -188,24 +188,25 @@ viewGroupedProjectQueues projects = do
     filterPrs predicate = let
       predicateTriple (_, _, status) = predicate status
       in  filter (not . null . snd) $ map (second (filter predicateTriple)) pullRequests
-  let
     building = filterPrs prPending
+    awaitingApproval = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
+    approved = filterPrs (== Project.PrStatusApproved)
+    failed = filterPrs prFailed
+
   h2 "Building"
   if null building
     then p "There are no builds in progress at the moment."
     else mapM_ (uncurry $ viewList' viewPullRequestWithApproval) building
-  let approved = filterPrs (== Project.PrStatusApproved)
+
   unless (null approved) $ do
     h2 "Approved"
     mapM_ (uncurry $ viewList' viewPullRequestWithApproval) approved
 
-  let failed = filterPrs prFailed
   unless (null failed) $ do
     h2 "Failed"
     -- TODO: Also render failure reason: conflicted or build failed.
     mapM_ (uncurry $ viewList' viewPullRequestWithApproval) failed
 
-  let awaitingApproval = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
   unless (null awaitingApproval) $ do
     h2 "Awaiting approval"
     mapM_ (uncurry $ viewList' viewPullRequest) awaitingApproval
