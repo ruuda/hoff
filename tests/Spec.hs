@@ -42,6 +42,8 @@ import qualified Github
 import qualified GithubApi
 import qualified Logic
 import qualified Project
+import qualified WebInterface
+
 import qualified Data.Time as T
 import qualified Data.Time.Calendar.OrdinalDate as T
 
@@ -249,6 +251,27 @@ handleEventTest = Logic.handleEvent testTriggerConfig testProjectConfig testmerg
 -- simulate their side effects.
 handleEventsTest :: [Event] -> ProjectState -> Action ProjectState
 handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig testProjectConfig testmergeWindowExemptionConfig) state events
+
+-- | Like 'classifiedPullRequests' but just with ids.
+-- This should match 'WebInterface.ClassifiedPullRequests'
+data ClassifiedPullRequestIds = ClassifiedPullRequestIds
+  { building
+  , failed
+  , approved
+  , awaiting :: [PullRequestId]
+  } deriving (Eq, Show)
+
+-- | Like 'classifiedPullRequests' but just with ids.
+classifiedPullRequestIds :: ProjectState -> ClassifiedPullRequestIds
+classifiedPullRequestIds state = ClassifiedPullRequestIds
+  { building = fst3 <$> WebInterface.building prs
+  , failed   = fst3 <$> WebInterface.failed   prs
+  , approved = fst3 <$> WebInterface.approved prs
+  , awaiting = fst3 <$> WebInterface.awaiting prs
+  }
+  where
+  prs = WebInterface.classifiedPullRequests state
+  fst3 (x,_,_) = x
 
 -- Same as 'unfailedIntegratedPullRequests' but paired with the underlying objects.
 getIntegrationCandidates :: ProjectState -> [(PullRequestId, PullRequest)]
@@ -480,8 +503,7 @@ main = hspec $ do
                                                      , Right (Sha "c82")
                                                      , Right (Sha "d93")
                                                      ] }
-        run = runActionCustom results
-        actions = snd $ run $ handleEventsTest events state
+        (finalState, actions) = runActionCustom results $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
@@ -505,6 +527,12 @@ main = hspec $ do
                         True
         , ALeaveComment (PullRequestId 3) "Speculatively rebased as d93 behind #1 and #2, waiting for CI …"
         ]
+      classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
+        { building = [PullRequestId 1, PullRequestId 2, PullRequestId 3]
+        , failed   = []
+        , approved = []
+        , awaiting = []
+        }
     it "keeps the order position for the comments" $ do
       let
         state
@@ -576,7 +604,12 @@ main = hspec $ do
             needsFeedback = False
             })
           ]
-
+      classifiedPullRequestIds state' `shouldBe` ClassifiedPullRequestIds
+        { building = [PullRequestId 1, PullRequestId 3, PullRequestId 2]
+        , failed   = []
+        , approved = []
+        , awaiting = []
+        }
 
       -- Approve pull requests, but not in order of ascending id.
       let
@@ -644,6 +677,12 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "dec") [] False
         , ALeaveComment (PullRequestId 2) "Rebased as b73, waiting for CI …"
         ]
+      classifiedPullRequestIds state' `shouldBe` ClassifiedPullRequestIds
+        { building = [PullRequestId 2]
+        , failed   = []
+        , approved = []
+        , awaiting = []
+        }
 
     it "ignores comments on unknown pull requests" $ do
       let
@@ -1839,7 +1878,7 @@ main = hspec $ do
           , BuildStatusChanged (Sha "1b2") (Project.BuildStarted "example.com/1b2") -- ignored
           , BuildStatusChanged (Sha "1b2") (Project.BuildFailed (Just "example.com/1b2")) -- ignored
           ]
-        actions = snd $ runActionCustom results $ handleEventsTest events state
+        (finalState, actions) = runActionCustom results $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer (Username "deckard")
         , ALeaveComment (PullRequestId 12) "Pull request approved for merge by @deckard, rebasing now."
@@ -1854,6 +1893,14 @@ main = hspec $ do
         , ATryPromote (Branch "tth") (Sha "1b2")
         , ACleanupTestBranch (PullRequestId 12)
         ]
+      -- test caveat, in reality, when Promote works,
+      -- the PR is removed from the building list.
+      classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
+        { building = [PullRequestId 12] -- not here in a real scenario
+        , failed   = []
+        , approved = []
+        , awaiting = []
+        }
 
     it "resets the integration of PRs in the train after the PR commit has changed" $ do
       let
@@ -1874,8 +1921,7 @@ main = hspec $ do
                                                      , Right (Sha "3cd")
                                                      , Right (Sha "5bc")
                                                      , Right (Sha "6cd") ] }
-        run = runActionCustom results
-        actions = snd $ run $ handleEventsTest events state
+        (finalState, actions) = runActionCustom results $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1)
@@ -1925,6 +1971,12 @@ main = hspec $ do
                         False
         , ALeaveComment (PullRequestId 3) "Speculatively rebased as 6cd behind #2, waiting for CI …"
         ]
+      classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
+        { building = [PullRequestId 2, PullRequestId 3]
+        , failed   = []
+        , approved = []
+        , awaiting = [PullRequestId 1]
+        }
 
     it "only notifies rebase failures on top of the master branch (success, rebasefailure, success)" $ do
       let
@@ -1942,8 +1994,7 @@ main = hspec $ do
         results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
                                                      , Left (IntegrationFailure (BaseBranch "testing/1") RebaseFailed)
                                                      , Right (Sha "3cd") ] }
-        run = runActionCustom results
-        actions = snd $ run $ handleEventsTest events state
+        (finalState, actions) = runActionCustom results $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1)
@@ -1985,6 +2036,12 @@ main = hspec $ do
                         "Failed to rebase, please rebase manually using\n\n\
                         \    git fetch && git rebase --interactive --autosquash origin/master snd"
         ]
+      classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
+        { building = [PullRequestId 1, PullRequestId 3]
+        , failed   = [PullRequestId 2]
+        , approved = []
+        , awaiting = []
+        }
 
     it "recovers from speculative rebase failures by starting a new train (failure, rebasefailure, success)" $ do
       let
@@ -2004,8 +2061,7 @@ main = hspec $ do
                                                      , Right (Sha "3cd")
                                                      , Right (Sha "5bc")
                                                      , Right (Sha "6cd") ] }
-        run = runActionCustom results
-        actions = snd $ run $ handleEventsTest events state
+        (finalState, actions) = runActionCustom results $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1)
@@ -2060,6 +2116,12 @@ main = hspec $ do
                         False
         , ALeaveComment (PullRequestId 3) "Speculatively rebased as 6cd behind #2, waiting for CI …"
         ]
+      classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
+        { building = [PullRequestId 2, PullRequestId 3]
+        , failed   = [PullRequestId 1]
+        , approved = []
+        , awaiting = []
+        }
 
     it "reports wrongfixups regardless of position in train (success, wrongfixups)" $ do
       let
@@ -2074,8 +2136,7 @@ main = hspec $ do
         results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
                                                      , Left (IntegrationFailure (BaseBranch "testing/1") WrongFixups)
                                                      , Right (Sha "3cd") ] }
-        run = runActionCustom results
-        actions = snd $ run $ handleEventsTest events state
+        (finalState, actions) = runActionCustom results $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1)
@@ -2102,6 +2163,12 @@ main = hspec $ do
                         \ as it contains fixup commits that\
                         \ do not belong to any other commits."
         ]
+      classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
+        { building = [PullRequestId 1]
+        , failed   = [PullRequestId 2]
+        , approved = []
+        , awaiting = []
+        }
 
     it "new commits on conflicted PRs should not reset other PRs in the train\
        \(success, wrongfixups (success), success)" $ do
@@ -2122,8 +2189,7 @@ main = hspec $ do
                                                      , Left (IntegrationFailure (BaseBranch "testing/1") WrongFixups)
                                                      , Right (Sha "3cd")
                                                      , Right (Sha "2bc") ] }
-        run = runActionCustom results
-        actions = snd $ run $ handleEventsTest events state
+        (finalState, actions) = runActionCustom results $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1)
@@ -2174,6 +2240,12 @@ main = hspec $ do
                         False
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2bc behind #1 and #3, waiting for CI …"
         ]
+      classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
+        { building = [PullRequestId 1, PullRequestId 3, PullRequestId 2]
+        , failed   = []
+        , approved = []
+        , awaiting = []
+        }
 
     it "handles a 2-wagon merge train with build successes coming in the right order: success (1), success (2)" $ do
       let
@@ -2280,8 +2352,7 @@ main = hspec $ do
         results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
                                                      , Right (Sha "2cd")
                                                      , Right (Sha "22e") ] }
-        run = runActionCustom results
-        actions = snd $ run $ handleEventsTest events state
+        (finalState, actions) = runActionCustom results $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1)
@@ -2321,6 +2392,12 @@ main = hspec $ do
                                           \close and reopen the PR, then tag me again.  \
                                           \Otherwise, push a new commit and tag me again."
         ]
+      classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
+        { building = []
+        , failed   = [PullRequestId 1, PullRequestId 2]
+        , approved = []
+        , awaiting = []
+        }
 
     it "handles a 2-wagon merge train with build failures coming in the reverse order: failure (2), failure (1)" $ do
       let
@@ -2339,8 +2416,7 @@ main = hspec $ do
         results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
                                                      , Right (Sha "2cd")
                                                      , Right (Sha "22e") ] }
-        run = runActionCustom results
-        actions = snd $ run $ handleEventsTest events state
+        (finalState, actions) = runActionCustom results $ handleEventsTest events state
       actions `shouldBe`
         [ AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 1)
@@ -2381,6 +2457,12 @@ main = hspec $ do
                                           \close and reopen the PR, then tag me again.  \
                                           \Otherwise, push a new commit and tag me again."
         ]
+      classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
+        { building = []
+        , failed   = [PullRequestId 1, PullRequestId 2]
+        , approved = []
+        , awaiting = []
+        }
 
     it "handles a 2-wagon merge train with success and failure coming in the right order: success (1), failure (2)" $ do
       let

@@ -24,6 +24,7 @@ module Project
   integratedPullRequests,
   unfailedIntegratedPullRequests,
   unfailedIntegratedPullRequestsBefore,
+  speculativelyFailedPullRequests,
   candidatePullRequests,
   classifyPullRequest,
   classifyPullRequests,
@@ -115,7 +116,7 @@ data PullRequestStatus
   | PrStatusFailedConflict            -- Failed to integrate due to merge conflict.
   | PrStatusSpeculativeConflict       -- Failed to integrate but this was a speculative build
   | PrStatusFailedBuild (Maybe Text)  -- Integrated, but the build failed. Field should contain the URL to a page explaining the build failure.
-  deriving (Eq)
+  deriving (Eq, Show)
 
 -- A PR can be approved to be merged with "<prefix> merge", or it can be
 -- approved to be merged and also deployed with "<prefix> merge and deploy".
@@ -394,21 +395,39 @@ wasIntegrationAttemptFor commit pr = case integrationStatus pr of
 integratedPullRequests :: ProjectState -> [PullRequestId]
 integratedPullRequests = filterPullRequestsBy $ isIntegrated . integrationStatus
 
+-- | Lists all PR ids that are speculative failures.
+--
+-- In other words, this lists all failed PRs
+-- that come after the first non-failing PR
+-- in approval order.
+speculativelyFailedPullRequests :: ProjectState -> [PullRequestId]
+speculativelyFailedPullRequests state
+  = map fst
+  $ filter (isFailedIntegrated . integrationStatus . snd)
+  $ dropWhile (not . isUnfailedIntegrated . integrationStatus . snd)
+  [ (pid, pr)
+  | pid <- integratedPullRequests state
+  , Just pr <- [lookupPullRequest pid state]
+  ]
+
+-- | Lists all pull requests that were integrated and did not fail.
 unfailedIntegratedPullRequests :: ProjectState -> [PullRequestId]
 unfailedIntegratedPullRequests = filterPullRequestsBy $ isUnfailedIntegrated . integrationStatus
 
+-- | Lists all pull requests that were integrated, did not fail
+-- and that come before a given PR in approval order.
 unfailedIntegratedPullRequestsBefore :: PullRequest -> ProjectState -> [PullRequestId]
 unfailedIntegratedPullRequestsBefore referencePullRequest = filterPullRequestsBy $
   \pr -> isUnfailedIntegrated (integrationStatus pr)
       && referencePullRequest `approvedAfter` pr
 
--- Returns the pull requests that have not been integrated yet, in order of
--- ascending id.
+-- | Returns the pull requests that have not been integrated yet,
+--   in order of ascending id.
 unintegratedPullRequests :: ProjectState -> [PullRequestId]
 unintegratedPullRequests = filterPullRequestsBy $ (== NotIntegrated) . integrationStatus
 
--- Returns the pull requests that have been approved, but for which integration
--- and building has not yet been attempted.
+-- | Returns the pull requests that have been approved, but for which integration
+--   and building has not yet been attempted.
 candidatePullRequests :: ProjectState -> [PullRequestId]
 candidatePullRequests state =
   let
@@ -463,6 +482,14 @@ isIntegrated :: IntegrationStatus -> Bool
 isIntegrated (Integrated _ _) = True
 isIntegrated _                = False
 
+-- | Returns whether an 'IntegrationStatus' is integrated with a build failure:
+--   @ Integrated _ (BuildFailed _) @
+isFailedIntegrated :: IntegrationStatus -> Bool
+isFailedIntegrated (Integrated _ (BuildFailed _)) = True
+isFailedIntegrated _ = False
+
+-- | Returns whether an 'IntegrationStatus' is integrated
+--   without a build failure, i.e. build pending, started or succeeded.
 isUnfailedIntegrated :: IntegrationStatus -> Bool
 isUnfailedIntegrated (Integrated _ buildStatus) = case buildStatus of
                                                   BuildPending     -> True
@@ -471,6 +498,7 @@ isUnfailedIntegrated (Integrated _ buildStatus) = case buildStatus of
                                                   (BuildFailed _)  -> False
 isUnfailedIntegrated _ = False
 
+-- | Returns whether a 'PullRequest' is integrated or conflicted speculatively.
 isIntegratedOrSpeculativelyConflicted :: PullRequest -> Bool
 isIntegratedOrSpeculativelyConflicted pr =
   case integrationStatus pr of

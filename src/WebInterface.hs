@@ -7,8 +7,20 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE RecordWildCards #-}
 
-module WebInterface (renderPage, viewIndex, viewProject, viewOwner, stylesheet, stylesheetUrl) where
+module WebInterface
+  ( renderPage
+  , viewIndex
+  , viewProject
+  , viewOwner
+  , stylesheet
+  , stylesheetUrl
+  -- * The following are only exported for testing
+  , ClassifiedPullRequests (..)
+  , classifiedPullRequests
+  )
+ where
 
 import Control.Monad (forM_, unless, void)
 import Crypto.Hash (Digest, SHA256, hash)
@@ -33,7 +45,7 @@ import qualified Data.Text as Text
 import Format (format)
 import Git (Sha(..))
 import Project (Approval (..), BuildStatus (..), IntegrationStatus (..), Owner, ProjectInfo,
-                ProjectState, PullRequest (integrationStatus))
+                ProjectState, PullRequest (integrationStatus), speculativelyFailedPullRequests)
 import Types (PullRequestId (..), Username (..))
 
 import qualified Project
@@ -145,74 +157,85 @@ viewOwner owner projects = do
     a ! href (toValue ownerUrl) $ toHtml owner
   viewGroupedProjectQueues projects
 
+-- | This record structure contains pull requests classified
+--   by each corresponding section in the UI:
+--   building, failed, approved or awaiting.
+--
+-- Use 'classifiedPullRequests' to construct this structure
+-- from a 'ProjectState'.
+data ClassifiedPullRequests = ClassifiedPullRequests
+  { building
+  , failed
+  , approved
+  , awaiting :: [(PullRequestId, PullRequest, Project.PullRequestStatus)]
+  } deriving (Eq, Show)
+
+-- | Given a 'ProjectState', classifies pull requests into
+--   the four sections of the UI (building, failed, approved or awaiting)
+--   in a 'ClassifiedPullRequests' record.
+classifiedPullRequests :: ProjectState -> ClassifiedPullRequests
+classifiedPullRequests state = ClassifiedPullRequests
+  { building = sortPrs $ filterPrs prPending ++ speculativelyFailed
+  , failed   = sortPrs $ realFailed
+  , approved = sortPrs $ filterPrs (== Project.PrStatusApproved)
+  , awaiting =           filterPrs (== Project.PrStatusAwaitingApproval)
+  }
+  where
+  allFailed = filterPrs prFailed
+  realFailed          = filter (\(pid,_,_) -> pid `notElem` speculativelyFailedIds) allFailed
+  speculativelyFailed = filter (\(pid,_,_) -> pid   `elem`  speculativelyFailedIds) allFailed
+  speculativelyFailedIds = speculativelyFailedPullRequests state
+  sortPrs = sortOn (\(_, pr, _) -> approvalOrder <$> Project.approval pr)
+  filterPrs predicate = filter (\(_, _, status) -> predicate status) pullRequests
+  pullRequests = Project.classifyPullRequests state
+
 -- Render the html for the queues in a project, excluding the header and footer.
 viewProjectQueues :: ProjectInfo -> ProjectState -> Html
 viewProjectQueues info state = do
-  let
-    pullRequests :: [(PullRequestId, PullRequest, Project.PullRequestStatus)]
-    pullRequests = Project.classifyPullRequests state
-    filterPrs predicate = filter (\(_, _, status) -> predicate status) pullRequests
-
-  let building = filterPrs prPending
+  let ClassifiedPullRequests{..} = classifiedPullRequests state
   h2 "Building"
   if null building
     then p "There are no builds in progress at the moment."
     else viewList viewPullRequestWithApproval info building
 
-  let approved = filterPrs (== Project.PrStatusApproved)
   unless (null approved) $ do
     h2 "Approved"
-    let approvedSorted = sortOn (\(_, pr, _) -> approvalOrder <$> Project.approval pr) approved
-    viewList viewPullRequestWithApproval info approvedSorted
+    viewList viewPullRequestWithApproval info approved
 
-  let failed = filterPrs prFailed
   unless (null failed) $ do
     h2 "Failed"
-    -- TODO: Also render failure reason: conflicted or build failed.
     viewList viewPullRequestWithApproval info failed
 
-  let awaitingApproval = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
-  unless (null awaitingApproval) $ do
+  unless (null awaiting) $ do
     h2 "Awaiting approval"
-    viewList viewPullRequest info awaitingApproval
+    viewList viewPullRequest info awaiting
 
 -- Render the html for the queues in a project, excluding the header and footer.
 viewGroupedProjectQueues :: [(ProjectInfo, ProjectState)] -> Html
 viewGroupedProjectQueues projects = do
-  let
-    pullRequests :: [(ProjectInfo, [(PullRequestId, PullRequest, Project.PullRequestStatus)])]
-    pullRequests = map (second Project.classifyPullRequests) projects
-    filterPrs predicate = let
-      predicateTriple (_, _, status) = predicate status
-      in  filter (not . null . snd) $ map (second (filter predicateTriple)) pullRequests
-  let
-    building = filterPrs prPending
+  let prs = map (second classifiedPullRequests) projects
+      only what = filter (not . null . snd) $ map (second what) prs
+      onlyBuilding = only building
+      onlyApproved = only approved
+      onlyFailed   = only failed
+      onlyAwaiting = only awaiting
+
   h2 "Building"
-  if null building
+  if null onlyBuilding
     then p "There are no builds in progress at the moment."
-    else mapM_ (uncurry $ viewList' viewPullRequestWithApproval) building
-  let approved = filterPrs (== Project.PrStatusApproved)
-  unless (null approved) $ do
+    else mapM_ (uncurry $ viewList' viewPullRequestWithApproval) onlyBuilding
+
+  unless (null onlyApproved) $ do
     h2 "Approved"
-    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) approved
+    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) onlyApproved
 
-  let failed = filterPrs prFailed
-  unless (null failed) $ do
+  unless (null onlyFailed) $ do
     h2 "Failed"
-    -- TODO: Also render failure reason: conflicted or build failed.
-    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) failed
+    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) onlyFailed
 
-  -- TODO: Keep a list of the last n integrated pull requests, so they stay
-  -- around for a bit after they have been closed.
-  let integrated = filterPrs (== Project.PrStatusIntegrated)
-  unless (null integrated) $ do
-    h2 "Recently integrated"
-    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) integrated
-
-  let awaitingApproval = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
-  unless (null awaitingApproval) $ do
+  unless (null onlyAwaiting) $ do
     h2 "Awaiting approval"
-    mapM_ (uncurry $ viewList' viewPullRequest) awaitingApproval
+    mapM_ (uncurry $ viewList' viewPullRequest) onlyAwaiting
 
   where
     viewList'
@@ -243,7 +266,14 @@ viewPullRequest info pullRequestId pullRequest = do
         (BuildStarted ciUrl)       -> span " | " >> ciLink ciUrl "CI build"
         (BuildFailed (Just ciUrl)) -> span " | " >> ciLink ciUrl "CI build"
         _                          -> pure ()
-    _ -> pure ()
+    Conflicted _ _      -> span "  | " >> span "‼️ conflicted"
+    -- Promotions are not actually shown in the interface
+    -- as a PR is deleted right after it is promoted.
+    -- The case is here so we cover all branches
+    -- (and so we are notified in case we add a new constructor).
+    Promoted            -> span "  | " >> span "🔷 promoted"
+    IncorrectBaseBranch -> span "  | " >> span "❗ incorrect base branch"
+    NotIntegrated       -> pure ()
   where
   ciLink url text = do
     a ! href (toValue url) $ text
@@ -298,17 +328,24 @@ prettySha :: Sha -> Text
 prettySha (Sha sha) = Text.take 7 sha
 
 prFailed :: Project.PullRequestStatus -> Bool
-prFailed Project.PrStatusFailedConflict  = True
-prFailed (Project.PrStatusFailedBuild _) = True
-prFailed _                               = False
+prFailed Project.PrStatusFailedConflict      = True
+prFailed Project.PrStatusEmptyRebase         = True
+prFailed Project.PrStatusWrongFixups         = True
+prFailed Project.PrStatusIncorrectBaseBranch = True
+prFailed (Project.PrStatusFailedBuild _)     = True
+prFailed _                                   = False
 
 prPending :: Project.PullRequestStatus -> Bool
-prPending Project.PrStatusBuildPending     = True
-prPending (Project.PrStatusBuildStarted _) = True
+prPending Project.PrStatusBuildPending        = True
+prPending (Project.PrStatusBuildStarted _)    = True
 -- PrStatusIntegrated here means that the PR successfully built
 -- but it has not been promoted to master yet for either of two reasons:
 -- 1. this is the split-second between receiving the status and promoting;
 -- 2. this PR is not at the head of the merge train,
 --    we are waiting for the build status of the previous PR.
-prPending Project.PrStatusIntegrated       = True
-prPending _                                = False
+prPending Project.PrStatusIntegrated          = True
+-- A speculative conflict means that the PR is also still "building".
+-- The conflict may have well been fault of a previous PR that will eventually
+-- fail.  At that moment, this PR will be reintegrated automatically.
+prPending Project.PrStatusSpeculativeConflict = True
+prPending _                                   = False
