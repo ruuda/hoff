@@ -205,13 +205,6 @@ viewGroupedProjectQueues projects = do
     -- TODO: Also render failure reason: conflicted or build failed.
     mapM_ (uncurry $ viewList' viewPullRequestWithApproval) failed
 
-  -- TODO: Keep a list of the last n integrated pull requests, so they stay
-  -- around for a bit after they have been closed.
-  let integrated = filterPrs (== Project.PrStatusIntegrated)
-  unless (null integrated) $ do
-    h2 "Recently integrated"
-    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) integrated
-
   let awaitingApproval = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
   unless (null awaitingApproval) $ do
     h2 "Awaiting approval"
