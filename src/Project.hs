@@ -116,7 +116,7 @@ data PullRequestStatus
   | PrStatusFailedConflict            -- Failed to integrate due to merge conflict.
   | PrStatusSpeculativeConflict       -- Failed to integrate but this was a speculative build
   | PrStatusFailedBuild (Maybe Text)  -- Integrated, but the build failed. Field should contain the URL to a page explaining the build failure.
-  deriving (Eq)
+  deriving (Eq, Show)
 
 -- A PR can be approved to be merged with "<prefix> merge", or it can be
 -- approved to be merged and also deployed with "<prefix> merge and deploy".

@@ -9,7 +9,18 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module WebInterface (renderPage, viewIndex, viewProject, viewOwner, stylesheet, stylesheetUrl) where
+module WebInterface
+  ( renderPage
+  , viewIndex
+  , viewProject
+  , viewOwner
+  , stylesheet
+  , stylesheetUrl
+  -- * The following are only exported for testing
+  , ClassifiedPullRequests (..)
+  , classifiedPullRequests
+  )
+ where
 
 import Control.Monad (forM_, unless, void)
 import Crypto.Hash (Digest, SHA256, hash)
@@ -157,7 +168,7 @@ data ClassifiedPullRequests = ClassifiedPullRequests
   , failed
   , approved
   , awaiting :: [(PullRequestId, PullRequest, Project.PullRequestStatus)]
-  }
+  } deriving (Eq, Show)
 
 -- | Given a 'ProjectState', classifies pull requests into
 --   the four sections of the UI (building, failed, approved or awaiting)
