@@ -267,6 +267,10 @@ viewPullRequest info pullRequestId pullRequest = do
         (BuildFailed (Just ciUrl)) -> span " | " >> ciLink ciUrl "CI build"
         _                          -> pure ()
     Conflicted _ _      -> span "  | " >> span "‼️ conflicted"
+    -- Promotions are not actually shown in the interface
+    -- as a PR is deleted right after it is promoted.
+    -- The case is here so we cover all branches
+    -- (and so we are notified in case we add a new constructor).
     Promoted            -> span "  | " >> span "🔷 promoted"
     IncorrectBaseBranch -> span "  | " >> span "❗ incorrect base branch"
     NotIntegrated       -> pure ()
