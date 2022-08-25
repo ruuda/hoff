@@ -7,6 +7,7 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module WebInterface (renderPage, viewIndex, viewProject, viewOwner, stylesheet, stylesheetUrl) where
 
@@ -145,39 +146,50 @@ viewOwner owner projects = do
     a ! href (toValue ownerUrl) $ toHtml owner
   viewGroupedProjectQueues projects
 
+data ClassifiedPullRequests = ClassifiedPullRequests
+  { building
+  , failed
+  , approved
+  , awaiting :: [(PullRequestId, PullRequest, Project.PullRequestStatus)]
+  }
+
+classifiedPullRequests :: ProjectState -> ClassifiedPullRequests
+classifiedPullRequests state = ClassifiedPullRequests
+  { building = sortPrs $ filterPrs prPending ++ speculativelyFailed
+  , failed   = sortPrs $ realFailed
+  , approved = sortPrs $ filterPrs (== Project.PrStatusApproved)
+  , awaiting =           filterPrs (== Project.PrStatusAwaitingApproval)
+  }
+  where
+  allFailed = filterPrs prFailed
+  realFailed          = filter (\(pid,_,_) -> pid `notElem` speculativelyFailedIds) allFailed
+  speculativelyFailed = filter (\(pid,_,_) -> pid   `elem`  speculativelyFailedIds) allFailed
+  speculativelyFailedIds = speculativelyFailedPullRequests state
+  sortPrs = sortOn (\(_, pr, _) -> approvalOrder <$> Project.approval pr)
+  filterPrs predicate = filter (\(_, _, status) -> predicate status) pullRequests
+  pullRequests = Project.classifyPullRequests state
+
 -- Render the html for the queues in a project, excluding the header and footer.
 viewProjectQueues :: ProjectInfo -> ProjectState -> Html
 viewProjectQueues info state = do
-  let
-    pullRequests :: [(PullRequestId, PullRequest, Project.PullRequestStatus)]
-    pullRequests = Project.classifyPullRequests state
-    speculativelyFailedIds = speculativelyFailedPullRequests state
-    sortPrs = sortOn (\(_, pr, _) -> approvalOrder <$> Project.approval pr)
-    filterPrs predicate = filter (\(_, _, status) -> predicate status) pullRequests
-    allFailed           = filterPrs prFailed
-    failed              = filter (\(pid,_,_) -> pid `notElem` speculativelyFailedIds) allFailed
-    speculativelyFailed = filter (\(pid,_,_) -> pid `elem`    speculativelyFailedIds) allFailed
-    building            = filterPrs prPending
-                       ++ speculativelyFailed
-    approved            = filterPrs (== Project.PrStatusApproved)
-    awaitingApproval    = filterPrs (== Project.PrStatusAwaitingApproval)
+  let ClassifiedPullRequests{..} = classifiedPullRequests state
   h2 "Building"
   if null building
     then p "There are no builds in progress at the moment."
-    else viewList viewPullRequestWithApproval info (sortPrs building)
+    else viewList viewPullRequestWithApproval info building
 
   unless (null approved) $ do
     h2 "Approved"
-    viewList viewPullRequestWithApproval info (sortPrs approved)
+    viewList viewPullRequestWithApproval info approved
 
   unless (null failed) $ do
     h2 "Failed"
     -- TODO: Also render failure reason: conflicted or build failed.
-    viewList viewPullRequestWithApproval info (sortPrs failed)
+    viewList viewPullRequestWithApproval info failed
 
-  unless (null awaitingApproval) $ do
+  unless (null awaiting) $ do
     h2 "Awaiting approval"
-    viewList viewPullRequest info awaitingApproval
+    viewList viewPullRequest info awaiting
 
 -- Render the html for the queues in a project, excluding the header and footer.
 viewGroupedProjectQueues :: [(ProjectInfo, ProjectState)] -> Html
