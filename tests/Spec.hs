@@ -2165,7 +2165,7 @@ main = hspec $ do
         ]
       classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
         { building = [PullRequestId 1]
-        , failed   = [] -- TODO: PullRequestId 2??
+        , failed   = [PullRequestId 2]
         , approved = []
         , awaiting = []
         }

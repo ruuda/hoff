@@ -324,9 +324,12 @@ prettySha :: Sha -> Text
 prettySha (Sha sha) = Text.take 7 sha
 
 prFailed :: Project.PullRequestStatus -> Bool
-prFailed Project.PrStatusFailedConflict  = True
-prFailed (Project.PrStatusFailedBuild _) = True
-prFailed _                               = False
+prFailed Project.PrStatusFailedConflict      = True
+prFailed Project.PrStatusEmptyRebase         = True
+prFailed Project.PrStatusWrongFixups         = True
+prFailed Project.PrStatusIncorrectBaseBranch = True
+prFailed (Project.PrStatusFailedBuild _)     = True
+prFailed _                                   = False
 
 prPending :: Project.PullRequestStatus -> Bool
 prPending Project.PrStatusBuildPending        = True
