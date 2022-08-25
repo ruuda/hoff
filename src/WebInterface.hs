@@ -257,10 +257,10 @@ viewPullRequest info pullRequestId pullRequest = do
         (BuildStarted ciUrl)       -> span " | " >> ciLink ciUrl "CI build"
         (BuildFailed (Just ciUrl)) -> span " | " >> ciLink ciUrl "CI build"
         _                          -> pure ()
-    Conflicted _ _ -> do
-      span "  | "
-      span "‼️ conflicted"
-    _ -> pure ()
+    Conflicted _ _      -> span "  | " >> span "‼️ conflicted"
+    Promoted            -> span "  | " >> span "🔷 promoted"
+    IncorrectBaseBranch -> span "  | " >> span "❗ incorrect base branch"
+    NotIntegrated       -> pure ()
   where
   ciLink url text = do
     a ! href (toValue url) $ text
