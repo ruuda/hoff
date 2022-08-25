@@ -194,35 +194,30 @@ viewProjectQueues info state = do
 -- Render the html for the queues in a project, excluding the header and footer.
 viewGroupedProjectQueues :: [(ProjectInfo, ProjectState)] -> Html
 viewGroupedProjectQueues projects = do
-  let
-    pullRequests :: [(ProjectInfo, [(PullRequestId, PullRequest, Project.PullRequestStatus)])]
-    pullRequests = map (second Project.classifyPullRequests) projects
-    sortPrs = map (second (sortOn (\(_, pr, _) -> approvalOrder <$> Project.approval pr)))
-    filterPrs predicate = let
-      predicateTriple (_, _, status) = predicate status
-      in  filter (not . null . snd) $ map (second (filter predicateTriple)) pullRequests
-    building = filterPrs prPending
-    awaitingApproval = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
-    approved = filterPrs (== Project.PrStatusApproved)
-    failed = filterPrs prFailed
+  let prs = map (second classifiedPullRequests) projects
+      only what = filter (not . null . snd) $ map (second what) prs
+      onlyBuilding = only building
+      onlyApproved = only approved
+      onlyFailed   = only failed
+      onlyAwaiting = only awaiting
 
   h2 "Building"
-  if null building
+  if null onlyBuilding
     then p "There are no builds in progress at the moment."
-    else mapM_ (uncurry $ viewList' viewPullRequestWithApproval) (sortPrs building)
+    else mapM_ (uncurry $ viewList' viewPullRequestWithApproval) onlyBuilding
 
-  unless (null approved) $ do
+  unless (null onlyApproved) $ do
     h2 "Approved"
-    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) (sortPrs approved)
+    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) onlyApproved
 
-  unless (null failed) $ do
+  unless (null onlyFailed) $ do
     h2 "Failed"
     -- TODO: Also render failure reason: conflicted or build failed.
-    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) (sortPrs failed)
+    mapM_ (uncurry $ viewList' viewPullRequestWithApproval) onlyFailed
 
-  unless (null awaitingApproval) $ do
+  unless (null onlyAwaiting) $ do
     h2 "Awaiting approval"
-    mapM_ (uncurry $ viewList' viewPullRequest) awaitingApproval
+    mapM_ (uncurry $ viewList' viewPullRequest) onlyAwaiting
 
   where
     viewList'
