@@ -3,8 +3,8 @@
 <svg width="31cm" height="13cm" viewBox="-1 9 602 255" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
   <g id="Background">
     <g>
-      <path style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 2; stroke: #996687" d="M 19.2288 26.5548 C -0.771152,196.555 175.775,185.07 224.343,126.788"/>
-      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #996687" points="223.369,133.112 225.059,125.929 218.299,128.887 "/>
+      <path style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 2; stroke: #996687" d="M 49.5298 46.5832 C 39.5298,186.583 185.877,175.154 224.48,126.9"/>
+      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #996687" points="223.632,133.242 225.179,126.027 218.479,129.119 "/>
     </g>
     <text font-size="9.03111" style="fill: #2d5ce6; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="150" y="17.482">
       <tspan x="150" y="17.482">PR#1 building...</tspan>

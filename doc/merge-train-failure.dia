@@ -87,15 +87,15 @@
   <dia:layer name="Background" visible="true" connectable="true" active="true">
     <dia:object type="Standard - BezierLine" version="0" id="O0">
       <dia:attribute name="obj_pos">
-        <dia:point val="1,1"/>
+        <dia:point val="2.5,2"/>
       </dia:attribute>
       <dia:attribute name="obj_bb">
-        <dia:rectangle val="0.857851,1.29999;11.3239,8.28864"/>
+        <dia:rectangle val="2.42706,2.30244;11.329,7.99637"/>
       </dia:attribute>
       <dia:attribute name="bez_points">
-        <dia:point val="1,1"/>
-        <dia:point val="0,9.5"/>
-        <dia:point val="9,9"/>
+        <dia:point val="2.5,2"/>
+        <dia:point val="2,9"/>
+        <dia:point val="9.5,8.5"/>
         <dia:point val="11.5,6"/>
       </dia:attribute>
       <dia:attribute name="corner_types">
