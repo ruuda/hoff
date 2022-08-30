@@ -6,4 +6,5 @@
 
 dia -e doc/merge-train.{svg,dia}
 dia -e doc/merge-train-failure.{svg,dia}
+dia -e doc/merge-train-restart.{svg,dia}
 dia -e doc/no-merge-train.{svg,dia}

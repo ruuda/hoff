@@ -171,6 +171,10 @@ reintegrated and their builds are restarted:
 
 ![A merge train with a failure.](doc/merge-train-failure.svg)
 
+Here is a situation where the first PR breaks the build:
+
+![A merge train being restarted.](doc/merge-train-restart.svg)
+
 
 ## Further reading
 
