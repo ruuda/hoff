@@ -141,9 +141,10 @@ You can also build Hoff as a deb package by running:
 
 ### Comment interface
 
-The main Hoff interface is through GitHub comments, here is an example:
+The main Hoff interface is through GitHub comments,
+here is [an example](https://github.com/channable/hoff/pull/166):
 
-TODO: add image: ... break then fix build...
+![GitHub comments to and by Hoff](doc/comments.png)
 
 
 ### Web interface
