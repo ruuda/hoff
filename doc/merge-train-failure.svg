@@ -111,5 +111,25 @@
     <text font-size="5.64444" style="fill: #e62d9e; fill-opacity: 1; stroke: none;text-anchor:start;font-family:sans-serif;font-style:normal;font-weight:normal" x="212" y="113.239">
       <tspan x="212" y="113.239">cancel</tspan>
     </text>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 4; stroke: #474499" x1="220" y1="70" x2="277.764" y2="70"/>
+      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #474499" points="272.282,73.3 278.882,70 272.282,66.7 "/>
+    </g>
+    <text font-size="9.03111" style="fill: #474499; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="250" y="78.3828">
+      <tspan x="250" y="78.3828">... wait...</tspan>
+    </text>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 6.6; stroke: #e67216" x1="280" y1="70" x2="280" y2="205.764"/>
+      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #e67216" points="276.7,200.282 280,206.882 283.3,200.282 "/>
+    </g>
+    <text font-size="7.90222" style="fill: #e67216; fill-opacity: 1; stroke: none;text-anchor:start;font-family:sans-serif;font-style:normal;font-weight:normal" x="270" y="217.335">
+      <tspan x="270" y="217.335">#2</tspan>
+      <tspan x="270" y="227.213">build failed</tspan>
+      <tspan x="270" y="237.091">for real</tspan>
+    </text>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 4; stroke: #474499" x1="280" y1="46" x2="280" y2="67.7639"/>
+      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #474499" points="276.7,62.282 280,68.882 283.3,62.282 "/>
+    </g>
   </g>
 </svg>
