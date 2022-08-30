@@ -9,4 +9,5 @@ dia -e doc/merge-train-failure.{svg,dia}
 dia -e doc/merge-train-restart.{svg,dia}
 dia -e doc/merge-train-rebase-failure-1.{svg,dia}
 dia -e doc/merge-train-rebase-failure-2.{svg,dia}
+dia -e doc/merge-train-delay.{svg,dia}
 dia -e doc/no-merge-train.{svg,dia}

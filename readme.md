@@ -183,6 +183,10 @@ Here is the diagram for when a rebase fails on top of a branch that eventually f
 
 ![A merge train with a rebase failure (2).](doc/merge-train-rebase-failure-2.svg)
 
+Here is a diagram showing builds finishing in an unexpected order:
+
+![A merge train where the second PR finishes building first](doc/merge-train-delay.svg)
+
 
 ## Further reading
 
