@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.0//EN" "http://www.w3.org/TR/2001/PR-SVG-20010719/DTD/svg10.dtd">
-<svg width="28cm" height="13cm" viewBox="-2 7 542 256" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<svg width="28cm" height="13cm" viewBox="-2 7 543 256" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
   <g id="Background">
     <g>
       <path style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 2; stroke: #996687" d="M 49.5298 46.5832 C 39.5298,186.583 185.877,175.154 224.48,126.9"/>
@@ -154,5 +154,35 @@
       <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #11b349" x1="183" y1="9" x2="190" y2="2"/>
       <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #11b349" x1="180" y1="6" x2="183" y2="9"/>
     </g>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 6.6; stroke: #e67216" x1="480" y1="220" x2="480" y2="102.236"/>
+      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #e67216" points="483.3,107.718 480,101.118 476.7,107.718 "/>
+    </g>
+    <text font-size="9.03111" style="fill: #e67216; fill-opacity: 1; stroke: none;text-anchor:start;font-family:sans-serif;font-style:normal;font-weight:normal" x="460" y="220">
+      <tspan x="460" y="220">#2</tspan>
+      <tspan x="460" y="231.289">@hoff merge</tspan>
+    </text>
+    <text font-size="6.77333" style="fill: #e67216; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="510" y="68.1115">
+      <tspan x="510" y="68.1115">PR#2 build...</tspan>
+      <tspan x="510" y="76.5782"></tspan>
+    </text>
+    <text font-size="7.90222" style="fill: #e67216; fill-opacity: 1; stroke: none;text-anchor:start;font-family:sans-serif;font-style:normal;font-weight:normal" x="480" y="83.335">
+      <tspan x="480" y="83.335">rebase</tspan>
+      <tspan x="480" y="93.2127">&amp; merge</tspan>
+    </text>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #e67216" x1="480" y1="70" x2="530" y2="70"/>
+      <path style="fill: #e67216; fill-opacity: 1; stroke-opacity: 1; stroke-width: 1; stroke: #e67216" fill-rule="evenodd" d="M 480 70 C 480,68.75 481.25,67.5 482.5,67.5 C 483.75,67.5 485,68.75 485,70 C 485,71.25 483.75,72.5 482.5,72.5 C 481.25,72.5 480,71.25 480,70z"/>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #e67216" x1="540" y1="70" x2="538" y2="70"/>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #e67216" x1="536.667" y1="70" x2="534.667" y2="70"/>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #e67216" x1="533.333" y1="70" x2="531.333" y2="70"/>
+    </g>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 4; stroke: #474499" x1="320" y1="220" x2="447.764" y2="220"/>
+      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #474499" points="442.282,223.3 448.882,220 442.282,216.7 "/>
+    </g>
+    <text font-size="7.90222" style="fill: #474499; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="385" y="227.335">
+      <tspan x="385" y="227.335">... dev fixes the PR...</tspan>
+    </text>
   </g>
 </svg>
