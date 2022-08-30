@@ -174,11 +174,10 @@ Here is the same timeline of interaction for Hoff with merge trains active:
 ![With merge trains, speculative builds start immediately.](doc/merge-train.svg)
 
 The first PR is merged and rebased immediatelly as usual.
-The second PR is now merged and rebased immediatelly on top of PR#1.
-The third PR is now merged and rebased immediatelly on top of PR#2
-(... and PR#1 consequently).
+The second and third PRs are now merged and rebased immediatelly
+on top of the first and second respectively.
 Assuming all builds eventually pass,
-the authors of all PRs only have to wait 10 minutes.
+the authors of all PRs only have to wait 10 minutes each.
 The waiting time for authors of the third PR is _reduced by 12 minutes_!
 
 **Failing merge trains.**
@@ -205,21 +204,41 @@ reintegrated and their builds are restarted:
 5. At this point, the authors of PR#1 have fixed their PR
    and issue a new merge command.  Hoff carries on as usual.
 
-Here is a situation where the first PR breaks the build:
+When PRs are closed or receive a new commit,
+the behaviour is similar to a build failing
+with the only difference being the comment posted by Hoff.
+
+**Builds started later finishing earlier.**
+Builds results do not always come in the same order
+as they were started in the train.
+When the build result of a later PR
+arrives before the result of an earlier PR
+we wait before merging:
+
+![A merge train where the second PR finishes building first](doc/merge-train-delay.svg)
+
+**Complex scenario.**
+Here is a more complex scenario involving builds arriving in the unexpected order
+and failures:
 
 ![A merge train being restarted.](doc/merge-train-restart.svg)
 
-Here is the diagram for when a rebase fails on top of a branch that eventually is pushed to be the new master:
+**Rebase failures.**
+When we fail to rebase a branch in a train,
+we do not know whether this is a conflict with `master`
+or any other PRs in the train.
+We have to wait for the build results of the last PR it is based on
+before doing anything.
+
+If the build eventually passes for the parent PR,
+Hoff reports a rebase failure as the parent PR has become the new `master`:
 
 ![A merge train with a rebase failure (1).](doc/merge-train-rebase-failure-1.svg)
 
-Here is the diagram for when a rebase fails on top of a branch that eventually fails to build:
+If the build eventually fails for the parent PR,
+Hoff does a new rebase and merge:
 
 ![A merge train with a rebase failure (2).](doc/merge-train-rebase-failure-2.svg)
-
-Here is a diagram showing builds finishing in an unexpected order:
-
-![A merge train where the second PR finishes building first](doc/merge-train-delay.svg)
 
 
 ## Further reading
