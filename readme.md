@@ -162,14 +162,48 @@ would go:
 
 ![Without merge trains there are delays to start building.](doc/no-merge-train.svg)
 
-With merge trains, here is the same timeline of interaction:
+Supposing the build time is of ≈10 minutes:
+
+* the authors of PR#1 wait ≈10 minutes for their PR to be merged;
+* the authors of PR#2 wait ≈16 minutes for their PR to be merged;
+* the authors of PR#3 wait **≈22 minutes** for their PR to be merged.
+
+With merge trains, we reduce the waiting time for merges.
+Here is the same timeline of interaction for Hoff with merge trains active:
 
 ![With merge trains, speculative builds start immediately.](doc/merge-train.svg)
 
+The first PR is merged and rebased immediatelly as usual.
+The second PR is now merged and rebased immediatelly on top of PR#1.
+The third PR is now merged and rebased immediatelly on top of PR#2
+(... and PR#1 consequently).
+Assuming all builds eventually pass,
+the authors of all PRs only have to wait 10 minutes.
+The waiting time for authors of the third PR is _reduced by 12 minutes_!
+
+**Failing merge trains.**
 If at some point in the train a build fails, subsequent PRs are (speculatively)
 reintegrated and their builds are restarted:
 
 ![A merge train with a failure.](doc/merge-train-failure.svg)
+
+1. Three merge commands are issued in a short period for PR#1, PR#2 and PR#3.
+
+2. PR#2 fails while PR#1 and PR#3 are still building.
+    1. Since PR#2 is built on top of PR#1,
+       we cannot assume it is the culprit of the failure
+       so we delay reporting this until PR#1 finishes.
+    2. Since PR#3 has been built on top of PR#2,
+       its build is restarted with a rebase and merge on top of PR#1.
+       This is done by pushing to the `testing/2` branch.
+
+3. PR#1 build passes, `testing/1` is pushed (promoted) to be the new master.
+   The speculative failure of PR#2 is now real so this is reported.
+
+4. PR#3 build passes, `testing/3` is pushed (promoted) to be the new master.
+
+5. At this point, the authors of PR#1 have fixed their PR
+   and issue a new merge command.  Hoff carries on as usual.
 
 Here is a situation where the first PR breaks the build:
 
