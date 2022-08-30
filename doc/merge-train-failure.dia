@@ -108,7 +108,7 @@
             <dia:point val="7.5,0.874101"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#27418eff"/>
+            <dia:color val="#2d5ce6ff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="1"/>
@@ -137,7 +137,7 @@
         <dia:int val="1"/>
       </dia:attribute>
       <dia:attribute name="line_color">
-        <dia:color val="#32306bff"/>
+        <dia:color val="#474499ff"/>
       </dia:attribute>
       <dia:attribute name="line_width">
         <dia:real val="0.05000000074505806"/>
@@ -174,7 +174,7 @@
             <dia:point val="15,9.07632"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#32306bff"/>
+            <dia:color val="#474499ff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="1"/>
@@ -211,7 +211,7 @@ new master#</dia:string>
             <dia:point val="13.4,1.56675"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#27418eff"/>
+            <dia:color val="#2d5ce6ff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="0"/>
@@ -245,7 +245,7 @@ new master#</dia:string>
             <dia:point val="1,1.56675"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#27418eff"/>
+            <dia:color val="#2d5ce6ff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="0"/>
@@ -271,7 +271,7 @@ new master#</dia:string>
         <dia:int val="1"/>
       </dia:attribute>
       <dia:attribute name="line_color">
-        <dia:color val="#27418eff"/>
+        <dia:color val="#2d5ce6ff"/>
       </dia:attribute>
       <dia:attribute name="line_width">
         <dia:real val="0.05000000074505806"/>
@@ -315,7 +315,7 @@ new master#</dia:string>
             <dia:point val="0,9.5"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#27418eff"/>
+            <dia:color val="#2d5ce6ff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="0"/>
@@ -341,7 +341,7 @@ new master#</dia:string>
         <dia:int val="1"/>
       </dia:attribute>
       <dia:attribute name="line_color">
-        <dia:color val="#c56315ff"/>
+        <dia:color val="#e67216ff"/>
       </dia:attribute>
       <dia:attribute name="line_width">
         <dia:real val="0.05000000074505806"/>
@@ -385,7 +385,7 @@ new master#</dia:string>
             <dia:point val="3,11"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#c56315ff"/>
+            <dia:color val="#e67216ff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="0"/>
@@ -411,7 +411,7 @@ new master#</dia:string>
         <dia:int val="1"/>
       </dia:attribute>
       <dia:attribute name="line_color">
-        <dia:color val="#9e216dff"/>
+        <dia:color val="#e62d9eff"/>
       </dia:attribute>
       <dia:attribute name="line_width">
         <dia:real val="0.05000000074505806"/>
@@ -455,7 +455,7 @@ new master#</dia:string>
             <dia:point val="6,12.5"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#9e216dff"/>
+            <dia:color val="#e62d9eff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="0"/>
@@ -481,7 +481,7 @@ new master#</dia:string>
         <dia:int val="1"/>
       </dia:attribute>
       <dia:attribute name="line_color">
-        <dia:color val="#27418eff"/>
+        <dia:color val="#2d5ce6ff"/>
       </dia:attribute>
       <dia:attribute name="line_width">
         <dia:real val="0.05000000074505806"/>
@@ -528,7 +528,7 @@ new master#</dia:string>
             <dia:point val="7.5,3.3741"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#c56315ff"/>
+            <dia:color val="#e67216ff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="1"/>
@@ -547,7 +547,7 @@ new master#</dia:string>
         <dia:point val="4,3.8"/>
       </dia:attribute>
       <dia:attribute name="obj_bb">
-        <dia:rectangle val="4,3.8;7.1815,4.78831"/>
+        <dia:rectangle val="4,3.8;7.17,4.75382"/>
       </dia:attribute>
       <dia:attribute name="text">
         <dia:composite type="text">
@@ -562,10 +562,10 @@ rebase &amp; merge#</dia:string>
             <dia:real val="0.49388886988162994"/>
           </dia:attribute>
           <dia:attribute name="pos">
-            <dia:point val="4,4.17825"/>
+            <dia:point val="4,4.16675"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#c56315ff"/>
+            <dia:color val="#e67216ff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="0"/>
@@ -591,7 +591,7 @@ rebase &amp; merge#</dia:string>
         <dia:int val="1"/>
       </dia:attribute>
       <dia:attribute name="line_color">
-        <dia:color val="#c56315ff"/>
+        <dia:color val="#e67216ff"/>
       </dia:attribute>
       <dia:attribute name="line_width">
         <dia:real val="0.05000000074505806"/>
@@ -631,7 +631,7 @@ building...
             <dia:point val="9,5.48224"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#9e216dff"/>
+            <dia:color val="#e62d9eff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="1"/>
@@ -668,7 +668,7 @@ new master#</dia:string>
             <dia:point val="22,6.56675"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#9e216dff"/>
+            <dia:color val="#e62d9eff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="0"/>
@@ -684,7 +684,7 @@ new master#</dia:string>
         <dia:point val="7,6.2"/>
       </dia:attribute>
       <dia:attribute name="obj_bb">
-        <dia:rectangle val="7,6.2;9.9315,7.6822"/>
+        <dia:rectangle val="7,6.2;9.92,7.64771"/>
       </dia:attribute>
       <dia:attribute name="text">
         <dia:composite type="text">
@@ -700,10 +700,10 @@ atop #2#</dia:string>
             <dia:real val="0.49388886988162994"/>
           </dia:attribute>
           <dia:attribute name="pos">
-            <dia:point val="7,6.57825"/>
+            <dia:point val="7,6.56675"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#9e216dff"/>
+            <dia:color val="#e62d9eff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="0"/>
@@ -729,7 +729,7 @@ atop #2#</dia:string>
         <dia:int val="1"/>
       </dia:attribute>
       <dia:attribute name="line_color">
-        <dia:color val="#9e216dff"/>
+        <dia:color val="#e62d9eff"/>
       </dia:attribute>
       <dia:attribute name="line_width">
         <dia:real val="0.05000000074505806"/>
@@ -749,7 +749,7 @@ atop #2#</dia:string>
         <dia:point val="10.5,10.5"/>
       </dia:attribute>
       <dia:attribute name="obj_bb">
-        <dia:rectangle val="10.4885,10.5;12.76,11.9822"/>
+        <dia:rectangle val="10.5,10.5;12.76,11.9477"/>
       </dia:attribute>
       <dia:attribute name="text">
         <dia:composite type="text">
@@ -765,10 +765,10 @@ build failed#</dia:string>
             <dia:real val="0.49388886988162994"/>
           </dia:attribute>
           <dia:attribute name="pos">
-            <dia:point val="10.5,10.8782"/>
+            <dia:point val="10.5,10.8667"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#c56315ff"/>
+            <dia:color val="#e67216ff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="0"/>
@@ -794,7 +794,7 @@ build failed#</dia:string>
         <dia:int val="1"/>
       </dia:attribute>
       <dia:attribute name="line_color">
-        <dia:color val="#c56315ff"/>
+        <dia:color val="#e67216ff"/>
       </dia:attribute>
       <dia:attribute name="line_width">
         <dia:real val="0.05000000074505806"/>
@@ -872,7 +872,7 @@ build failed#</dia:string>
         <dia:int val="1"/>
       </dia:attribute>
       <dia:attribute name="line_color">
-        <dia:color val="#9e216dff"/>
+        <dia:color val="#e62d9eff"/>
       </dia:attribute>
       <dia:attribute name="line_width">
         <dia:real val="0.05000000074505806"/>
@@ -901,7 +901,7 @@ build failed#</dia:string>
         <dia:point val="11.4,6.2"/>
       </dia:attribute>
       <dia:attribute name="obj_bb">
-        <dia:rectangle val="11.4,6.2;14.3315,7.6822"/>
+        <dia:rectangle val="11.4,6.2;14.32,7.64771"/>
       </dia:attribute>
       <dia:attribute name="text">
         <dia:composite type="text">
@@ -917,10 +917,10 @@ atop #1#</dia:string>
             <dia:real val="0.49388886988162994"/>
           </dia:attribute>
           <dia:attribute name="pos">
-            <dia:point val="11.4,6.57825"/>
+            <dia:point val="11.4,6.56675"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#9e216dff"/>
+            <dia:color val="#e62d9eff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="0"/>
@@ -995,7 +995,7 @@ atop #1#</dia:string>
             <dia:point val="10.6,5.66196"/>
           </dia:attribute>
           <dia:attribute name="color">
-            <dia:color val="#9e216dff"/>
+            <dia:color val="#e62d9eff"/>
           </dia:attribute>
           <dia:attribute name="alignment">
             <dia:enum val="0"/>
