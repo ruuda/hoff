@@ -2,6 +2,10 @@
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.0//EN" "http://www.w3.org/TR/2001/PR-SVG-20010719/DTD/svg10.dtd">
 <svg width="31cm" height="13cm" viewBox="-1 9 602 255" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
   <g id="Background">
+    <g>
+      <path style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 2; stroke: #996687" d="M 19.2288 26.5548 C -0.771152,196.555 175.775,185.07 224.343,126.788"/>
+      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #996687" points="223.369,133.112 225.059,125.929 218.299,128.887 "/>
+    </g>
     <text font-size="9.03111" style="fill: #2d5ce6; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="150" y="17.482">
       <tspan x="150" y="17.482">PR#1 building...</tspan>
       <tspan x="150" y="28.7709"></tspan>
@@ -130,6 +134,14 @@
     <g>
       <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 4; stroke: #474499" x1="280" y1="46" x2="280" y2="67.7639"/>
       <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #474499" points="276.7,62.282 280,68.882 283.3,62.282 "/>
+    </g>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 2; stroke: #997356" x1="54.6669" y1="44.6669" x2="73.752" y2="63.752"/>
+      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #997356" points="67.5422,62.2091 74.5425,64.5425 72.2091,57.5422 "/>
+    </g>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 2; stroke: #996687" x1="120.667" y1="100.667" x2="133.752" y2="113.752"/>
+      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #996687" points="127.542,112.209 134.543,114.543 132.209,107.542 "/>
     </g>
   </g>
 </svg>
