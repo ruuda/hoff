@@ -175,6 +175,14 @@ Here is a situation where the first PR breaks the build:
 
 ![A merge train being restarted.](doc/merge-train-restart.svg)
 
+Here is the diagram for when a rebase fails on top of a branch that eventually is pushed to be the new master:
+
+![A merge train with a rebase failure (1).](doc/merge-train-rebase-failure-1.svg)
+
+Here is the diagram for when a rebase fails on top of a branch that eventually fails to build:
+
+TODO: add diagram here
+
 
 ## Further reading
 
