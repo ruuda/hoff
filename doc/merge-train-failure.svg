@@ -3,8 +3,8 @@
 <svg width="28cm" height="13cm" viewBox="-2 7 542 256" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
   <g id="Background">
     <g>
-      <path style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 2; stroke: #996687" d="M 49.5298 46.5832 C 39.5298,186.583 185.877,175.154 224.48,126.9"/>
-      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #996687" points="223.632,133.242 225.179,126.027 218.479,129.119 "/>
+      <path style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 2; stroke: #996687" d="M 49.5298 46.5832 C 39.5298,186.583 196.604,175.659 225.454,127.577"/>
+      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #996687" points="225.463,133.975 226.029,126.618 219.804,130.58 "/>
     </g>
     <text font-size="9.03111" style="fill: #2d5ce6; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="150" y="17.482">
       <tspan x="150" y="17.482">PR#1 building...</tspan>
@@ -98,10 +98,6 @@
       <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #e67216" points="216.7,200.282 220,206.882 223.3,200.282 "/>
     </g>
     <g>
-      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="215" y1="75" x2="225" y2="65"/>
-      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="215" y1="65" x2="225" y2="75"/>
-    </g>
-    <g>
       <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #e62d9e" x1="228" y1="120" x2="450" y2="120"/>
       <path style="fill: #e62d9e; fill-opacity: 1; stroke-opacity: 1; stroke-width: 1; stroke: #e62d9e" fill-rule="evenodd" d="M 228 120 C 228,118.75 229.25,117.5 230.5,117.5 C 231.75,117.5 233,118.75 233,120 C 233,121.25 231.75,122.5 230.5,122.5 C 229.25,122.5 228,121.25 228,120z"/>
       <path style="fill: #e62d9e; fill-opacity: 1; stroke-opacity: 1; stroke-width: 1; stroke: #e62d9e" fill-rule="evenodd" d="M 450 120 C 450,121.25 448.75,122.5 447.5,122.5 C 446.25,122.5 445,121.25 445,120 C 445,118.75 446.25,117.5 447.5,117.5 C 448.75,117.5 450,118.75 450,120z"/>
@@ -111,12 +107,8 @@
       <tspan x="228" y="141.213">rebase&amp;merge</tspan>
       <tspan x="228" y="151.091">atop #1</tspan>
     </text>
-    <g>
-      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="215" y1="125" x2="225" y2="115"/>
-      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="215" y1="115" x2="225" y2="125"/>
-    </g>
-    <text font-size="5.64444" style="fill: #e62d9e; fill-opacity: 1; stroke: none;text-anchor:start;font-family:sans-serif;font-style:normal;font-weight:normal" x="212" y="113.239">
-      <tspan x="212" y="113.239">cancel</tspan>
+    <text font-size="5.64444" style="fill: #e62d9e; fill-opacity: 1; stroke: none;text-anchor:start;font-family:sans-serif;font-style:normal;font-weight:normal" x="208" y="113.239">
+      <tspan x="208" y="113.239">cancel &amp; restart</tspan>
     </text>
     <g>
       <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 4; stroke: #474499" x1="220" y1="70" x2="277.764" y2="70"/>
@@ -188,5 +180,13 @@
       <tspan x="339" y="117.482">PR#3 building...</tspan>
       <tspan x="339" y="128.771"></tspan>
     </text>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="215" y1="115" x2="225" y2="125"/>
+      <ellipse style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke: #a8270d" cx="220" cy="120" rx="5" ry="5"/>
+    </g>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="215" y1="75" x2="225" y2="65"/>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="215" y1="65" x2="225" y2="75"/>
+    </g>
   </g>
 </svg>

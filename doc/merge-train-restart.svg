@@ -106,12 +106,8 @@
       <tspan x="228" y="141.213">r&amp;m</tspan>
       <tspan x="228" y="151.091">atop #1</tspan>
     </text>
-    <g>
-      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="215" y1="125" x2="225" y2="115"/>
-      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="215" y1="115" x2="225" y2="125"/>
-    </g>
-    <text font-size="5.64444" style="fill: #e62d9e; fill-opacity: 1; stroke: none;text-anchor:start;font-family:sans-serif;font-style:normal;font-weight:normal" x="212" y="113.239">
-      <tspan x="212" y="113.239">cancel</tspan>
+    <text font-size="5.64444" style="fill: #e62d9e; fill-opacity: 1; stroke: none;text-anchor:start;font-family:sans-serif;font-style:normal;font-weight:normal" x="210" y="111.239">
+      <tspan x="210" y="111.239">cancel</tspan>
     </text>
     <g>
       <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 4; stroke: #474499" x1="220" y1="70" x2="277.764" y2="70"/>
@@ -178,10 +174,6 @@
       <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #e62d9e" x1="228" y1="120" x2="280" y2="120"/>
       <path style="fill: #e62d9e; fill-opacity: 1; stroke-opacity: 1; stroke-width: 1; stroke: #e62d9e" fill-rule="evenodd" d="M 228 120 C 228,118.75 229.25,117.5 230.5,117.5 C 231.75,117.5 233,118.75 233,120 C 233,121.25 231.75,122.5 230.5,122.5 C 229.25,122.5 228,121.25 228,120z"/>
     </g>
-    <g>
-      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="275" y1="125" x2="285" y2="115"/>
-      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="275" y1="115" x2="285" y2="125"/>
-    </g>
     <text font-size="7.90222" style="fill: #e62d9e; fill-opacity: 1; stroke: none;text-anchor:start;font-family:sans-serif;font-style:normal;font-weight:normal" x="210" y="231.335">
       <tspan x="210" y="231.335">#3</tspan>
       <tspan x="210" y="241.213">speculative</tspan>
@@ -239,5 +231,16 @@
       <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 2; stroke: #996687" x1="290.439" y1="96.5854" x2="291.412" y2="111.184"/>
       <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #996687" points="287.755,105.933 291.487,112.299 294.34,105.494 "/>
     </g>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="215" y1="115" x2="225" y2="125"/>
+      <ellipse style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke: #a8270d" cx="220" cy="120" rx="5" ry="5"/>
+    </g>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="275" y1="115" x2="285" y2="125"/>
+      <ellipse style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke: #a8270d" cx="280" cy="120" rx="5" ry="5"/>
+    </g>
+    <text font-size="5.64444" style="fill: #e62d9e; fill-opacity: 1; stroke: none;text-anchor:start;font-family:sans-serif;font-style:normal;font-weight:normal" x="270" y="111.239">
+      <tspan x="270" y="111.239">cancel</tspan>
+    </text>
   </g>
 </svg>

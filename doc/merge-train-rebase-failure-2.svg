@@ -172,10 +172,6 @@
       <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #e62d9e" x1="140" y1="120" x2="180" y2="120"/>
       <path style="fill: #e62d9e; fill-opacity: 1; stroke-opacity: 1; stroke-width: 1; stroke: #e62d9e" fill-rule="evenodd" d="M 140 120 C 140,118.75 141.25,117.5 142.5,117.5 C 143.75,117.5 145,118.75 145,120 C 145,121.25 143.75,122.5 142.5,122.5 C 141.25,122.5 140,121.25 140,120z"/>
     </g>
-    <g transform="matrix(1,0,0,1,-40,50)">
-      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="215" y1="75" x2="225" y2="65"/>
-      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="215" y1="65" x2="225" y2="75"/>
-    </g>
     <text font-size="9.03111" style="fill: #e67216; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="260" y="67.482">
       <tspan x="260" y="67.482">PR#2 building...</tspan>
       <tspan x="260" y="78.7709"></tspan>
@@ -190,6 +186,13 @@
       <tspan x="160" y="118.426">building...</tspan>
       <tspan x="160" y="125.482"></tspan>
       <tspan x="160" y="132.537"></tspan>
+    </text>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke-linecap: round; stroke: #a8270d" x1="175" y1="115" x2="185" y2="125"/>
+      <ellipse style="fill: none; stroke-opacity: 1; stroke-width: 2; stroke: #a8270d" cx="180" cy="120" rx="5" ry="5"/>
+    </g>
+    <text font-size="3.38667" style="fill: #e62d9e; fill-opacity: 1; stroke: none;text-anchor:start;font-family:sans-serif;font-style:normal;font-weight:normal" x="174" y="113.144">
+      <tspan x="174" y="113.144">cancel</tspan>
     </text>
   </g>
 </svg>
