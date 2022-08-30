@@ -146,6 +146,15 @@ here is [an example](https://github.com/channable/hoff/pull/166):
 
 ![GitHub comments to and by Hoff](doc/comments.png)
 
+Channable's Hoff repository is tracked itself using Hoff ([@OpsBotPrime]),
+so you can see many examples of use in past merged PRs
+([#173], [#167], [#138], [#108], ...).
+
+[#173]: https://github.com/channable/hoff/pull/173
+[#167]: https://github.com/channable/hoff/pull/167
+[#138]: https://github.com/channable/hoff/pull/138
+[#108]: https://github.com/channable/hoff/pull/108
+
 
 ### Web interface
 
@@ -263,3 +272,4 @@ given in the license.
 [apache2]:            https://www.apache.org/licenses/LICENSE-2.0
 [GitHub webhook for the build status]: https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
 [faf04c9]:            https://github.com/channable/hoff/commit/faf04c96486cb9dc30b6f133f6574ceab3401955
+[@OpsBotPrime]:       https://github.com/OpsBotPrime
