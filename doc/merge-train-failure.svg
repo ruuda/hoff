@@ -178,11 +178,15 @@
       <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #e67216" x1="529.333" y1="70" x2="527.333" y2="70"/>
     </g>
     <g>
-      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 4; stroke: #474499" x1="320" y1="220" x2="447.764" y2="220"/>
-      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #474499" points="442.282,223.3 448.882,220 442.282,216.7 "/>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 4; stroke: #e67216" x1="320" y1="220" x2="447.764" y2="220"/>
+      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #e67216" points="442.282,223.3 448.882,220 442.282,216.7 "/>
     </g>
-    <text font-size="7.90222" style="fill: #474499; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="385" y="227.335">
-      <tspan x="385" y="227.335">... dev fixes the PR...</tspan>
+    <text font-size="7.90222" style="fill: #e67216; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="385" y="227.335">
+      <tspan x="385" y="227.335">... dev fixes PR#2...</tspan>
+    </text>
+    <text font-size="9.03111" style="fill: #e62d9e; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="339" y="117.482">
+      <tspan x="339" y="117.482">PR#3 building...</tspan>
+      <tspan x="339" y="128.771"></tspan>
     </text>
   </g>
 </svg>

@@ -195,5 +195,49 @@
     <text font-size="12.4178" style="fill: #474499; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="135" y="181.526">
       <tspan x="135" y="181.526">. . . t i m e . . .</tspan>
     </text>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 4; stroke: #2d5ce6" x1="320" y1="200" x2="447.764" y2="200"/>
+      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #2d5ce6" points="442.282,203.3 448.882,200 442.282,196.7 "/>
+    </g>
+    <text font-size="7.90222" style="fill: #2d5ce6; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="385" y="207.335">
+      <tspan x="385" y="207.335">... dev fixes PR#1...</tspan>
+    </text>
+    <text font-size="6.77333" style="fill: #2d5ce6; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="505" y="18.1115">
+      <tspan x="505" y="18.1115">PR#1 build...</tspan>
+      <tspan x="505" y="26.5782"></tspan>
+    </text>
+    <text font-size="7.90222" style="fill: #2d5ce6; fill-opacity: 1; stroke: none;text-anchor:start;font-family:sans-serif;font-style:normal;font-weight:normal" x="480" y="31.335">
+      <tspan x="480" y="31.335">rebase</tspan>
+      <tspan x="480" y="41.2127">&amp; merge</tspan>
+    </text>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 6.6; stroke: #2d5ce6" x1="480" y1="190" x2="480" y2="52.2361"/>
+      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #2d5ce6" points="483.3,57.718 480,51.118 476.7,57.718 "/>
+    </g>
+    <text font-size="9.03111" style="fill: #2d5ce6; fill-opacity: 1; stroke: none;text-anchor:start;font-family:sans-serif;font-style:normal;font-weight:normal" x="460" y="190">
+      <tspan x="460" y="190">#1</tspan>
+      <tspan x="460" y="201.289">@hoff merge</tspan>
+    </text>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #2d5ce6" x1="480" y1="20" x2="520" y2="20"/>
+      <path style="fill: #2d5ce6; fill-opacity: 1; stroke-opacity: 1; stroke-width: 1; stroke: #2d5ce6" fill-rule="evenodd" d="M 480 20 C 480,18.75 481.25,17.5 482.5,17.5 C 483.75,17.5 485,18.75 485,20 C 485,21.25 483.75,22.5 482.5,22.5 C 481.25,22.5 480,21.25 480,20z"/>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #2d5ce6" x1="530" y1="20" x2="528" y2="20"/>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #2d5ce6" x1="526.667" y1="20" x2="524.667" y2="20"/>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #2d5ce6" x1="523.333" y1="20" x2="521.333" y2="20"/>
+    </g>
+    <text font-size="6.77333" style="fill: #e62d9e; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="254" y="109.645">
+      <tspan x="254" y="109.645">PR#3</tspan>
+      <tspan x="254" y="118.112">building...</tspan>
+      <tspan x="254" y="126.578"></tspan>
+      <tspan x="254" y="135.045"></tspan>
+    </text>
+    <text font-size="9.03111" style="fill: #e62d9e; fill-opacity: 1; stroke: none;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:normal" x="366" y="117.482">
+      <tspan x="366" y="117.482">PR#3 building...</tspan>
+      <tspan x="366" y="128.771"></tspan>
+    </text>
+    <g>
+      <line style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke-dasharray: 2; stroke: #996687" x1="290.439" y1="96.5854" x2="291.412" y2="111.184"/>
+      <polyline style="fill: none; stroke-opacity: 1; stroke-width: 1; stroke: #996687" points="287.755,105.933 291.487,112.299 294.34,105.494 "/>
+    </g>
   </g>
 </svg>
