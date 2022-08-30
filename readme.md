@@ -161,7 +161,7 @@ so you can see many examples of use in past merged PRs
 In addition to the comment interface, you can check the status of running and
 failed builds through a web interface:
 
-TODO: add image: ... break then fix build...
+![Web interface](doc/web-interface.png)
 
 
 ### Merge trains
