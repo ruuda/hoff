@@ -181,7 +181,7 @@ Here is the diagram for when a rebase fails on top of a branch that eventually i
 
 Here is the diagram for when a rebase fails on top of a branch that eventually fails to build:
 
-TODO: add diagram here
+![A merge train with a rebase failure (2).](doc/merge-train-rebase-failure-2.svg)
 
 
 ## Further reading
