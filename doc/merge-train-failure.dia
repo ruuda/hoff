@@ -1510,10 +1510,10 @@ for real#</dia:string>
     </dia:object>
     <dia:object type="Standard - Text" version="1" id="O42">
       <dia:attribute name="obj_pos">
-        <dia:point val="25.5,3.5"/>
+        <dia:point val="25.4,3.5"/>
       </dia:attribute>
       <dia:attribute name="obj_bb">
-        <dia:rectangle val="24.3975,3.09122;26.6025,3.90878"/>
+        <dia:rectangle val="24.2975,3.09122;26.5025,3.90878"/>
       </dia:attribute>
       <dia:attribute name="text">
         <dia:composite type="text">
@@ -1528,7 +1528,7 @@ for real#</dia:string>
             <dia:real val="0.42333331704139709"/>
           </dia:attribute>
           <dia:attribute name="pos">
-            <dia:point val="25.5,3.40558"/>
+            <dia:point val="25.4,3.40558"/>
           </dia:attribute>
           <dia:attribute name="color">
             <dia:color val="#e67216ff"/>
@@ -1584,11 +1584,11 @@ for real#</dia:string>
         <dia:point val="24,3.5"/>
       </dia:attribute>
       <dia:attribute name="obj_bb">
-        <dia:rectangle val="23.9646,3.33455;27.0559,3.66545"/>
+        <dia:rectangle val="23.9646,3.33455;26.8559,3.66545"/>
       </dia:attribute>
       <dia:attribute name="conn_endpoints">
         <dia:point val="24,3.5"/>
-        <dia:point val="27,3.5"/>
+        <dia:point val="26.8,3.5"/>
       </dia:attribute>
       <dia:attribute name="numcp">
         <dia:int val="1"/>
