@@ -187,7 +187,8 @@ The first PR is merged and rebased immediatelly as usual.
 The second and third PRs are now merged and rebased immediatelly
 on top of the first and second respectively.
 Assuming all builds eventually pass,
-the authors of all PRs only have to wait 10 minutes each.
+the authors of all PRs only have to wait 10 minutes each
+for their PRs to reach `master`.
 The waiting time for authors of the third PR is _reduced by 12 minutes_!
 
 **Failing merge trains.**
@@ -215,7 +216,7 @@ reintegrated and their builds are restarted:
    and issue a new merge command.  Hoff carries on as usual.
 
 When PRs are closed or receive a new commit,
-the behaviour is similar to a build failing
+the behaviour is similar to a build failing for that PR
 with the only difference being the comment posted by Hoff.
 
 **Builds started later finishing earlier.**
@@ -223,15 +224,41 @@ Builds results do not always come in the same order
 as they were started in the train.
 When the build result of a later PR
 arrives before the result of an earlier PR
-we wait before merging:
+Hoff waits before merging:
 
 ![A merge train where the second PR finishes building first](doc/merge-train-delay.svg)
 
+Hoff is conservative in what it allows to be pushed to master,
+it tries to guarantee that the builds of all PRs pass by themselves alone.
+Hoff will not merge a sequence of two PRs
+where the second fixes the build of the first.
+
 **Complex scenario.**
 Here is a more complex scenario involving builds arriving in the unexpected order
-and failures:
+and a failure of a build of the first PR in a merge train.
+This is similar two the two previous scenarios,
+the only difference being that PR#1 alone causes the build to fail.
 
 ![A merge train being restarted.](doc/merge-train-restart.svg)
+
+1. Hoff receives the command to merge the three PRs in a short period of time.
+
+2. Hoff rebases and merges accordingly.
+
+3. PR#2 build fails first:
+    1. The build of PR#3 is restarted on top of PR#1 because of this.
+    2. We have to wait for the result of PR#1
+       to decide if the failure of PR#2 is a real failure.
+
+4. PR#1 eventually fails (it was the culprit!).  This is reported.
+   The train is restarted with PR#2 first then PR#3 integrated on top of PR#2.
+
+5. PR#2 and PR#3 builds eventually pass and
+   they are pushed to `master` in sequence.
+
+6. A developer eventually fixes PR#1
+   and issues a second merge command.
+   Hoff proceeds as usual.
 
 **Rebase failures.**
 When we fail to rebase a branch in a train,
