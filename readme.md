@@ -130,39 +130,6 @@ with systemd. TODO: Make it work with portablectl.
 You can also build Hoff as a deb package by running:
 `./package/build-and-ship.sh`
 
-## Known issues
-
-### Multiple CI job started comments (#147)
-
-Hoff reports all build links for builds that could trigger success/failure.
-So sometimes Hoff may comment:
-
-> [CI job](https://ci.example.com/link1111) started.
-
-(30 seconds later)
-
-> [CI job](https://ci.example.com/link2222) started.
-
-If you look closely, you will see that the subsequent links are different.
-
-This only happens when there are two branches pointing to the same commit hash
-that are building at the same time.  Multiple CI jobs are created and we are
-notified of changes in all.
-
-In a regular Hoff workflow, this may happen if the following conditions are
-met: a PR contains a single commit; it can be fastforwarded on top of master;
-and the `@hoffbot merge` comment happens early enough so that builds are
-parallel.  This should happen infrequently enough for it not to be a nuisance.
-
-When the PR has multiple commits, this should not happen as Hoff will create a
-unique merge commit.  Unless of course one manually duplicates the Hoff testing
-branch.
-
-Unfortunately the [GitHub webhook for the build status] provides no way to
-check the canonical branch for the build link (#147, #148, [faf04c9]).  We are
-left with a choice of reporting only the first link or all links that arrive.
-We chose the latter as success ✅ or failure ❌ depends the result of the first
-of the builds to complete.
 
 ## Further reading
 
