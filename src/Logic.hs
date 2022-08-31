@@ -602,6 +602,11 @@ handleBuildStatusChanged buildSha newStatus state = pure $
 -- * We ignore changes of just the URL.
 --
 -- This is used in 'handleBuildStatusChanged`.
+--
+-- This is needed because there may be two concurrent builds pointing to the
+-- same commit hash depending on the CI you are using with GitHub.
+-- This guarantees that 'BuildSucceeded' or 'BuildFailed' statuses
+-- cannot be overridden by later builds of a branch pointing to the same hash.
 supersedes :: BuildStatus -> BuildStatus -> Bool
 newStatus `supersedes` oldStatus        | sameStatus newStatus oldStatus
                                         = False -- url change, ignore

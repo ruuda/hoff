@@ -79,14 +79,15 @@ import qualified Data.IntMap.Strict as IntMap
 
 import Types (PullRequestId (..), Username)
 
+-- | The build status of a pull request.
 data BuildStatus
-  = BuildPending
-  | BuildStarted Text
-  | BuildSucceeded
-  | BuildFailed (Maybe Text)
+  = BuildPending             -- ^ we have just pushed to @testing/id@
+  | BuildStarted Text        -- ^ the build started with the given URL
+  | BuildSucceeded           -- ^ the build succeeded
+  | BuildFailed (Maybe Text) -- ^ the build failed with the given URL
   deriving (Eq, Show, Generic)
 
--- When attempting to integrated changes, there can be five states:
+-- | When attempting to integrated changes, there can be five states:
 --
 -- * no attempt has been made to integrate;
 --
@@ -105,20 +106,22 @@ data IntegrationStatus
   deriving (Eq, Show, Generic)
 
 data PullRequestStatus
-  = PrStatusAwaitingApproval          -- New, awaiting review.
-  | PrStatusApproved                  -- Approved, but not yet integrated or built.
-  | PrStatusBuildPending              -- Integrated, and build pending or in progress.
-  | PrStatusBuildStarted Text         -- Integrated, and build pending or in progress.
-  | PrStatusIntegrated                -- Integrated, build passed, merged into target branch.
+  = PrStatusAwaitingApproval          -- ^ New, awaiting review.
+  | PrStatusApproved                  -- ^ Approved, but not yet integrated or built.
+  | PrStatusBuildPending              -- ^ Integrated, and build pending or in progress.
+  | PrStatusBuildStarted Text         -- ^ Integrated, and build pending or in progress.
+  | PrStatusIntegrated                -- ^ Integrated, build passed, merged into target branch.
   | PrStatusIncorrectBaseBranch       -- ^ Integration branch not being valid.
-  | PrStatusWrongFixups               -- Failed to integrate due to the presence of orphan fixup commits.
-  | PrStatusEmptyRebase               -- Rebase was empty (changes already in the target branch?)
-  | PrStatusFailedConflict            -- Failed to integrate due to merge conflict.
-  | PrStatusSpeculativeConflict       -- Failed to integrate but this was a speculative build
-  | PrStatusFailedBuild (Maybe Text)  -- Integrated, but the build failed. Field should contain the URL to a page explaining the build failure.
+  | PrStatusWrongFixups               -- ^ Failed to integrate due to the presence of orphan fixup commits.
+  | PrStatusEmptyRebase               -- ^ Rebase was empty (changes already in the target branch?)
+  | PrStatusFailedConflict            -- ^ Failed to integrate due to merge conflict.
+  | PrStatusSpeculativeConflict       -- ^ Failed to integrate but this was a speculative build
+  | PrStatusFailedBuild (Maybe Text)  -- ^ Integrated, but the build failed.
+                                      --   Field should contain the URL to a page
+                                      --   explaining the build failure.
   deriving (Eq, Show)
 
--- A PR can be approved to be merged with "<prefix> merge", or it can be
+-- | A PR can be approved to be merged with "<prefix> merge", or it can be
 -- approved to be merged and also deployed with "<prefix> merge and deploy".
 -- This enumeration distinguishes these cases.
 data ApprovedFor
@@ -127,8 +130,8 @@ data ApprovedFor
   | MergeAndTag
   deriving (Eq, Show, Generic)
 
--- For a PR to be approved a specific user must give a specific approval
--- command, i.e. either just "merge" or "merge and deploy".
+-- | For a PR to be approved a specific user must give a specific approval
+--   command, i.e. either just "merge" or "merge and deploy".
 data Approval = Approval
   { approver    :: Username
   , approvedFor :: ApprovedFor
@@ -159,8 +162,8 @@ data ProjectState = ProjectState
 
 type Owner = Text
 
--- Static information about a project, which does not change while the program
--- is running.
+-- | Static information about a project, which does not change while the program
+--   is running.
 data ProjectInfo = ProjectInfo
   {
     owner      :: Owner,
