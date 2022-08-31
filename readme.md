@@ -261,7 +261,7 @@ the only difference being that PR#1 alone causes the build to fail.
    Hoff proceeds as usual.
 
 **Rebase failures.**
-When Hoff fails to rebase a branch in a train,
+When Hoff fails to rebase a branch in a train due to a conflict,
 it does not know whether this is a conflict with `master`
 or any other PRs in the train.
 We have to wait for the build results of the last PR it is based on
@@ -276,6 +276,10 @@ If the build eventually fails for the parent PR,
 Hoff does a new rebase and merge:
 
 ![A merge train with a rebase failure (2).](doc/merge-train-rebase-failure-2.svg)
+
+When the rebase failure is because of an orphaned `fixup!` commit,
+the rebase failure is reported immediatelly
+as this is not dependent on previous PRs in the train.
 
 
 ## Further reading
