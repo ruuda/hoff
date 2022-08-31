@@ -4,10 +4,11 @@ in
   pkgs.buildEnv {
     name = "hoff-devenv";
     paths = [
-      pkgs.niv
+      pkgs.dia
       pkgs.dpkg
       pkgs.git
       pkgs.haskellPackages.haskell-language-server
+      pkgs.niv
       pkgs.shellcheck
       pkgs.stack
     ];

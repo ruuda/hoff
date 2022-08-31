@@ -123,7 +123,7 @@ doGithub = hoistFree (InR . InR)
 tryIntegrate :: Text -> (PullRequestId, Branch, Sha) -> [PullRequestId] -> Bool -> Action (Either IntegrationFailure Sha)
 tryIntegrate mergeMessage candidate train alwaysAddMergeCommit = liftF $ TryIntegrate mergeMessage candidate train alwaysAddMergeCommit id
 
--- Try to fast-forward the remote target branch (usually master) to the new sha.
+-- | Try to fast-forward the remote target branch (usually master) to the new sha.
 -- Before doing so, force-push that SHA to the pull request branch, and after
 -- success, delete the pull request branch. These steps ensure that Github marks
 -- the pull request as merged, rather than closed.
@@ -137,11 +137,11 @@ tryPromoteWithTag prBranch newHead tagName tagMessage =
 cleanupTestBranch :: PullRequestId -> Action ()
 cleanupTestBranch pullRequestId = liftF $ CleanupTestBranch pullRequestId ()
 
--- Leave a comment on the given pull request.
+-- | Leave a comment on the given pull request.
 leaveComment :: PullRequestId -> Text -> Action ()
 leaveComment pr body = liftF $ LeaveComment pr body ()
 
--- Check if this user is allowed to issue merge commands.
+-- | Check if this user is allowed to issue merge commands.
 isReviewer :: Username -> Action Bool
 isReviewer username = liftF $ IsReviewer username id
 
@@ -160,7 +160,7 @@ getChangelog prevTag curHead = liftF $ GetChangelog prevTag curHead id
 getDateTime :: Action UTCTime
 getDateTime = liftF $ GetDateTime id
 
--- Interpreter that translates high-level actions into more low-level ones.
+-- | Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
 runAction config = foldFree $ \case
   TryIntegrate message (pr, ref, sha) train alwaysAddMergeCommit cont -> do
@@ -602,6 +602,11 @@ handleBuildStatusChanged buildSha newStatus state = pure $
 -- * We ignore changes of just the URL.
 --
 -- This is used in 'handleBuildStatusChanged`.
+--
+-- This is needed because there may be two concurrent builds pointing to the
+-- same commit hash depending on the CI you are using with GitHub.
+-- This guarantees that 'BuildSucceeded' or 'BuildFailed' statuses
+-- cannot be overridden by later builds of a branch pointing to the same hash.
 supersedes :: BuildStatus -> BuildStatus -> Bool
 newStatus `supersedes` oldStatus        | sameStatus newStatus oldStatus
                                         = False -- url change, ignore
@@ -650,23 +655,51 @@ synchronizeState stateInitial =
       -- which are not yet in our state, and add them.
       foldM insertMissingPr stateClosed prsToOpen
 
--- Determines if there is anything to do, and if there is, generates the right
--- actions and updates the state accordingly. For example, if the current
--- integration candidate has been integrated (and is no longer a candidate), we
--- should find a new candidate. Or after the pull request for which a build is
--- in progress is closed, we should find a new candidate.
+-- | Determines if there is anything to do, and if there is, generates the right
+-- actions and updates the state accordingly.
+--
+-- For example, if the current integration candidate has been integrated
+-- (and is no longer a candidate), we should find a new candidate. Or after the
+-- pull request for which a build is in progress is closed, we should find a
+-- new candidate.
+--
+-- This is called repeatedly from 'proceedUntilFixedPoint' until the state is
+-- unchanged.
+--
+-- This function prioritizes actions in the following order:
+--
+-- 1. providing feedback through comments
+--    ('provideFeedback');
+--
+-- 2. proceeding with the first candidate, i.e.: the head of the train
+--    ('proceedFirstCandidate') including promoting it to @ master @;
+--
+-- 3. trying to integrate a new pull request in the train
+--    ('tryIntegrateFillPullRequest').
+--
+-- Often actions performed here are done in multiple passes.
+--
+-- For example, if a build fails, this is recorded in the project/repository
+-- status and the 'needsFeedback' flag is set to 'True'.  Only in the second
+-- pass the failure will be reported to the user.  Since this function is
+-- always called from 'proceedUntilFixedPoint', this happens as a single
+-- action.
 proceed :: ProjectState -> Action ProjectState
 proceed = provideFeedback
       >=> proceedFirstCandidate
       >=> tryIntegrateFirstPullRequest
 
--- proceeds with the candidate that was approved first
+-- | Proceeds with the candidate that was approved first
+-- by pushing it to be the new master if the build succeeded.
+-- (cf. 'proceedCandidate')
 proceedFirstCandidate :: ProjectState -> Action ProjectState
 proceedFirstCandidate state = case Pr.unfailedIntegratedPullRequests state of
   (candidate:_) -> proceedCandidate candidate state
   _ -> pure state
 
--- try to integrate the pull request that was approved first
+-- | Try to integrate the pull request that was approved first
+-- if there's one.
+-- (cf. 'tryIntegratePullRequest')
 tryIntegrateFirstPullRequest :: ProjectState -> Action ProjectState
 tryIntegrateFirstPullRequest state = case Pr.candidatePullRequests state of
   (pr:_) -> tryIntegratePullRequest pr state
@@ -817,9 +850,9 @@ unspeculateFailuresAfter promotedPullRequest pr
   | otherwise
   = pr
 
--- Keep doing a proceed step until the state doesn't change any more. For this
--- to work properly, it is essential that "proceed" does not have any side
--- effects if it does not change the state.
+-- | Keep doing a 'proceed' step until the state doesn't change any more.
+-- For this to work properly, it is essential that 'proceed' does not have any
+-- side effects if it does not change the state.
 proceedUntilFixedPoint :: ProjectState -> Action ProjectState
 proceedUntilFixedPoint state = do
   newState <- proceed state

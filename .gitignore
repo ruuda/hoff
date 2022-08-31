@@ -11,6 +11,7 @@
 # Editor files
 *.swp
 *.swo
+*.autosave
 *~
 /.idea
 /.vscode
