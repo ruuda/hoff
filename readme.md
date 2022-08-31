@@ -232,6 +232,9 @@ Hoff is conservative in what it allows to be pushed to master,
 it tries to guarantee that the builds of all PRs pass by themselves alone.
 Hoff will not merge a sequence of two PRs
 where the second fixes the build of the first.
+This is a choice that traces CI time for confidence that individual PRs
+are buildable points in the project history
+as opposed to rollups that include multiple PRs in a single test build.
 
 **Complex scenario.**
 Here is a more complex scenario involving builds arriving in the unexpected order
