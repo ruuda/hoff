@@ -115,7 +115,8 @@ runGithub auth projectInfo operation =
         body
       case result of
         Left err -> logWarnN $ format "Failed to comment: {}" [show err]
-        Right _ -> logInfoN $ format "Posted comment on {}: {}" (pr, body)
+        Right _ -> logInfoN $ format "Posted comment on {}#{}: {}"
+                                     (Project.repository projectInfo, pr, body)
       pure cont
 
     HasPushAccess (Username username) cont -> do

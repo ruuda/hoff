@@ -24,8 +24,10 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN)
 import Control.Monad.STM (atomically)
 import Control.Monad.Free (foldFree)
+import Data.Foldable (traverse_)
 import Data.Functor.Sum (Sum (InL, InR))
 
+import Data.Text (Text)
 import qualified Data.Text as Text
 
 import Configuration (ProjectConfiguration, TriggerConfiguration, MergeWindowExemptionConfiguration)
@@ -34,6 +36,7 @@ import Github (eventProjectInfo)
 import Project (ProjectInfo (..), ProjectState, PullRequestId (..))
 import Time ( TimeOperationFree )
 
+import qualified Configuration
 import qualified Git
 import qualified Github
 import qualified GithubApi
@@ -105,14 +108,11 @@ runGithubEventLoop ghQueue enqueueEvent = runLoop
     shouldHandle ghEvent = (ghEvent /= Ping)
     runLoop = do
       ghEvent <- liftIO $ atomically $ readTBQueue ghQueue
-      logDebugN $ Text.append "github loop received event: " (Text.pack $ show ghEvent)
+      let projectInfo = eventProjectInfo ghEvent
+      logDebugN $ "github loop received event: " <> showText ghEvent
       when (shouldHandle ghEvent) $
         -- If conversion yielded an event, enqueue it. Block if the queue is full.
-        let
-          projectInfo = eventProjectInfo ghEvent
-          converted   = convertGithubEvent ghEvent
-        in
-          maybe (return ()) (liftIO . enqueueEvent projectInfo) converted
+        traverse_ (liftIO . enqueueEvent projectInfo) (convertGithubEvent ghEvent)
       runLoop
 
 runSum
@@ -155,12 +155,13 @@ runLogicEventLoop
       -- Handle the event and then perform any additional required actions until
       -- the state reaches a fixed point (when there are no further actions to
       -- perform).
-      logInfoN  $ Text.append "logic loop received event: " (Text.pack $ show event)
-      logDebugN $ Text.append "state before: " (Text.pack $ show state0)
+      let repo = Configuration.repository projectConfig
+      logInfoN  $ "logic loop received event (" <> repo <> "): " <> showText event
+      logDebugN $ "state before (" <> repo <> "): " <> showText state0
       state1 <- runAll $ runAction $
         Logic.handleEvent triggerConfig projectConfig mergeWindowExemptionConfig event state0
       publish state1
-      logDebugN $ Text.append "state after: " (Text.pack $ show state1)
+      logDebugN $ "state after (" <> repo <> "): " <> showText state1
       runLoop state1
 
     runLoop state = do
@@ -176,3 +177,6 @@ runLogicEventLoop
 
   in
     runLoop initialState
+
+showText :: Show a => a -> Text
+showText  =  Text.pack . show
