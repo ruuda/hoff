@@ -673,6 +673,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "dec") [PullRequestId 1] False
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as b72 behind #1, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "Abandoning this pull request because it was closed."
+        , ACleanupTestBranch (PullRequestId 1)
         , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n"
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "dec") [] False
         , ALeaveComment (PullRequestId 2) "Rebased as b73, waiting for CI …"
@@ -1107,6 +1108,7 @@ main = hspec $ do
                         (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
         , ALeaveComment (PullRequestId 1) "Rebased as def2345, waiting for CI \8230"
         , ALeaveComment (PullRequestId 1) "Stopping integration because the PR changed after approval."
+        , ACleanupTestBranch (PullRequestId 1)
         ]
 
       Project.approval pr `shouldBe` Nothing
@@ -1133,6 +1135,7 @@ main = hspec $ do
                         (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
         , ALeaveComment (PullRequestId 1) "Rebased as def2345, waiting for CI \8230"
         , ALeaveComment (PullRequestId 1) "Stopping integration because the PR changed after approval."
+        , ACleanupTestBranch (PullRequestId 1)
         ]
 
       Project.approval pr `shouldBe` Nothing
@@ -1981,6 +1984,7 @@ main = hspec $ do
                         False
         , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind #1 and #2, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "Stopping integration because the PR changed after approval."
+        , ACleanupTestBranch (PullRequestId 1)
         , ATryIntegrate "Merge #2: Second PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"
@@ -2733,6 +2737,7 @@ main = hspec $ do
                         False
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "Abandoning this pull request because it was closed."
+        , ACleanupTestBranch (PullRequestId 1)
         , ATryIntegrate "Merge #2: Second PR\n\n\
                         \Approved-by: deckard\n\
                         \Auto-deploy: false\n"

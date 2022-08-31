@@ -378,12 +378,14 @@ handlePullRequestClosed closingReason pr state = do
   when (pr `elem` Pr.unfailedIntegratedPullRequests state) $
     leaveComment pr $ prClosingMessage closingReason
   -- actually delete the pull request
-  pure . Pr.deletePullRequest pr
-       $ case Pr.lookupPullRequest pr state of
-         -- we unintegrate PRs after if it has been integrated without promotion
-         -- as everything that was built on top of it needs to be rebuilt
-         Just (Pr.PullRequest{Pr.integrationStatus = Integrated _ _}) -> unintegrateAfter pr state
-         _ -> state
+  state' <- case Pr.lookupPullRequest pr state of
+    -- we unintegrate PRs after if it has been integrated without promotion
+    -- as everything that was built on top of it needs to be rebuilt
+    Just (Pr.PullRequest{Pr.integrationStatus = Integrated _ _}) -> do
+      cleanupTestBranch pr
+      pure $ unintegrateAfter pr state
+    _ -> pure state
+  pure $ Pr.deletePullRequest pr state'
 
 handlePullRequestEdited :: PullRequestId -> Text -> BaseBranch -> ProjectState -> Action ProjectState
 handlePullRequestEdited prId newTitle newBaseBranch state =
