@@ -24,6 +24,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN)
 import Control.Monad.STM (atomically)
 import Control.Monad.Free (foldFree)
+import Data.Foldable (traverse_)
 import Data.Functor.Sum (Sum (InL, InR))
 
 import Data.Text (Text)
@@ -111,7 +112,7 @@ runGithubEventLoop ghQueue enqueueEvent = runLoop
       logDebugN $ "github loop received event: " <> showText ghEvent
       when (shouldHandle ghEvent) $
         -- If conversion yielded an event, enqueue it. Block if the queue is full.
-        maybe (return ()) (liftIO . enqueueEvent projectInfo) (convertGithubEvent ghEvent)
+        traverse_ (liftIO . enqueueEvent projectInfo) (convertGithubEvent ghEvent)
       runLoop
 
 runSum
