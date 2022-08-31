@@ -597,13 +597,15 @@ handleBuildStatusChanged buildSha newStatus state = pure $
 -- * Statuses 'BuildSuceeded' and 'BuildFailed' are not
 --   superseded by other statuses
 --
+-- * We ignore changes of just the URL.
+--
 -- This is used in 'handleBuildStatusChanged`.
 supersedes :: BuildStatus -> BuildStatus -> Bool
-newStatus       `supersedes` oldStatus       | newStatus == oldStatus = False
-(BuildFailed _) `supersedes` (BuildFailed _) = True
-_               `supersedes` (BuildFailed _) = False
-_               `supersedes` BuildSucceeded  = False
-_               `supersedes` _               = True
+newStatus        `supersedes` oldStatus        | newStatus == oldStatus = False
+(BuildStarted _) `supersedes` (BuildStarted _) = False -- url change, ignore.
+_                `supersedes` (BuildFailed _)  = False -- final status
+_                `supersedes` BuildSucceeded   = False -- final status
+_                `supersedes` _                = True
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
 synchronizeState :: ProjectState -> Action ProjectState
