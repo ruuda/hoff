@@ -108,8 +108,7 @@ runGithubEventLoop ghQueue enqueueEvent = runLoop
     runLoop = do
       ghEvent <- liftIO $ atomically $ readTBQueue ghQueue
       let projectInfo = eventProjectInfo ghEvent
-      let repo = Project.repository projectInfo
-      logDebugN $ "github loop received event (" <> repo <> "): " <> showText ghEvent
+      logDebugN $ "github loop received event: " <> showText ghEvent
       when (shouldHandle ghEvent) $
         -- If conversion yielded an event, enqueue it. Block if the queue is full.
         maybe (return ()) (liftIO . enqueueEvent projectInfo) (convertGithubEvent ghEvent)
