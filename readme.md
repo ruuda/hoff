@@ -178,7 +178,7 @@ Supposing the build time is of ≈10 minutes:
 * the authors of PR#2 wait ≈16 minutes for their PR to be merged;
 * the authors of PR#3 wait **≈22 minutes** for their PR to be merged.
 
-With merge trains, we reduce the waiting time for merges.
+With merge trains, Hoff reduces the waiting time for merges.
 Here is the same timeline of interaction for Hoff with merge trains active:
 
 ![With merge trains, speculative builds start immediately.](doc/merge-train.svg)
@@ -201,8 +201,8 @@ reintegrated and their builds are restarted:
 
 2. PR#2 fails while PR#1 and PR#3 are still building.
     1. Since PR#2 is built on top of PR#1,
-       we cannot assume it is the culprit of the failure
-       so we delay reporting this until PR#1 finishes.
+       Hoff cannot assume PR#2 is the culprit of the failure
+       so Hoff delays reporting this until PR#1 finishes.
     2. Since PR#3 has been built on top of PR#2,
        its build is restarted with a rebase and merge on top of PR#1.
        This is done by pushing to the `testing/2` branch.
@@ -261,8 +261,8 @@ the only difference being that PR#1 alone causes the build to fail.
    Hoff proceeds as usual.
 
 **Rebase failures.**
-When we fail to rebase a branch in a train,
-we do not know whether this is a conflict with `master`
+When Hoff fails to rebase a branch in a train,
+it does not know whether this is a conflict with `master`
 or any other PRs in the train.
 We have to wait for the build results of the last PR it is based on
 before doing anything.
