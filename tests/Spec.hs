@@ -1819,6 +1819,37 @@ main = hspec $ do
       state `shouldBe` state'
       removeFile fname
 
+    it "reports CI job started for all URLs that arrive" $ do
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 12)
+              (Branch "tth") masterBranch (Sha "12a") "Twelfth PR"  (Username "person")
+          $ Project.emptyProjectState
+        results = defaultResults {resultIntegrate = [Right (Sha "1b2")]}
+        events =
+          [ CommentAdded (PullRequestId 12) "deckard" "@bot merge"
+          , CommentAdded (PullRequestId 12) "bot" "Pull request approved for merge, rebasing now."
+          , CommentAdded (PullRequestId 12) "bot" "Rebased as 1b2, waiting for CI …"
+          , BuildStatusChanged (Sha "1b2") (Project.BuildStarted "example.com/1b2")
+          , BuildStatusChanged (Sha "1b2") (Project.BuildStarted "example.com/alt1/1b2")
+          , BuildStatusChanged (Sha "1b2") (Project.BuildStarted "example.com/alt2/1b2")
+          ]
+        actions = snd $ runActionCustom results $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer (Username "deckard")
+        , ALeaveComment (PullRequestId 12) "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #12: Twelfth PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 12,Branch "refs/pull/12/head",Sha "12a")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 12) "Rebased as 1b2, waiting for CI …"
+        , ALeaveComment (PullRequestId 12) "[CI job :yellow_circle:](example.com/1b2) started."
+        , ALeaveComment (PullRequestId 12) "[CI job :yellow_circle:](example.com/alt1/1b2) started."
+        , ALeaveComment (PullRequestId 12) "[CI job :yellow_circle:](example.com/alt2/1b2) started."
+        ]
+
     it "build failures cannot be superseded by other statuses" $ do
       let
         state
