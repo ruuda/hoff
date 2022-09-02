@@ -1950,8 +1950,6 @@ main = hspec $ do
           ]
         results = defaultResults { resultIntegrate = [ Right (Sha "a19")
                                                      , Right (Sha "b36")
-                                                     -- the following should not be consumed:
-                                                     , Left (IntegrationFailure masterBranch RebaseFailed)
                                                      ] }
         (finalState, actions) = runActionCustom results $ handleEventsTest events state
       actions `shouldBe`
