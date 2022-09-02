@@ -384,8 +384,9 @@ handlePullRequestClosed closingReason pid state =
     when (Pr.isIntegrated status) $
       cleanupTestBranch pid
     pure $ Pr.deletePullRequest pid $
-      -- we unintegrate PRs after if it has been integrated without promotion
-      -- as everything that was built on top of it needs to be rebuilt
+      -- if this PR is part of the train
+      -- (i.e. is integrated and has not failed yet),
+      -- we need to unintegrate PRs that are integrated on top of it.
       if Pr.isUnfailedIntegrated status
       then unintegrateAfter pid state
       else state
