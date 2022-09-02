@@ -1930,6 +1930,71 @@ main = hspec $ do
         , awaiting = []
         }
 
+    it "does not unintegrate after failing pull request (not a train)" $ do
+      -- regression test for https://github.com/channable/hoff/issues/184
+      let
+        state
+          = Project.insertPullRequest (PullRequestId 19)
+              (Branch "fst") masterBranch (Sha "19a") "Nineteenth PR"   (Username "tyrell")
+          $ Project.insertPullRequest (PullRequestId 36)
+              (Branch "snd") masterBranch (Sha "36b") "Thirty-sixth PR" (Username "rachael")
+          $ Project.emptyProjectState
+        events =
+          [ CommentAdded (PullRequestId 19) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "a19") (Project.BuildFailed Nothing)
+          , CommentAdded (PullRequestId 36) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "b36") (Project.BuildFailed Nothing)
+          , CommentAdded (PullRequestId 36) "deckard" "@bot merge on Friday"
+          , PullRequestClosed (PullRequestId 19)
+          , PullRequestClosed (PullRequestId 36)
+          ]
+        results = defaultResults { resultIntegrate = [ Right (Sha "a19")
+                                                     , Right (Sha "b36")
+                                                     ] }
+        (finalState, actions) = runActionCustom results $ handleEventsTest events state
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 19)
+                        "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #19: Nineteenth PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 19, Branch "refs/pull/19/head", Sha "19a")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 19) "Rebased as a19, waiting for CI …"
+        , ALeaveComment (PullRequestId 19) "The build failed :x:.\n\n\
+                                          \If this is the result of a flaky test, \
+                                          \close and reopen the PR, then tag me again.  \
+                                          \Otherwise, push a new commit and tag me again."
+        , AIsReviewer "deckard"
+        , ALeaveComment (PullRequestId 36)
+                       "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #36: Thirty-sixth PR\n\n\
+                        \Approved-by: deckard\n\
+                        \Auto-deploy: false\n"
+                        (PullRequestId 36, Branch "refs/pull/36/head", Sha "36b")
+                        []
+                        False
+        , ALeaveComment (PullRequestId 36) "Rebased as b36, waiting for CI …"
+        , ALeaveComment (PullRequestId 36) "The build failed :x:.\n\n\
+                                          \If this is the result of a flaky test, \
+                                          \close and reopen the PR, then tag me again.  \
+                                          \Otherwise, push a new commit and tag me again."
+        , AIsReviewer (Username "deckard")
+        , ALeaveComment (PullRequestId 36) "Your merge request has been denied \
+                                          \because it is not Friday. \
+                                          \Run merge instead"
+        , ACleanupTestBranch (PullRequestId 19)
+        , ACleanupTestBranch (PullRequestId 36)
+        ]
+      classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
+        { building = []
+        , failed   = []
+        , approved = []
+        , awaiting = []
+        }
+
     it "resets the integration of PRs in the train after the PR commit has changed" $ do
       let
         state

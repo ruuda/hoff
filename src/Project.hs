@@ -54,6 +54,8 @@ module Project
   wasIntegrationAttemptFor,
   filterPullRequestsBy,
   approvedAfter,
+  isIntegrated,
+  isUnfailedIntegrated,
   MergeWindow(..))
 where
 
