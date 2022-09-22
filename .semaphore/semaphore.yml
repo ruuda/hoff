@@ -40,12 +40,15 @@ blocks:
             - "cache restore stack-cache-"
 
             # Install Nix and source the shell configuration immediately.
-            - "./nix/install"
+            - "./nix/install --no-daemon"
             - ". $HOME/.nix-profile/etc/profile.d/nix.sh"
 
             # Install Cachix and use the Channable cache
             - "nix-env -iA nixpkgs.cachix"
             - "cachix use channable-public"
+
+            # Build as many derivations as cores in parallel.
+            - echo "max-jobs = auto" >> ~/.config/nix/nix.conf
 
             # Bring all the tools from the pinned build environment into the PATH.
             - "export PATH=$(nix-build --no-out-link default.nix)/bin:$PATH"
