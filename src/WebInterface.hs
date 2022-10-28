@@ -178,7 +178,7 @@ classifiedPullRequests state = ClassifiedPullRequests
   { building = sortPrs $ filterPrs prPending ++ speculativelyFailed
   , failed   = sortPrs $ realFailed
   , approved = sortPrs $ filterPrs (== Project.PrStatusApproved)
-  , awaiting =           filterPrs (== Project.PrStatusAwaitingApproval)
+  , awaiting = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
   }
   where
   allFailed = filterPrs prFailed
