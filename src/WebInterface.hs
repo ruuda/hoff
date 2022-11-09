@@ -178,7 +178,7 @@ classifiedPullRequests state = ClassifiedPullRequests
   { building = sortPrs $ filterPrs prPending ++ speculativelyFailed
   , failed   = sortPrs $ realFailed
   , approved = sortPrs $ filterPrs (== Project.PrStatusApproved)
-  , awaiting =           filterPrs (== Project.PrStatusAwaitingApproval)
+  , awaiting = reverse $ filterPrs (== Project.PrStatusAwaitingApproval)
   }
   where
   allFailed = filterPrs prFailed
@@ -253,43 +253,45 @@ viewPullRequest info pullRequestId pullRequest = do
   a ! href (toValue $ pullRequestUrl info pullRequestId) $ toHtml $ Project.title pullRequest
   span ! class_ "prId" $ toHtml $ prettyPullRequestId pullRequestId
 
-  case integrationStatus pullRequest of
-    Integrated sha buildStatus -> do
-      span "  | "
-      case buildStatus of
-        (BuildStarted ciUrl)       -> ciLink ciUrl "🟡"
-        (BuildFailed (Just ciUrl)) -> ciLink ciUrl "❌"
-        BuildSucceeded             -> ciLink (commitUrl info sha) "✅"
-        _                          -> pure ()
-      a ! href (toValue $ commitUrl info sha) $ toHtml $ prettySha sha
-      case buildStatus of
-        (BuildStarted ciUrl)       -> span " | " >> ciLink ciUrl "CI build"
-        (BuildFailed (Just ciUrl)) -> span " | " >> ciLink ciUrl "CI build"
-        _                          -> pure ()
-    Conflicted _ _      -> span "  | " >> span "‼️ conflicted"
-    -- Promotions are not actually shown in the interface
-    -- as a PR is deleted right after it is promoted.
-    -- The case is here so we cover all branches
-    -- (and so we are notified in case we add a new constructor).
-    Promoted            -> span "  | " >> span "🔷 promoted"
-    IncorrectBaseBranch -> span "  | " >> span "❗ incorrect base branch"
-    NotIntegrated       -> pure ()
-  where
-  ciLink url text = do
-    a ! href (toValue url) $ text
-    span " "
-
 viewPullRequestWithApproval :: ProjectInfo -> PullRequestId -> PullRequest -> Html
 viewPullRequestWithApproval info prId pullRequest = do
   viewPullRequest info prId pullRequest
   case Project.approval pullRequest of
-    Just Approval { approver = Username username, approvedFor = approvalType } ->
+    Just Approval { approver = Username username, approvedFor = approvalType } -> do
       span ! class_ "review" $ do
-        let approvedAction = Project.displayApproval approvalType
-        toHtml $ format "Approved for {} by " [approvedAction]
+        -- Show approver
+        toHtml $ (format "Approved for {} by " [approvedAction])
         -- TODO: Link to approval comment, not just username.
-        let url = Text.append "https://github.com/" username
-        a ! href (toValue url) $ toHtml username
+        a ! href (toValue approverProfileUrl) $ toHtml username
+        -- Show build info
+        case integrationStatus pullRequest of
+          Integrated sha buildStatus -> do
+            span " | "
+            case buildStatus of
+              (BuildStarted ciUrl)       -> ciLink ciUrl "🟡"
+              (BuildFailed (Just ciUrl)) -> ciLink ciUrl "❌"
+              BuildSucceeded             -> ciLink (commitUrl info sha) "✅"
+              _                          -> pure ()
+            a ! href (toValue $ commitUrl info sha) $ toHtml $ prettySha sha
+            case buildStatus of
+              (BuildStarted ciUrl)       -> span " | " >> ciLink ciUrl "CI build"
+              (BuildFailed (Just ciUrl)) -> span " | " >> ciLink ciUrl "CI build"
+              _                          -> pure ()
+          Conflicted _ _      -> span "  | " >> span "❗ Conflicted"
+          IncorrectBaseBranch -> span "  | " >> span "❗ Incorrect base branch"
+          -- Promotions are not actually shown in the interface
+          -- as a PR is deleted right after it is promoted.
+          -- The case is here so we cover all branches
+          -- (and so we are notified in case we add a new constructor).
+          Promoted            -> span "  | " >> span "🔷 Promoted"
+          NotIntegrated       -> pure ()
+        where
+          approvedAction = Project.displayApproval approvalType
+          approverProfileUrl = Text.append "https://github.com/" username
+          ciLink url text = do
+            a ! href (toValue url) $ text
+            span " "
+
     Nothing ->
       error $
         "Tried to render approval link for pull request " ++ (show prId) ++
