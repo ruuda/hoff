@@ -794,7 +794,7 @@ tryIntegratePullRequest pr state =
 -- candidate.
 -- TODO: Get rid of the tuple; just pass the ID and do the lookup with fromJust.
 pushCandidate :: (PullRequestId, PullRequest) -> Sha -> ProjectState -> Action ProjectState
-pushCandidate (pullRequestId, pullRequest) newHead state =
+pushCandidate (pullRequestId, pullRequest) newHead@(Sha sha) state =
   -- Look up the sha that will be pushed to the target branch. Also assert that
   -- the pull request has really been approved. If it was
   -- not, there is a bug in the program.
@@ -804,7 +804,7 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       commentToUser = leaveComment pullRequestId . (<>) ("@" <> approvedBy <> " ")
   in assert (isJust $ Pr.approval pullRequest) $ do
     let approvalKind = Pr.approvedFor approval
-    pushResult <- if Pr.needsTag $ approvalKind
+    pushResult <- if Pr.needsTag approvalKind
       then do
         versionOrBadTag <- getLatestVersion newHead
         case versionOrBadTag of
@@ -825,7 +825,7 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
                 Right (TagName t) -> "I tagged your PR with `" <> t <> "`. " <>
                   if Pr.needsDeploy approvalKind
                     then "It is scheduled for autodeploy!"
-                    else "Don't forget to deploy it!"
+                    else Text.concat ["Please wait for the build of ", sha, " to pass and don't forget to deploy it!"]
             pure pushResult
       else
         tryPromote prBranch newHead
