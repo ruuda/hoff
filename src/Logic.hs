@@ -850,7 +850,7 @@ pushCandidate (pullRequestId, pullRequest) newHead@(Sha sha) state =
                 Left err -> "Sorry, I could not tag your PR. " <> err
                 Right (TagName t) -> do
                   let link = format "[{}](https://github.com/{}/{}/tags/{})" (t, owner, repo, t)
-                  "I tagged your PR with `" <> link <> "`. " <>
+                  "I tagged your PR with " <> link <> ". " <>
                     if Pr.needsDeploy approvalKind
                     then "It is scheduled for autodeploy!"
                     else Text.concat ["Please wait for the build of ", sha, " to pass and don't forget to deploy it!"]
