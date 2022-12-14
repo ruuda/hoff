@@ -14,12 +14,16 @@
 module Logic
 (
   Action,
+  BaseAction,
   BaseActionFree (..),
   Event (..),
   EventQueue,
   IntegrationFailure (..),
   StateVar,
+  RetrieveInfo,
+  RetrieveInfoFree (..),
   dequeueEvent,
+  doBaseAction,
   enqueueEvent,
   enqueueStopSignal,
   ensureCloned,
