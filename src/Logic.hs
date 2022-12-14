@@ -200,9 +200,6 @@ getChangelog prevTag curHead = liftAction $ GetChangelog prevTag curHead id
 getDateTime :: Action UTCTime
 getDateTime = liftAction $ GetDateTime id
 
---runAction :: ProjectConfiguration -> Action a -> Operation a
---runAction config = 
-
 getBaseBranch :: Action BaseBranch
 getBaseBranch = liftAction $ GetBaseBranch id
 
