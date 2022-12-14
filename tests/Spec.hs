@@ -10,7 +10,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE RankNTypes #-}
 
 import Control.Monad.Free (foldFree)
 import Control.Monad.Trans.RWS.Strict (RWS)
@@ -49,7 +48,7 @@ import qualified WebInterface
 import qualified Data.Time as T
 import qualified Data.Time.Calendar.OrdinalDate as T
 
-import Data.Functor.Sum (Sum (InL, InR))
+import Sum (runSum)
 import Format (format, Only (..))
 
 masterBranch :: BaseBranch
@@ -198,16 +197,6 @@ takeResultGetDateTime =
     "resultGetDateTime"
     resultGetDateTime
     (\v res -> res { resultGetDateTime = v })
-
-runSum
-  :: Monad m
-  => (forall a. f a -> m a)
-  -> (forall a. g a -> m a)
-  -> (forall a. (Sum f g) a -> m a)
-runSum runF runG = go
-  where
-    go (InL u) = runF u
-    go (InR v) = runG v
 
 runRetrieveInfoRws :: HasCallStack => RetrieveInfoFree a -> RWS () [ActionFlat] Results a
 runRetrieveInfoRws retrieveInfo =

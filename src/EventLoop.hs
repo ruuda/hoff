@@ -25,9 +25,7 @@ import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN)
 import Control.Monad.STM (atomically)
 import Control.Monad.Free (foldFree)
 import Data.Foldable (traverse_)
-import Data.Functor.Sum (Sum (InL, InR))
 import Prometheus (MonadMonitor)
-
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -36,6 +34,7 @@ import Github (PullRequestPayload, CommentPayload, CommitStatusPayload, WebhookE
 import Github (eventProjectInfo)
 import Project (ProjectInfo (..), ProjectState, PullRequestId (..))
 import Time ( TimeOperationFree )
+import Sum (runSum)
 
 import qualified Configuration as Config
 import qualified Git
@@ -116,16 +115,6 @@ runGithubEventLoop ghQueue enqueueEvent = runLoop
         -- If conversion yielded an event, enqueue it. Block if the queue is full.
         traverse_ (liftIO . enqueueEvent projectInfo) (convertGithubEvent ghEvent)
       runLoop
-
-runSum
-  :: Monad m
-  => (forall a. f a -> m a)
-  -> (forall a. g a -> m a)
-  -> (forall a. (Sum f g) a -> m a)
-runSum runF runG = go
-  where
-    go (InL u) = runF u
-    go (InR v) = runG v
 
 runLogicEventLoop
   :: MonadIO m
