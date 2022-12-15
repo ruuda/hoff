@@ -517,7 +517,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "dec")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as c82 behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as c82 behind 1 other PR, waiting for CI …"
 
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 3) "Pull request approved for merge and deploy by @deckard, waiting for rebase behind 2 pull requests."
@@ -525,7 +525,7 @@ main = hspec $ do
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "f16")
                         [PullRequestId 1, PullRequestId 2]
                         True
-        , ALeaveComment (PullRequestId 3) "Speculatively rebased as d93 behind #1 and #2, waiting for CI …"
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as d93 behind 2 other PRs, waiting for CI …"
         ]
       classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
         { building = [PullRequestId 1, PullRequestId 2, PullRequestId 3]
@@ -560,12 +560,12 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 3) "Pull request approved for merge by @deckard, waiting for rebase behind one pull request."
         , ATryIntegrate "Merge #3: Another PR\n\nApproved-by: deckard\nAuto-deploy: false\n"
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "f16") [PullRequestId 1] False
-        , ALeaveComment (PullRequestId 3) "Speculatively rebased as b72 behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as b72 behind 1 other PR, waiting for CI …"
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase behind 2 pull requests."
         , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n"
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "dec") [PullRequestId 1, PullRequestId 3] False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as b73 behind #1 and #3, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as b73 behind 2 other PRs, waiting for CI …"
         ]
       Project.pullRequestApprovalIndex state' `shouldBe` 3
       Project.pullRequests state' `shouldBe`
@@ -630,13 +630,13 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, waiting for rebase behind one pull request."
         , ATryIntegrate "Merge #1: Add Nexus 7 experiment\n\nApproved-by: deckard\nAuto-deploy: false\n"
                         (PullRequestId 1, Branch "refs/pull/1/head", Sha "a38") [PullRequestId 2] False
-        , ALeaveComment (PullRequestId 1) "Speculatively rebased as b72 behind #2, waiting for CI …"
+        , ALeaveComment (PullRequestId 1) "Speculatively rebased as b72 behind 1 other PR, waiting for CI …"
 
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 3) "Pull request approved for merge by @deckard, waiting for rebase behind 2 pull requests."
         , ATryIntegrate "Merge #3: Another PR\n\nApproved-by: deckard\nAuto-deploy: false\n"
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "f16") [PullRequestId 2, PullRequestId 1] False
-        , ALeaveComment (PullRequestId 3) "Speculatively rebased as b73 behind #2 and #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as b73 behind 2 other PRs, waiting for CI …"
         ]
 
     it "abandons integration when a pull request is closed" $ do
@@ -671,7 +671,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "Pull request approved for merge by @deckard, waiting for rebase behind one pull request."
         , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n"
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "dec") [PullRequestId 1] False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as b72 behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as b72 behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "Abandoning this pull request because it was closed."
         , ACleanupTestBranch (PullRequestId 1)
         , ATryIntegrate "Merge #2: Some PR\n\nApproved-by: deckard\nAuto-deploy: false\n"
@@ -1185,7 +1185,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "Rebased as 38c, waiting for CI \x2026"
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: fred\nAuto-deploy: false\n"
                         (PullRequestId 1, Branch "refs/pull/1/head", Sha "f34") [PullRequestId 2] False
-        , ALeaveComment (PullRequestId 1) "Speculatively rebased as 49d behind #2, waiting for CI \x2026"
+        , ALeaveComment (PullRequestId 1) "Speculatively rebased as 49d behind 1 other PR, waiting for CI \x2026"
         ]
 
     it "pushes after a successful build" $ do
@@ -2036,7 +2036,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2bc behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2bc behind 1 other PR, waiting for CI …"
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 3)
                         "Pull request approved for merge by @deckard, \
@@ -2047,7 +2047,7 @@ main = hspec $ do
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
                         [PullRequestId 1, PullRequestId 2]
                         False
-        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind #1 and #2, waiting for CI …"
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind 2 other PRs, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "Stopping integration because the PR changed after approval."
         , ACleanupTestBranch (PullRequestId 1)
         , ATryIntegrate "Merge #2: Second PR\n\n\
@@ -2063,7 +2063,7 @@ main = hspec $ do
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
                         [PullRequestId 2]
                         False
-        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 6cd behind #2, waiting for CI …"
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 6cd behind 1 other PR, waiting for CI …"
         ]
       classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
         { building = [PullRequestId 2, PullRequestId 3]
@@ -2122,7 +2122,7 @@ main = hspec $ do
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind 1 other PR, waiting for CI …"
         , ATryPromote (Branch "fst") (Sha "1ab")
         , ACleanupTestBranch (PullRequestId 1)
         -- PR#2 is only notified after PR#1 passes or fails
@@ -2189,7 +2189,7 @@ main = hspec $ do
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "The [build failed :x:](ci.example.com/1ab).\n\n\
                                           \If this is the result of a flaky test, \
                                           \close and reopen the PR, then tag me again.  \
@@ -2208,7 +2208,7 @@ main = hspec $ do
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
                         [PullRequestId 2]
                         False
-        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 6cd behind #2, waiting for CI …"
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 6cd behind 1 other PR, waiting for CI …"
         ]
       classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
         { building = [PullRequestId 2, PullRequestId 3]
@@ -2319,7 +2319,7 @@ main = hspec $ do
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind 1 other PR, waiting for CI …"
         -- upon commit changed on PR#2, there is no reason to reintegrate PR#3
         -- PR#2 is moved to the end of the train after a new merge command
         , AIsReviewer "deckard"
@@ -2332,7 +2332,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "c2d")
                         [PullRequestId 1, PullRequestId 3]
                         False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2bc behind #1 and #3, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2bc behind 2 other PRs, waiting for CI …"
         ]
       classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
         { building = [PullRequestId 1, PullRequestId 3, PullRequestId 2]
@@ -2378,7 +2378,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind 1 other PR, waiting for CI …"
         , ATryPromote (Branch "fst") (Sha "1ab")
         , ACleanupTestBranch (PullRequestId 1)
         , ATryPromote (Branch "snd") (Sha "2cd")
@@ -2423,7 +2423,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind 1 other PR, waiting for CI …"
         , ATryPromote (Branch "fst") (Sha "1ab")
         , ACleanupTestBranch (PullRequestId 1)
         , ATryPromote (Branch "snd") (Sha "2cd")
@@ -2468,7 +2468,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\n\
                                           \If this is the result of a flaky test, \
                                           \close and reopen the PR, then tag me again.  \
@@ -2532,7 +2532,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 2) "Speculative build failed :x:.  I will automatically retry after getting build results for #1."
         , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\n\
                                           \If this is the result of a flaky test, \
@@ -2595,7 +2595,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind 1 other PR, waiting for CI …"
         , ATryPromote (Branch "fst") (Sha "1ab")
         , ACleanupTestBranch (PullRequestId 1)
         , ALeaveComment (PullRequestId 2) "The build failed :x:.\n\n\
@@ -2641,7 +2641,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 2) "Speculative build failed :x:.  I will automatically retry after getting build results for #1."
         , ATryPromote (Branch "fst") (Sha "1ab")
         , ACleanupTestBranch (PullRequestId 1)
@@ -2690,7 +2690,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\n\
                                           \If this is the result of a flaky test, \
                                           \close and reopen the PR, then tag me again.  \
@@ -2745,7 +2745,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\n\
                                           \If this is the result of a flaky test, \
                                           \close and reopen the PR, then tag me again.  \
@@ -2800,7 +2800,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "Abandoning this pull request because it was closed."
         , ACleanupTestBranch (PullRequestId 1)
         , ATryIntegrate "Merge #2: Second PR\n\n\
@@ -2884,7 +2884,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2bc behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2bc behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "[CI job :yellow_circle:](example.com/1ab) started."
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 3)
@@ -2896,7 +2896,7 @@ main = hspec $ do
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
                         [PullRequestId 1, PullRequestId 2]
                         False
-        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind #1 and #2, waiting for CI …"
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind 2 other PRs, waiting for CI …"
         , ATryPromote (Branch "fst") (Sha "1ab")
         , ACleanupTestBranch (PullRequestId 1)
         , ALeaveComment (PullRequestId 2) "[CI job :yellow_circle:](example.com/2bc) started."
@@ -2979,7 +2979,7 @@ main = hspec $ do
                         (PullRequestId 8, Branch "refs/pull/8/head", Sha "cd8")
                         [PullRequestId 9]
                         False
-        , ALeaveComment (PullRequestId 8) "Speculatively rebased as 2bc behind #9, waiting for CI …"
+        , ALeaveComment (PullRequestId 8) "Speculatively rebased as 2bc behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 9) "[CI job :yellow_circle:](example.com/1ab) started."
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 7)
@@ -2991,7 +2991,7 @@ main = hspec $ do
                         (PullRequestId 7, Branch "refs/pull/7/head", Sha "ef7")
                         [PullRequestId 9, PullRequestId 8]
                         False
-        , ALeaveComment (PullRequestId 7) "Speculatively rebased as 3cd behind #9 and #8, waiting for CI …"
+        , ALeaveComment (PullRequestId 7) "Speculatively rebased as 3cd behind 2 other PRs, waiting for CI …"
         , ATryPromote (Branch "nth") (Sha "1ab")
         , ACleanupTestBranch (PullRequestId 9)
         , ALeaveComment (PullRequestId 8) "[CI job :yellow_circle:](example.com/2bc) started."
@@ -3090,7 +3090,7 @@ main = hspec $ do
                         (PullRequestId 2, Branch "refs/pull/2/head", Sha "cd2")
                         [PullRequestId 1]
                         False
-        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2bc behind #1, waiting for CI …"
+        , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2bc behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "[CI job :yellow_circle:](example.com/1ab) started."
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 3)
@@ -3102,7 +3102,7 @@ main = hspec $ do
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "ef3")
                         [PullRequestId 1, PullRequestId 2]
                         False
-        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind #1 and #2, waiting for CI …"
+        , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind 2 other PRs, waiting for CI …"
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 4)
                         "Pull request approved for merge by @deckard, \
@@ -3113,7 +3113,7 @@ main = hspec $ do
                         (PullRequestId 4, Branch "refs/pull/4/head", Sha "fe4")
                         [PullRequestId 1, PullRequestId 2, PullRequestId 3]
                         False
-        , ALeaveComment (PullRequestId 4) "Speculatively rebased as 4de behind #1, #2 and #3, waiting for CI …"
+        , ALeaveComment (PullRequestId 4) "Speculatively rebased as 4de behind 3 other PRs, waiting for CI …"
         , ATryPromote (Branch "fst") (Sha "1ab")
         , ACleanupTestBranch (PullRequestId 1)
         , ALeaveComment (PullRequestId 2) "[CI job :yellow_circle:](example.com/2bc) started."

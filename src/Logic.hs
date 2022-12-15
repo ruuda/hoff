@@ -877,11 +877,14 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
       1 -> format "Pull request approved for {} by @{}, waiting for rebase behind one pull request." [approvalCommand, approvedBy]
       n -> format "Pull request approved for {} by @{}, waiting for rebase behind {} pull requests." (approvalCommand, approvedBy, n)
   PrStatusBuildPending -> let Sha sha = fromJust $ Pr.integrationSha pr
-                              train = takeWhile (/= prId) $ Pr.unfailedIntegratedPullRequests state
+                              train   = takeWhile (/= prId) $ Pr.unfailedIntegratedPullRequests state
+                              len     = length train
+                              prs     = if len == 1 then "PR" else "PRs"
                           in case train of
                              []    -> Text.concat ["Rebased as ", sha, ", waiting for CI …"]
                              (_:_) -> Text.concat [ "Speculatively rebased as ", sha
-                                                  , " behind ", prettyPullRequestIds train
+                                                  , " behind ", Text.pack $ show len
+                                                  , " other ", prs
                                                   , ", waiting for CI …"
                                                   ]
   PrStatusBuildStarted url -> Text.concat ["[CI job :yellow_circle:](", url, ") started."]
