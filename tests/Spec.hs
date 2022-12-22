@@ -34,7 +34,7 @@ import EventLoop (convertGithubEvent)
 import Git (BaseBranch (..), Branch (..), PushResult (..), Sha (..), TagMessage (..), TagName (..),
             GitIntegrationFailure (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
-import Logic (Action, BaseActionFree (..), Event (..), IntegrationFailure (..), RetrieveInfoFree (..))
+import Logic (Action, BaseActionFree (..), Event (..), IntegrationFailure (..), RetrieveConfigFree (..))
 import Project (Approval (..), ProjectState (ProjectState), PullRequest (PullRequest))
 import Types (PullRequestId (..), Username (..))
 
@@ -198,12 +198,8 @@ takeResultGetDateTime =
     resultGetDateTime
     (\v res -> res { resultGetDateTime = v })
 
-runRetrieveInfoRws :: HasCallStack => RetrieveInfoFree a -> RWS () [ActionFlat] Results a
-runRetrieveInfoRws retrieveInfo =
-  let projectInfo = Project.ProjectInfo (Config.owner testProjectConfig) (Config.repository testProjectConfig)
-  in
-    case retrieveInfo of
-      GetProjectInfo cont -> cont <$> pure projectInfo
+runRetrieveInfoRws :: HasCallStack => RetrieveConfigFree a -> RWS () [ActionFlat] Results a
+runRetrieveInfoRws (GetProjectConfig cont) = cont <$> pure testProjectConfig
 
 -- This function simulates running the actions, and returns the final state,
 -- together with a list of all actions that would have been performed. Some
@@ -261,12 +257,12 @@ runAction = runActionCustom defaultResults
 -- Handle an event, then advance the state until a fixed point,
 -- and simulate its side effects.
 handleEventTest :: Event -> ProjectState -> Action ProjectState
-handleEventTest = Logic.handleEvent testTriggerConfig testProjectConfig testmergeWindowExemptionConfig
+handleEventTest = Logic.handleEvent testTriggerConfig testmergeWindowExemptionConfig
 
 -- Handle events (advancing the state until a fixed point in between) and
 -- simulate their side effects.
 handleEventsTest :: [Event] -> ProjectState -> Action ProjectState
-handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig testProjectConfig testmergeWindowExemptionConfig) state events
+handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig testmergeWindowExemptionConfig) state events
 
 -- | Like 'classifiedPullRequests' but just with ids.
 -- This should match 'WebInterface.ClassifiedPullRequests'

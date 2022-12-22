@@ -20,8 +20,8 @@ module Logic
   EventQueue,
   IntegrationFailure (..),
   StateVar,
-  RetrieveInfo,
-  RetrieveInfoFree (..),
+  RetrieveConfig,
+  RetrieveConfigFree (..),
   dequeueEvent,
   doBaseAction,
   enqueueEvent,
@@ -33,7 +33,7 @@ module Logic
   proceedUntilFixedPoint,
   readStateVar,
   runBaseAction,
-  runRetrieveInfo,
+  runRetrieveConfig,
   tryIntegratePullRequest,
   updateStateVar,
 )
@@ -62,7 +62,7 @@ import qualified Data.Text.Lazy.Builder.Int as B
 import qualified Data.Text.Read as Text
 import Data.Time (UTCTime, DayOfWeek (Friday), dayOfWeek, utctDay)
 
-import Configuration (ProjectConfiguration, TriggerConfiguration, MergeWindowExemptionConfiguration)
+import Configuration (ProjectConfiguration (owner, repository), TriggerConfiguration, MergeWindowExemptionConfiguration)
 import Format (format)
 import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushResult (..),
             GitIntegrationFailure (..), Sha (..), SomeRefSpec (..), TagMessage (..), TagName (..),
@@ -109,25 +109,25 @@ data PRCloseCause =
     | StopIntegration -- ^ We close and reopen the PR internally to stop its integration if it is approved.
   deriving Show
 
-data RetrieveInfoFree a
-  = GetProjectInfo (Pr.ProjectInfo -> a)
+data RetrieveConfigFree a
+  = GetProjectConfig (ProjectConfiguration -> a)
   deriving (Functor)
 
-type RetrieveInfo = Free RetrieveInfoFree
+type RetrieveConfig = Free RetrieveConfigFree
 
-runRetrieveInfo :: Pr.ProjectInfo -> RetrieveInfoFree a -> Operation a
-runRetrieveInfo info (GetProjectInfo cont) = cont <$> pure info
+runRetrieveConfig :: ProjectConfiguration -> RetrieveConfigFree a -> Operation a
+runRetrieveConfig config (GetProjectConfig cont) = cont <$> pure config
 
-getProjectInfo :: Action Pr.ProjectInfo
-getProjectInfo = doInfo $ liftF $ GetProjectInfo id
+getProjectConfig :: Action ProjectConfiguration
+getProjectConfig = doInfo $ liftF $ GetProjectConfig id
 
 type BaseAction = Free BaseActionFree
-type Action = Free (Sum BaseActionFree RetrieveInfoFree)
+type Action = Free (Sum BaseActionFree RetrieveConfigFree)
 
 doBaseAction :: BaseAction a -> Action a
 doBaseAction = hoistFree InL
 
-doInfo :: RetrieveInfo a -> Action a
+doInfo :: RetrieveConfig a -> Action a
 doInfo = hoistFree InR
 
 liftAction :: BaseActionFree a -> Action a
@@ -369,19 +369,18 @@ clearPullRequest prId pr state =
 -- point. This is handled by `handleEvent`.
 handleEventInternal
   :: TriggerConfiguration
-  -> ProjectConfiguration
   -> MergeWindowExemptionConfiguration
   -> Event
   -> ProjectState
   -> Action ProjectState
-handleEventInternal triggerConfig projectConfig mergeWindowExemption event = case event of
+handleEventInternal triggerConfig mergeWindowExemption event = case event of
   PullRequestOpened pr branch baseBranch sha title author
     -> handlePullRequestOpened pr branch baseBranch sha title author
   PullRequestCommitChanged pr sha -> handlePullRequestCommitChanged pr sha
   PullRequestClosed pr            -> handlePullRequestClosedByUser pr
   PullRequestEdited pr title baseBranch -> handlePullRequestEdited pr title baseBranch
   CommentAdded pr author body
-    -> handleCommentAdded triggerConfig projectConfig mergeWindowExemption pr author body
+    -> handleCommentAdded triggerConfig mergeWindowExemption pr author body
   BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
   Synchronize                     -> synchronizeState
 
@@ -526,14 +525,13 @@ approvePullRequest pr approval = pure . Pr.updatePullRequest pr
 
 handleCommentAdded
   :: TriggerConfiguration
-  -> ProjectConfiguration
   -> MergeWindowExemptionConfiguration
   -> PullRequestId
   -> Username
   -> Text
   -> ProjectState
   -> Action ProjectState
-handleCommentAdded triggerConfig projectConfig mergeWindowExemption prId author body state =
+handleCommentAdded triggerConfig mergeWindowExemption prId author body state =
   let maybePR = Pr.lookupPullRequest prId state in
   case maybePR of
     -- Check if the comment is a merge command, and if it is, check if the
@@ -554,6 +552,7 @@ handleCommentAdded triggerConfig projectConfig mergeWindowExemption prId author 
       -- For now Friday at UTC+0 is good enough.
       -- See https://github.com/channable/hoff/pull/95 for caveats and improvement ideas.
       day <- dayOfWeek . utctDay <$> getDateTime
+      projectConfig <- getProjectConfig
       case commandType of
         -- The bot was not mentioned in the comment, ignore
         Ignored -> pure state
@@ -833,7 +832,7 @@ pushCandidate (pullRequestId, pullRequest) newHead@(Sha sha) state =
     pushResult <- if Pr.needsTag approvalKind
       then do
         versionOrBadTag <- getLatestVersion newHead
-        (Pr.ProjectInfo owner repo) <- getProjectInfo
+        config <- getProjectConfig
         case versionOrBadTag of
           Left (TagName bad) -> do
             commentToUser ("Sorry, I could not tag your PR. The previous tag `" <> bad <> "` seems invalid")
@@ -850,7 +849,7 @@ pushCandidate (pullRequestId, pullRequest) newHead@(Sha sha) state =
               case tagResult of
                 Left err -> "Sorry, I could not tag your PR. " <> err
                 Right (TagName t) -> do
-                  let link = format "[{}](https://github.com/{}/{}/tags/{})" (t, owner, repo, t)
+                  let link = format "[{}](https://github.com/{}/{}/tags/{})" (t, owner config, repository config, t)
                   "I tagged your PR with " <> link <> ". " <>
                     if Pr.needsDeploy approvalKind
                     then "It is scheduled for autodeploy!"
@@ -996,13 +995,12 @@ provideFeedback state
 
 handleEvent
   :: TriggerConfiguration
-  -> ProjectConfiguration
   -> MergeWindowExemptionConfiguration
   -> Event
   -> ProjectState
   -> Action ProjectState
-handleEvent triggerConfig projectConfig mergeWindowExemption event state =
-  handleEventInternal triggerConfig projectConfig mergeWindowExemption event state >>= proceedUntilFixedPoint
+handleEvent triggerConfig mergeWindowExemption event state =
+  handleEventInternal triggerConfig mergeWindowExemption event state >>= proceedUntilFixedPoint
 
 
 -- TODO this is very Channable specific, perhaps it should be more generic

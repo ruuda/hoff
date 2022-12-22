@@ -142,9 +142,8 @@ runLogicEventLoop
   getNextEvent publish initialState =
   let
     repo          = Config.repository projectConfig
-    projectInfo   = ProjectInfo (Config.owner projectConfig) repo
     runAll        = foldFree (runSum (runSum runMetrics runTime) (runSum runGit runGithub))
-    runAction     = foldFree (runSum (Logic.runBaseAction projectConfig) (Logic.runRetrieveInfo projectInfo))
+    runAction     = foldFree (runSum (Logic.runBaseAction projectConfig) (Logic.runRetrieveConfig projectConfig))
     handleAndContinue state0 event = do
       -- Handle the event and then perform any additional required actions until
       -- the state reaches a fixed point (when there are no further actions to
@@ -152,7 +151,7 @@ runLogicEventLoop
       logInfoN  $ "logic loop received event (" <> repo <> "): " <> showText event
       logDebugN $ "state before (" <> repo <> "): " <> showText state0
       state1 <- runAll $ runAction $
-        Logic.handleEvent triggerConfig projectConfig mergeWindowExemptionConfig event state0
+        Logic.handleEvent triggerConfig mergeWindowExemptionConfig event state0
       publish state1
       logDebugN $ "state after (" <> repo <> "): " <> showText state1
       runLoop state1
