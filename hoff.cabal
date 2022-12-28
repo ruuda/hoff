@@ -28,6 +28,8 @@ library
                  , Logic
                  , Project
                  , Server
+                 , Metrics.Server
+                 , Metrics.Metrics
                  , Time
                  , Types
                  , WebInterface
@@ -53,6 +55,7 @@ library
                , monad-logger
                , process
                , process-extras
+               , prometheus-client
                , scotty
                , stm
                , text
@@ -60,6 +63,7 @@ library
                , time
                , vector
                , wai
+               , wai-middleware-prometheus
                , warp
                , warp-tls
   other-modules: Paths_hoff

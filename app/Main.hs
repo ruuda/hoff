@@ -30,6 +30,8 @@ import Project (ProjectState, emptyProjectState, loadProjectState, saveProjectSt
 import Project (ProjectInfo (ProjectInfo), Owner)
 import Server (buildServer)
 
+import Metrics.Server
+
 import qualified Paths_hoff (version)
 
 import qualified Configuration as Config
@@ -234,7 +236,8 @@ runMain options = do
   putStrLn $ "Listening for webhooks on port " ++ (show port) ++ "."
   runServer <- fmap fst $ buildServer port tlsConfig infos secret ghTryEnqueue getProjectState getOwnerState
   serverThread <- Async.async runServer
+  metricsThread <- Async.async $ runMetricsServer defaultServerConfig
 
   -- Note that a stop signal is never enqueued. The application just runs until
   -- until it is killed, or until any of the threads stop due to an exception.
-  void $ Async.waitAny $ serverThread : ghThread : projectThreads
+  void $ Async.waitAny $ metricsThread : serverThread : ghThread : projectThreads
