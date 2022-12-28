@@ -18,6 +18,7 @@ module Logic
   Event (..),
   EventQueue,
   IntegrationFailure (..),
+  StateVar,
   dequeueEvent,
   enqueueEvent,
   enqueueStopSignal,
