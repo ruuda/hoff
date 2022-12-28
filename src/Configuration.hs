@@ -15,6 +15,7 @@ module Configuration
   TriggerConfiguration (..),
   UserConfiguration (..),
   MergeWindowExemptionConfiguration (..),
+  MetricsConfiguration (..),
   loadConfiguration
 )
 where
@@ -24,6 +25,7 @@ import Data.ByteString (readFile)
 import Data.Text (Text)
 import GHC.Generics
 import Prelude hiding (readFile)
+import qualified Network.Wai.Handler.Warp as Warp
 
 data ProjectConfiguration = ProjectConfiguration
   {
@@ -62,6 +64,12 @@ data TlsConfiguration = TlsConfiguration
   }
   deriving (Generic, Show)
 
+data MetricsConfiguration = MetricsConfiguration
+  {
+    metricsPort :: Warp.Port
+  }
+  deriving (Generic, Show)
+
 newtype MergeWindowExemptionConfiguration = MergeWindowExemptionConfiguration [Text]
   deriving (Generic, Show)
 
@@ -95,7 +103,10 @@ data Configuration = Configuration
 
     -- List of users that are exempted from the merge window. This is useful for
     -- bots that automatically merge low impact changes.
-    mergeWindowExemption :: MergeWindowExemptionConfiguration
+    mergeWindowExemption :: MergeWindowExemptionConfiguration,
+
+    -- Configuration for the Prometheus metrics server.
+    metricsConfig :: Maybe MetricsConfiguration
   }
   deriving (Generic)
 
@@ -105,6 +116,7 @@ instance FromJSON TlsConfiguration
 instance FromJSON TriggerConfiguration
 instance FromJSON UserConfiguration
 instance FromJSON MergeWindowExemptionConfiguration
+instance FromJSON MetricsConfiguration
 
 -- Reads and parses the configuration. Returns Nothing if parsing failed, but
 -- crashes if the file could not be read.

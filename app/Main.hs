@@ -14,6 +14,7 @@ import Control.Monad (forM, unless, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runStdoutLoggingT)
 import Data.List (zip4)
+import Data.Maybe (maybeToList)
 import Data.Version (showVersion)
 import System.Exit (die)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
@@ -24,7 +25,7 @@ import qualified GitHub.Auth as Github3
 import qualified System.Directory as FileSystem
 import qualified Options.Applicative as Opts
 
-import Configuration (Configuration)
+import Configuration (Configuration, MetricsConfiguration (..))
 import EventLoop (runGithubEventLoop, runLogicEventLoop)
 import Project (ProjectState, emptyProjectState, loadProjectState, saveProjectState)
 import Project (ProjectInfo (ProjectInfo), Owner)
@@ -236,8 +237,15 @@ runMain options = do
   putStrLn $ "Listening for webhooks on port " ++ (show port) ++ "."
   runServer <- fmap fst $ buildServer port tlsConfig infos secret ghTryEnqueue getProjectState getOwnerState
   serverThread <- Async.async runServer
-  metricsThread <- Async.async $ runMetricsServer defaultServerConfig
+  metricsThread <- runMetricsThread config
 
   -- Note that a stop signal is never enqueued. The application just runs until
   -- until it is killed, or until any of the threads stop due to an exception.
-  void $ Async.waitAny $ metricsThread : serverThread : ghThread : projectThreads
+  void $ Async.waitAny $ [serverThread, ghThread] ++ metricsThread ++ projectThreads
+
+runMetricsThread :: Configuration -> IO [Async.Async ()]
+runMetricsThread configuration =
+  forM (maybeToList $ Config.metricsConfig configuration) $
+  \metricsConf -> do
+    let servConfig = defaultServerConfig { metricsConfigPort = metricsPort metricsConf }
+    Async.async $ runMetricsServer servConfig
