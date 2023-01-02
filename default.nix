@@ -8,6 +8,7 @@ in
       pkgs.dpkg
       pkgs.git
       pkgs.haskellPackages.haskell-language-server
+      pkgs.haskellPackages.stylish-haskell
       pkgs.niv
       pkgs.shellcheck
       pkgs.stack

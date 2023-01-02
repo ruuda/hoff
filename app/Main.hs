@@ -256,12 +256,13 @@ projectThread config options metrics projectThreadData = do
         then GithubApi.runGithubReadOnly auth projectInfo
         else GithubApi.runGithub         auth projectInfo
       runTime = Time.runTime
-      runMetrics = Metrics.runMetrics metrics (Config.repository projectConfig)
+      runMetrics = Metrics.runMetrics metrics $ Config.repository projectConfig
 
 
 runMetricsThread :: Configuration -> IO [Async.Async ()]
 runMetricsThread configuration =
   forM (maybeToList $ Config.metricsConfig configuration) $
   \metricsConf -> do
-    let servConfig = defaultServerConfig { metricsConfigPort = metricsPort metricsConf }
+    let servConfig = MetricsServerConfig
+                     { metricsConfigPort = metricsPort metricsConf, metricsConfigHost = "*" }
     Async.async $ runMetricsServer servConfig

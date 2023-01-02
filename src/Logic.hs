@@ -522,7 +522,7 @@ handleCommentAdded triggerConfig projectConfig mergeWindowExemption prId author 
         -- take no further action
         Unknown command -> do
           let prefix  = Text.toCaseFold $ Config.commentPrefix triggerConfig
-              cmdstr  = fmap Text.strip $ Text.stripPrefix prefix command
+              cmdstr  = Text.strip <$> Text.stripPrefix prefix command
               comment = case cmdstr of
                 Just str -> "`" <> str <> "` was not recognized as a valid command."
                 Nothing  -> "That was not a valid command."
@@ -803,7 +803,7 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
             mChangelog <- getChangelog previousTag newHead
             let
               tagName = versionToTag $ v + 1
-              changelog = maybe "Failed to get the changelog" id mChangelog
+              changelog = fromMaybe "Failed to get the changelog" mChangelog
               tagMessage = messageForTag tagName approvalKind changelog
             (tagResult, pushResult) <- tryPromoteWithTag prBranch newHead tagName tagMessage
             when (pushResult == PushOk) $ commentToUser $
