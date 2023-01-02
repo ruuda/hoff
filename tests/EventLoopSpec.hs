@@ -37,6 +37,7 @@ import qualified Data.Time.Calendar.OrdinalDate as T
 import Configuration (ProjectConfiguration, TriggerConfiguration, UserConfiguration, MergeWindowExemptionConfiguration (..))
 import Git (BaseBranch (..), Branch (..), RefSpec (refSpec), Sha (..))
 import GithubApi (GithubOperationFree)
+import Metrics.Metrics (MetricsOperationFree (..), runNoMonitorT)
 import Project (BuildStatus (..), IntegrationStatus (..), ProjectState, PullRequestId (..))
 
 import qualified Configuration as Config
@@ -224,6 +225,10 @@ fakeRunGithub action = case action of
 fakeRunTime :: Monad m => Time.TimeOperationFree a -> m a
 fakeRunTime (Time.GetDateTime cont) = pure (cont (T.UTCTime (T.fromMondayStartWeek 2021 2 1) (T.secondsToDiffTime 0)))
 
+fakeRunMetrics :: Monad m => MetricsOperationFree a -> m a
+fakeRunMetrics action = case action of
+  MergeBranch cont -> pure cont
+
 -- Runs the main loop in a separate thread, and feeds it the given events.
 runMainEventLoop
   :: ProjectConfiguration
@@ -240,17 +245,20 @@ runMainEventLoop projectConfig initialState events = do
   -- 'runStdoutLoggingT'. You should also remove 'parallel' from main then.
   queue <- Logic.newEventQueue 10
   let
-    publish _     = return () -- Do nothing when a new state is published.
-    getNextEvent  = liftIO $ Logic.dequeueEvent queue
-    runGit      = Git.runGit userConfig (Config.checkout projectConfig)
-    runGithub   = fakeRunGithub
-    runTime = fakeRunTime
-  finalStateAsync  <- async
+    publish _    = return () -- Do nothing when a new state is published.
+    getNextEvent = liftIO $ Logic.dequeueEvent queue
+    runMetrics   = fakeRunMetrics
+    runGit       = Git.runGit userConfig (Config.checkout projectConfig)
+    runGithub    = fakeRunGithub
+    runTime      = fakeRunTime
+  finalStateAsync <- async
     $ runNoLoggingT
+    $ runNoMonitorT
     $ EventLoop.runLogicEventLoop
         triggerConfig
         projectConfig
         mergeWindowExemptionConfig
+        runMetrics
         runTime
         runGit
         runGithub

@@ -232,6 +232,7 @@ runActionRws =
       GetLatestVersion _ cont -> cont <$> takeResultGetLatestVersion
       GetChangelog _ _ cont -> cont <$> takeResultGetChangelog
       GetDateTime cont -> cont <$> takeResultGetDateTime
+      IncreaseMergeMetric cont -> pure cont
 
 -- Simulates running the action. Use the provided results as result for various
 -- operations. Results are consumed one by one.

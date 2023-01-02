@@ -9,6 +9,7 @@ module Metrics.Metrics
   ProjectMetrics (..),
   runMetrics,
   runLoggingMonitorT,
+  runNoMonitorT,
   increaseMergedPRTotal,
   registerProjectMetrics
   )
@@ -18,7 +19,7 @@ import Data.Text
 import Prometheus
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Free (Free)
-import Control.Monad.Logger (LoggingT, MonadLogger)
+import Control.Monad.Logger (LoggingT, MonadLogger, NoLoggingT)
 import Control.Monad.Free.Ap (liftF)
 
 type ProjectLabel = Text
@@ -36,8 +37,15 @@ type MetricsOperation = Free MetricsOperationFree
 newtype LoggingMonitorT m a = LoggingMonitorT { runLoggingMonitorT :: LoggingT m a }
                               deriving (Functor, Applicative, Monad, MonadIO, MonadLogger)
 
+newtype NoMonitorT m a = NoMonitorT { runNoMonitorT :: NoLoggingT m a }
+                       deriving (Functor, Applicative, Monad, MonadIO, MonadLogger)
+
 instance MonadIO m => MonadMonitor (LoggingMonitorT m) where
   doIO = liftIO
+
+
+instance MonadIO m => MonadMonitor (NoMonitorT m) where
+  doIO _ = return ()
 
 increaseMergedPRTotal :: MetricsOperation ()
 increaseMergedPRTotal = liftF $ MergeBranch ()
