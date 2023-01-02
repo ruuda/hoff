@@ -74,6 +74,7 @@ import qualified Git
 import qualified GithubApi
 import qualified Project as Pr
 import qualified Time
+import Metrics.Metrics
 
 data ActionFree a
   = TryIntegrate
@@ -94,6 +95,7 @@ data ActionFree a
   | GetLatestVersion Sha (Either TagName Integer -> a)
   | GetChangelog TagName Sha (Maybe Text -> a)
   | GetDateTime (UTCTime -> a)
+  | IncreaseMergeMetric a
   deriving (Functor)
 
 data PRCloseCause =
@@ -103,7 +105,7 @@ data PRCloseCause =
 
 type Action = Free ActionFree
 
-type Operation = Free (Sum TimeOperationFree (Sum GitOperationFree GithubOperationFree))
+type Operation = Free (Sum (Sum MetricsOperationFree TimeOperationFree) (Sum GitOperationFree GithubOperationFree))
 
 type PushWithTagResult = (Either Text TagName, PushResult)
 
@@ -113,13 +115,16 @@ type PushWithTagResult = (Either Text TagName, PushResult)
 data IntegrationFailure = IntegrationFailure BaseBranch GitIntegrationFailure
 
 doTime :: TimeOperation a -> Operation a
-doTime = hoistFree InL
+doTime = hoistFree (InL . InR)
 
 doGit :: GitOperation a -> Operation a
 doGit = hoistFree (InR . InL)
 
 doGithub :: GithubOperation a -> Operation a
 doGithub = hoistFree (InR . InR)
+
+doMetrics :: MetricsOperation a -> Operation a
+doMetrics = hoistFree (InL . InL)
 
 tryIntegrate :: Text -> (PullRequestId, Branch, Sha) -> [PullRequestId] -> Bool -> Action (Either IntegrationFailure Sha)
 tryIntegrate mergeMessage candidate train alwaysAddMergeCommit = liftF $ TryIntegrate mergeMessage candidate train alwaysAddMergeCommit id
@@ -160,6 +165,9 @@ getChangelog prevTag curHead = liftF $ GetChangelog prevTag curHead id
 
 getDateTime :: Action UTCTime
 getDateTime = liftF $ GetDateTime id
+
+registerMergedPR :: Action ()
+registerMergedPR = liftF $ IncreaseMergeMetric ()
 
 -- | Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
@@ -231,6 +239,8 @@ runAction config = foldFree $ \case
     cont <$> Git.shortlog (AsRefSpec prevTag) (AsRefSpec curHead)
 
   GetDateTime cont -> doTime $ cont <$> Time.getDateTime
+
+  IncreaseMergeMetric cont -> doMetrics $ cont <$ increaseMergedPRTotal
 
   where
   trainBranch :: [PullRequestId] -> Maybe Git.Branch
@@ -813,6 +823,7 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       -- the integration candidate, so we proceed with the next pull request.
       PushOk -> do
         cleanupTestBranch pullRequestId
+        registerMergedPR
         pure $ Pr.updatePullRequests (unspeculateConflictsAfter pullRequest)
              $ Pr.updatePullRequests (unspeculateFailuresAfter pullRequest)
              $ Pr.setIntegrationStatus pullRequestId Promoted state

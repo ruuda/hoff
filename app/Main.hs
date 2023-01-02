@@ -31,6 +31,7 @@ import Project (ProjectState, emptyProjectState, loadProjectState, saveProjectSt
 import Project (ProjectInfo (ProjectInfo), Owner)
 import Server (buildServer)
 
+import qualified Metrics.Metrics as Metrics
 import Metrics.Server
 
 import qualified Paths_hoff (version)
@@ -161,11 +162,10 @@ runMain options = do
 
   -- Start a main event loop for every project.
   let
-    -- TODO: This is very, very ugly. Get these per-project collections sorted
-    -- out.
     zipped = zip4 (Config.projects config) projectQueues stateVars projectStates
     tuples = map (\(cfg, (_, a), (_, b), (_, c)) -> ProjectThreadData cfg a b c) zipped
-  projectThreads <- forM tuples $ projectThread config options
+  metrics <- Metrics.registerProjectMetrics
+  projectThreads <- forM tuples $ projectThread config options metrics
 
   let
     -- When the webhook server receives an event, enqueue it on the webhook
@@ -204,9 +204,10 @@ data ProjectThreadData = ProjectThreadData
 
 projectThread :: Configuration
          -> Options
+         -> Metrics.ProjectMetrics
          -> ProjectThreadData
          -> IO (Async.Async ())
-projectThread config options projectThreadData = do
+projectThread config options metrics projectThreadData = do
     -- At startup, enqueue a synchronize event. This will bring the state in
     -- sync with the current state of GitHub, accounting for any webhooks that
     -- we missed while not running, or just to fill the state initially after
@@ -215,11 +216,14 @@ projectThread config options projectThreadData = do
     -- Start a worker thread to run the main event loop for the project.
     Async.async
       $ void
+      -- Implement a newtype for a logging monad that also embodies MonadMonitor
       $ runStdoutLoggingT
+      $ Metrics.runLoggingMonitorT
       $ runLogicEventLoop
           (Config.trigger config)
           projectConfig
           (Config.mergeWindowExemption config)
+          runMetrics
           runTime
           runGit
           runGithub
@@ -252,6 +256,7 @@ projectThread config options projectThreadData = do
         then GithubApi.runGithubReadOnly auth projectInfo
         else GithubApi.runGithub         auth projectInfo
       runTime = Time.runTime
+      runMetrics = Metrics.runMetrics metrics (Config.repository projectConfig)
 
 
 runMetricsThread :: Configuration -> IO [Async.Async ()]

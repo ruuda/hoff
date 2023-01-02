@@ -42,6 +42,8 @@ import qualified Github
 import qualified GithubApi
 import qualified Logic
 import qualified Project
+import Prometheus (MonadMonitor)
+import qualified Metrics.Metrics as Metrics
 
 eventFromPullRequestPayload :: PullRequestPayload -> Logic.Event
 eventFromPullRequestPayload payload =
@@ -128,10 +130,12 @@ runSum runF runG = go
 runLogicEventLoop
   :: MonadIO m
   => MonadLogger m
+  => MonadMonitor m
   => TriggerConfiguration
   -> ProjectConfiguration
   -> MergeWindowExemptionConfiguration
   -- Interpreters for Git and GitHub actions.
+  -> (forall a. Metrics.MetricsOperationFree a -> m a)
   -> (forall a. Time.TimeOperationFree a -> m a)
   -> (forall a. Git.GitOperationFree a -> m a)
   -> (forall a. GithubApi.GithubOperationFree a -> m a)
@@ -145,10 +149,10 @@ runLogicEventLoop
   -> m ProjectState
 runLogicEventLoop
   triggerConfig projectConfig mergeWindowExemptionConfig
-  runTime runGit runGithub
+  runMetrics runTime runGit runGithub
   getNextEvent publish initialState =
   let
-    runAll      = foldFree (runSum runTime (runSum runGit runGithub))
+    runAll      = foldFree (runSum (runSum runMetrics runTime) (runSum runGit runGithub))
     runAction   = Logic.runAction projectConfig
 
     handleAndContinue state0 event = do

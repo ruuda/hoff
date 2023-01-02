@@ -19,5 +19,8 @@
   "mergeWindowExemption": ["hoffbot"],
   "trigger": {
     "commentPrefix": "@hoffbot"
+  },
+  "metrics": {
+    "metricsPort": "3333"
   }
 }
