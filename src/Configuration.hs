@@ -67,7 +67,7 @@ data TlsConfiguration = TlsConfiguration
 data MetricsConfiguration = MetricsConfiguration
   {
     metricsPort :: Warp.Port,
-    metricsHost :: String
+    metricsHost :: Text
   }
   deriving (Generic, Show)
 

@@ -28,7 +28,7 @@ import Control.Monad (void)
 type ProjectLabel = Text
 
 data ProjectMetrics = ProjectMetrics
-  { projectMetricsMergedPR     :: Vector ProjectLabel Counter
+  { projectMetricsMergedPR :: Vector ProjectLabel Counter
   }
 
 data MetricsOperationFree a

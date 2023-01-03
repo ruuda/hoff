@@ -44,6 +44,7 @@ import qualified GithubApi
 import qualified Logic
 import qualified Project
 import qualified Time
+import qualified Data.Text as Text
 
 version :: String
 version = showVersion Paths_hoff.version
@@ -265,5 +266,5 @@ runMetricsThread configuration =
   \metricsConf -> do
     let servConfig = MetricsServerConfig
                      { metricsConfigPort = metricsPort metricsConf
-                     , metricsConfigHost = fromString $ metricsHost metricsConf }
+                     , metricsConfigHost = fromString $ Text.unpack $ metricsHost metricsConf }
     Async.async $ runMetricsServer servConfig
