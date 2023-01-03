@@ -18,6 +18,7 @@ module Logic
   Event (..),
   EventQueue,
   IntegrationFailure (..),
+  StateVar,
   dequeueEvent,
   enqueueEvent,
   enqueueStopSignal,
@@ -63,6 +64,7 @@ import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushRe
             TagResult (..))
 
 import GithubApi (GithubOperation, GithubOperationFree)
+import Metrics.Metrics (MetricsOperationFree, MetricsOperation, increaseMergedPRTotal)
 import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
                 MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..))
 import Time (TimeOperation, TimeOperationFree)
@@ -73,6 +75,7 @@ import qualified Git
 import qualified GithubApi
 import qualified Project as Pr
 import qualified Time
+
 
 data ActionFree a
   = TryIntegrate
@@ -93,6 +96,7 @@ data ActionFree a
   | GetLatestVersion Sha (Either TagName Integer -> a)
   | GetChangelog TagName Sha (Maybe Text -> a)
   | GetDateTime (UTCTime -> a)
+  | IncreaseMergeMetric a
   deriving (Functor)
 
 data PRCloseCause =
@@ -102,7 +106,13 @@ data PRCloseCause =
 
 type Action = Free ActionFree
 
-type Operation = Free (Sum TimeOperationFree (Sum GitOperationFree GithubOperationFree))
+type Operation = Free (Sum
+                        (Sum
+                          MetricsOperationFree
+                          TimeOperationFree)
+                        (Sum
+                          GitOperationFree
+                          GithubOperationFree))
 
 type PushWithTagResult = (Either Text TagName, PushResult)
 
@@ -112,13 +122,16 @@ type PushWithTagResult = (Either Text TagName, PushResult)
 data IntegrationFailure = IntegrationFailure BaseBranch GitIntegrationFailure
 
 doTime :: TimeOperation a -> Operation a
-doTime = hoistFree InL
+doTime = hoistFree (InL . InR)
 
 doGit :: GitOperation a -> Operation a
 doGit = hoistFree (InR . InL)
 
 doGithub :: GithubOperation a -> Operation a
 doGithub = hoistFree (InR . InR)
+
+doMetrics :: MetricsOperation a -> Operation a
+doMetrics = hoistFree (InL . InL)
 
 tryIntegrate :: Text -> (PullRequestId, Branch, Sha) -> [PullRequestId] -> Bool -> Action (Either IntegrationFailure Sha)
 tryIntegrate mergeMessage candidate train alwaysAddMergeCommit = liftF $ TryIntegrate mergeMessage candidate train alwaysAddMergeCommit id
@@ -159,6 +172,9 @@ getChangelog prevTag curHead = liftF $ GetChangelog prevTag curHead id
 
 getDateTime :: Action UTCTime
 getDateTime = liftF $ GetDateTime id
+
+registerMergedPR :: Action ()
+registerMergedPR = liftF $ IncreaseMergeMetric ()
 
 -- | Interpreter that translates high-level actions into more low-level ones.
 runAction :: ProjectConfiguration -> Action a -> Operation a
@@ -230,6 +246,8 @@ runAction config = foldFree $ \case
     cont <$> Git.shortlog (AsRefSpec prevTag) (AsRefSpec curHead)
 
   GetDateTime cont -> doTime $ cont <$> Time.getDateTime
+
+  IncreaseMergeMetric cont -> doMetrics $ cont <$ increaseMergedPRTotal
 
   where
   trainBranch :: [PullRequestId] -> Maybe Git.Branch
@@ -511,7 +529,7 @@ handleCommentAdded triggerConfig projectConfig mergeWindowExemption prId author 
         -- take no further action
         Unknown command -> do
           let prefix  = Text.toCaseFold $ Config.commentPrefix triggerConfig
-              cmdstr  = fmap Text.strip $ Text.stripPrefix prefix command
+              cmdstr  = Text.strip <$> Text.stripPrefix prefix command
               comment = case cmdstr of
                 Just str -> "`" <> str <> "` was not recognized as a valid command."
                 Nothing  -> "That was not a valid command."
@@ -792,7 +810,7 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
             mChangelog <- getChangelog previousTag newHead
             let
               tagName = versionToTag $ v + 1
-              changelog = maybe "Failed to get the changelog" id mChangelog
+              changelog = fromMaybe "Failed to get the changelog" mChangelog
               tagMessage = messageForTag tagName approvalKind changelog
             (tagResult, pushResult) <- tryPromoteWithTag prBranch newHead tagName tagMessage
             when (pushResult == PushOk) $ commentToUser $
@@ -812,6 +830,7 @@ pushCandidate (pullRequestId, pullRequest) newHead state =
       -- the integration candidate, so we proceed with the next pull request.
       PushOk -> do
         cleanupTestBranch pullRequestId
+        registerMergedPR
         pure $ Pr.updatePullRequests (unspeculateConflictsAfter pullRequest)
              $ Pr.updatePullRequests (unspeculateFailuresAfter pullRequest)
              $ Pr.setIntegrationStatus pullRequestId Promoted state

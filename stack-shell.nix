@@ -5,7 +5,7 @@ let
     mkDependencies = import ./nix/haskell-dependencies.nix;
 in
     nixpkgs.haskell.lib.buildStackProject {
-        name = "sharkmachine";
+        name = "hoff";
         # Not the GHC given by stack!
         ghc = nixpkgs.haskellPackages.ghcWithHoogle mkDependencies;
         buildInputs = with nixpkgs; [

@@ -13,7 +13,8 @@ import Control.Applicative ((<**>))
 import Control.Monad (forM, unless, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runStdoutLoggingT)
-import Data.List (zip4)
+import Data.Maybe (maybeToList)
+import Data.String (fromString)
 import Data.Version (showVersion)
 import System.Exit (die)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
@@ -24,11 +25,15 @@ import qualified GitHub.Auth as Github3
 import qualified System.Directory as FileSystem
 import qualified Options.Applicative as Opts
 
-import Configuration (Configuration)
+import Configuration (Configuration, MetricsConfiguration (metricsPort, metricsHost))
 import EventLoop (runGithubEventLoop, runLogicEventLoop)
 import Project (ProjectState, emptyProjectState, loadProjectState, saveProjectState)
 import Project (ProjectInfo (ProjectInfo), Owner)
 import Server (buildServer)
+
+import qualified Metrics.Metrics as Metrics
+import Metrics.Server (runMetricsServer, MetricsServerConfig(MetricsServerConfig,
+                                          metricsConfigPort, metricsConfigHost))
 
 import qualified Paths_hoff (version)
 
@@ -39,6 +44,7 @@ import qualified GithubApi
 import qualified Logic
 import qualified Project
 import qualified Time
+import qualified Data.Text as Text
 
 version :: String
 version = showVersion Paths_hoff.version
@@ -92,6 +98,11 @@ initializeProjectState fname = do
 main :: IO ()
 main = Opts.execParser commandLineParser >>= runMain
 
+getProjectInfo :: Config.ProjectConfiguration -> ProjectInfo
+getProjectInfo pconfig = ProjectInfo owner repository
+  where owner      = Config.owner pconfig
+        repository = Config.repository pconfig
+
 runMain :: Options -> IO ()
 runMain options = do
   -- When the runtime detects that stdout is not connected to a console, it
@@ -103,8 +114,8 @@ runMain options = do
   hSetBuffering stderr LineBuffering
 
   putStrLn $ "Starting Hoff v" ++ version
-  putStrLn $ "Config file: " ++ (configFilePath options)
-  putStrLn $ "Read-only: " ++ (show $ readOnly options)
+  putStrLn $ "Config file: " ++ configFilePath options
+  putStrLn $ "Read-only: " ++ show (readOnly options)
 
   -- Load configuration from the file specified as first program argument.
   config <- loadConfigOrExit $ configFilePath options
@@ -125,11 +136,7 @@ runMain options = do
   -- up, so the server will reject new events).
   projectQueues <- forM (Config.projects config) $ \ pconfig -> do
     projectQueue <- Logic.newEventQueue 10
-    let
-      owner        = Config.owner pconfig
-      repository   = Config.repository pconfig
-      projectInfo  = ProjectInfo owner repository
-    return (projectInfo, projectQueue)
+    return (getProjectInfo pconfig, projectQueue)
 
   -- Define a function that enqueues an event in the right project queue.
   let
@@ -147,12 +154,7 @@ runMain options = do
   -- Restore the previous state from disk if possible, or start clean.
   projectStates <- forM (Config.projects config) $ \ pconfig -> do
     projectState <- initializeProjectState (Config.stateFile pconfig)
-    let
-      -- TODO: DRY.
-      owner        = Config.owner pconfig
-      repository   = Config.repository pconfig
-      projectInfo  = ProjectInfo owner repository
-    return (projectInfo, projectState)
+    return (getProjectInfo pconfig, projectState)
 
   -- Keep track of the most recent state for every project, so the webinterface
   -- can use it to serve a status page.
@@ -162,24 +164,82 @@ runMain options = do
 
   -- Start a main event loop for every project.
   let
-    -- TODO: This is very, very ugly. Get these per-project collections sorted
-    -- out.
-    zipped = zip4 (Config.projects config) projectQueues stateVars projectStates
-    tuples = map (\(cfg, (_, a), (_, b), (_, c)) -> (cfg, a, b, c)) zipped
-  projectThreads <- forM tuples $ \ (projectConfig, projectQueue, stateVar, projectState) -> do
+    zipped = zip3 (Config.projects config) projectQueues stateVars
+    projectsThreadData = map (\(cfg, (_, a), (_, b)) -> ProjectThreadData cfg a b) zipped
+  metrics <- Metrics.registerProjectMetrics
+  Metrics.registerGHCMetrics
+  projectThreads <- forM projectsThreadData $ projectThread config options metrics
+
+  let
+    -- When the webhook server receives an event, enqueue it on the webhook
+    -- event queue if it is not full.
+    ghTryEnqueue = Github.tryEnqueueEvent ghQueue
+
+    -- Allow the webinterface to retrieve the latest project state per project.
+    getProjectState projectInfo = Logic.readStateVar <$> lookup projectInfo stateVars
+    getOwnerState :: Owner -> IO [(ProjectInfo, ProjectState)]
+    getOwnerState owner = do
+      let states = filter (\(projectInfo, _) -> Project.owner projectInfo == owner) stateVars
+      mapM (\(info, state) -> Logic.readStateVar state >>= \sVar -> pure (info, sVar)) states
+
+  let
+    port      = Config.port config
+    tlsConfig = Config.tls config
+    secret    = Config.secret config
+    -- TODO: Do this in a cleaner way.
+    infos     = getProjectInfo <$> Config.projects config
+  putStrLn $ "Listening for webhooks on port " ++ show port ++ "."
+  runServer <- fst <$> buildServer port tlsConfig infos secret ghTryEnqueue getProjectState getOwnerState
+  serverThread <- Async.async runServer
+  metricsThread <- runMetricsThread config
+
+  -- Note that a stop signal is never enqueued. The application just runs until
+  -- until it is killed, or until any of the threads stop due to an exception.
+  void $ Async.waitAny $ [serverThread, ghThread] ++ metricsThread ++ projectThreads
+
+data ProjectThreadData = ProjectThreadData
+  { projectThreadConfig   :: Config.ProjectConfiguration
+  , projectThreadQueue    :: Logic.EventQueue
+  , projectThreadStateVar :: Logic.StateVar
+  }
+
+projectThread :: Configuration
+         -> Options
+         -> Metrics.ProjectMetrics
+         -> ProjectThreadData
+         -> IO (Async.Async ())
+projectThread config options metrics projectThreadData = do
     -- At startup, enqueue a synchronize event. This will bring the state in
     -- sync with the current state of GitHub, accounting for any webhooks that
     -- we missed while not running, or just to fill the state initially after
     -- setting up a new project.
     liftIO $ Logic.enqueueEvent projectQueue Logic.Synchronize
-
-    let
+    projectThreadState <- Logic.readStateVar $ projectThreadStateVar projectThreadData
+    -- Start a worker thread to run the main event loop for the project.
+    Async.async
+      $ void
+      $ runStdoutLoggingT
+      $ Metrics.runLoggingMonitorT
+      $ runLogicEventLoop
+          (Config.trigger config)
+          projectConfig
+          (Config.mergeWindowExemption config)
+          runMetrics
+          runTime
+          runGit
+          runGithub
+          getNextEvent
+          publish
+          projectThreadState
+    where
       -- When the event loop publishes the current project state, save it to
       -- the configured file, and make the new state available to the
       -- webinterface.
+      projectConfig = projectThreadConfig projectThreadData
+      projectQueue = projectThreadQueue projectThreadData
       publish newState = do
         liftIO $ saveProjectState (Config.stateFile projectConfig) newState
-        liftIO $ Logic.updateStateVar stateVar newState
+        liftIO $ Logic.updateStateVar (projectThreadStateVar projectThreadData) newState
 
       -- When the event loop wants to get the next event, take one off the queue.
       getNextEvent = liftIO $ Logic.dequeueEvent projectQueue
@@ -197,44 +257,14 @@ runMain options = do
         then GithubApi.runGithubReadOnly auth projectInfo
         else GithubApi.runGithub         auth projectInfo
       runTime = Time.runTime
-    -- Start a worker thread to run the main event loop for the project.
-    Async.async
-      $ void
-      $ runStdoutLoggingT
-      $ runLogicEventLoop
-          (Config.trigger config)
-          projectConfig
-          (Config.mergeWindowExemption config)
-          runTime
-          runGit
-          runGithub
-          getNextEvent
-          publish
-          projectState
+      runMetrics = Metrics.runMetrics metrics $ Config.repository projectConfig
 
-  let
-    -- When the webhook server receives an event, enqueue it on the webhook
-    -- event queue if it is not full.
-    ghTryEnqueue = Github.tryEnqueueEvent ghQueue
 
-    -- Allow the webinterface to retrieve the latest project state per project.
-    getProjectState projectInfo =
-      fmap Logic.readStateVar $ lookup projectInfo stateVars
-    getOwnerState :: Owner -> IO [(ProjectInfo, ProjectState)]
-    getOwnerState owner = do
-      let states = filter (\(projectInfo, _) -> Project.owner projectInfo == owner) stateVars
-      mapM (\(info, state) ->  Logic.readStateVar state >>= \sVar -> pure (info, sVar)) states
-
-  let
-    port      = Config.port config
-    tlsConfig = Config.tls config
-    secret    = Config.secret config
-    -- TODO: Do this in a cleaner way.
-    infos     = fmap (\ pc -> ProjectInfo (Config.owner pc) (Config.repository pc)) $ Config.projects config
-  putStrLn $ "Listening for webhooks on port " ++ (show port) ++ "."
-  runServer <- fmap fst $ buildServer port tlsConfig infos secret ghTryEnqueue getProjectState getOwnerState
-  serverThread <- Async.async runServer
-
-  -- Note that a stop signal is never enqueued. The application just runs until
-  -- until it is killed, or until any of the threads stop due to an exception.
-  void $ Async.waitAny $ serverThread : ghThread : projectThreads
+runMetricsThread :: Configuration -> IO [Async.Async ()]
+runMetricsThread configuration =
+  forM (maybeToList $ Config.metricsConfig configuration) $
+  \metricsConf -> do
+    let servConfig = MetricsServerConfig
+                     { metricsConfigPort = metricsPort metricsConf
+                     , metricsConfigHost = fromString $ Text.unpack $ metricsHost metricsConf }
+    Async.async $ runMetricsServer servConfig

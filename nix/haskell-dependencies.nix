@@ -29,6 +29,8 @@ haskellPackages: with haskellPackages; [
   optparse-applicative
   process
   process-extras
+  prometheus
+  prometheus-metrics-ghc
   scotty
   stm
   text
@@ -37,6 +39,7 @@ haskellPackages: with haskellPackages; [
   uuid
   vector
   wai
+  wai-middleware-prometheus
   warp
   warp-tls
 ]
