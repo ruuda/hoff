@@ -5,7 +5,7 @@ module Metrics.Server
   MetricsServerConfig (..),
   serverConfig,
   runMetricsServer
-  )
+)
 where
 
 import qualified Network.Wai.Handler.Warp as Warp
@@ -16,6 +16,7 @@ data MetricsServerConfig = MetricsServerConfig
   { metricsConfigHost :: Warp.HostPreference
   , metricsConfigPort :: Warp.Port
   }
+
 serverConfig :: MetricsServerConfig -> Warp.Settings
 serverConfig config = Warp.defaultSettings
   & Warp.setHost (metricsConfigHost config)

@@ -26,6 +26,7 @@ import Control.Monad.STM (atomically)
 import Control.Monad.Free (foldFree)
 import Data.Foldable (traverse_)
 import Data.Functor.Sum (Sum (InL, InR))
+import Prometheus (MonadMonitor)
 
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -42,7 +43,6 @@ import qualified Github
 import qualified GithubApi
 import qualified Logic
 import qualified Project
-import Prometheus (MonadMonitor)
 import qualified Metrics.Metrics as Metrics
 
 eventFromPullRequestPayload :: PullRequestPayload -> Logic.Event

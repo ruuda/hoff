@@ -13,8 +13,8 @@ import Control.Applicative ((<**>))
 import Control.Monad (forM, unless, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runStdoutLoggingT)
-import Data.List (zip4)
 import Data.Maybe (maybeToList)
+import Data.String (fromString)
 import Data.Version (showVersion)
 import System.Exit (die)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
@@ -25,14 +25,15 @@ import qualified GitHub.Auth as Github3
 import qualified System.Directory as FileSystem
 import qualified Options.Applicative as Opts
 
-import Configuration (Configuration, MetricsConfiguration (..))
+import Configuration (Configuration, MetricsConfiguration (metricsPort, metricsHost))
 import EventLoop (runGithubEventLoop, runLogicEventLoop)
 import Project (ProjectState, emptyProjectState, loadProjectState, saveProjectState)
 import Project (ProjectInfo (ProjectInfo), Owner)
 import Server (buildServer)
 
 import qualified Metrics.Metrics as Metrics
-import Metrics.Server
+import Metrics.Server (runMetricsServer, MetricsServerConfig(MetricsServerConfig,
+                                          metricsConfigPort, metricsConfigHost))
 
 import qualified Paths_hoff (version)
 
@@ -112,8 +113,8 @@ runMain options = do
   hSetBuffering stderr LineBuffering
 
   putStrLn $ "Starting Hoff v" ++ version
-  putStrLn $ "Config file: " ++ (configFilePath options)
-  putStrLn $ "Read-only: " ++ (show $ readOnly options)
+  putStrLn $ "Config file: " ++ configFilePath options
+  putStrLn $ "Read-only: " ++ show (readOnly options)
 
   -- Load configuration from the file specified as first program argument.
   config <- loadConfigOrExit $ configFilePath options
@@ -162,10 +163,10 @@ runMain options = do
 
   -- Start a main event loop for every project.
   let
-    zipped = zip4 (Config.projects config) projectQueues stateVars projectStates
-    tuples = map (\(cfg, (_, a), (_, b), (_, c)) -> ProjectThreadData cfg a b c) zipped
+    zipped = zip3 (Config.projects config) projectQueues stateVars
+    projectsThreadData = map (\(cfg, (_, a), (_, b)) -> ProjectThreadData cfg a b) zipped
   metrics <- Metrics.registerProjectMetrics
-  projectThreads <- forM tuples $ projectThread config options metrics
+  projectThreads <- forM projectsThreadData $ projectThread config options metrics
 
   let
     -- When the webhook server receives an event, enqueue it on the webhook
@@ -173,12 +174,11 @@ runMain options = do
     ghTryEnqueue = Github.tryEnqueueEvent ghQueue
 
     -- Allow the webinterface to retrieve the latest project state per project.
-    getProjectState projectInfo =
-      fmap Logic.readStateVar $ lookup projectInfo stateVars
+    getProjectState projectInfo = Logic.readStateVar <$> lookup projectInfo stateVars
     getOwnerState :: Owner -> IO [(ProjectInfo, ProjectState)]
     getOwnerState owner = do
       let states = filter (\(projectInfo, _) -> Project.owner projectInfo == owner) stateVars
-      mapM (\(info, state) ->  Logic.readStateVar state >>= \sVar -> pure (info, sVar)) states
+      mapM (\(info, state) -> Logic.readStateVar state >>= \sVar -> pure (info, sVar)) states
 
   let
     port      = Config.port config
@@ -199,7 +199,6 @@ data ProjectThreadData = ProjectThreadData
   { projectThreadConfig   :: Config.ProjectConfiguration
   , projectThreadQueue    :: Logic.EventQueue
   , projectThreadStateVar :: Logic.StateVar
-  , projectThreadState    :: ProjectState
   }
 
 projectThread :: Configuration
@@ -213,10 +212,10 @@ projectThread config options metrics projectThreadData = do
     -- we missed while not running, or just to fill the state initially after
     -- setting up a new project.
     liftIO $ Logic.enqueueEvent projectQueue Logic.Synchronize
+    projectThreadState <- Logic.readStateVar $ projectThreadStateVar projectThreadData
     -- Start a worker thread to run the main event loop for the project.
     Async.async
       $ void
-      -- Implement a newtype for a logging monad that also embodies MonadMonitor
       $ runStdoutLoggingT
       $ Metrics.runLoggingMonitorT
       $ runLogicEventLoop
@@ -229,7 +228,7 @@ projectThread config options metrics projectThreadData = do
           runGithub
           getNextEvent
           publish
-          (projectThreadState projectThreadData)
+          projectThreadState
     where
       -- When the event loop publishes the current project state, save it to
       -- the configured file, and make the new state available to the
@@ -264,5 +263,6 @@ runMetricsThread configuration =
   forM (maybeToList $ Config.metricsConfig configuration) $
   \metricsConf -> do
     let servConfig = MetricsServerConfig
-                     { metricsConfigPort = metricsPort metricsConf, metricsConfigHost = "*" }
+                     { metricsConfigPort = metricsPort metricsConf
+                     , metricsConfigHost = fromString $ metricsHost metricsConf }
     Async.async $ runMetricsServer servConfig

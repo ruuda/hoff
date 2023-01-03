@@ -64,6 +64,7 @@ import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushRe
             TagResult (..))
 
 import GithubApi (GithubOperation, GithubOperationFree)
+import Metrics.Metrics (MetricsOperationFree, MetricsOperation, increaseMergedPRTotal)
 import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
                 MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..))
 import Time (TimeOperation, TimeOperationFree)
@@ -74,7 +75,7 @@ import qualified Git
 import qualified GithubApi
 import qualified Project as Pr
 import qualified Time
-import Metrics.Metrics
+
 
 data ActionFree a
   = TryIntegrate
@@ -105,7 +106,13 @@ data PRCloseCause =
 
 type Action = Free ActionFree
 
-type Operation = Free (Sum (Sum MetricsOperationFree TimeOperationFree) (Sum GitOperationFree GithubOperationFree))
+type Operation = Free (Sum
+                        (Sum
+                          MetricsOperationFree
+                          TimeOperationFree)
+                        (Sum
+                          GitOperationFree
+                          GithubOperationFree))
 
 type PushWithTagResult = (Either Text TagName, PushResult)
 

@@ -21,6 +21,7 @@
     "commentPrefix": "@hoffbot"
   },
   "metrics": {
-    "metricsPort": "3333"
+    "metricsPort": 3333,
+    "metricsHost": "*"
   }
 }

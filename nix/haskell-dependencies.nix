@@ -31,7 +31,6 @@ haskellPackages: with haskellPackages; [
   process-extras
   prometheus
   scotty
-  stylish-haskell
   stm
   text
   text-format
