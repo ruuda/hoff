@@ -166,6 +166,7 @@ runMain options = do
     zipped = zip3 (Config.projects config) projectQueues stateVars
     projectsThreadData = map (\(cfg, (_, a), (_, b)) -> ProjectThreadData cfg a b) zipped
   metrics <- Metrics.registerProjectMetrics
+  Metrics.registerGHCMetrics
   projectThreads <- forM projectsThreadData $ projectThread config options metrics
 
   let

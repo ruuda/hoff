@@ -11,16 +11,19 @@ module Metrics.Metrics
   runLoggingMonitorT,
   runNoMonitorT,
   increaseMergedPRTotal,
+  registerGHCMetrics,
   registerProjectMetrics
   )
 where
 
 import Data.Text
 import Prometheus
+import Prometheus.Metric.GHC (ghcMetrics)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Free (Free)
 import Control.Monad.Logger (LoggingT, MonadLogger, NoLoggingT)
 import Control.Monad.Free.Ap (liftF)
+import Control.Monad (void)
 
 type ProjectLabel = Text
 
@@ -60,6 +63,9 @@ runMetrics metrics label operation =
   case operation of
     MergeBranch cont -> cont <$
       incProjectMergedPR metrics label
+
+registerGHCMetrics :: IO ()
+registerGHCMetrics = void $ register ghcMetrics
 
 registerProjectMetrics :: IO ProjectMetrics
 registerProjectMetrics = ProjectMetrics

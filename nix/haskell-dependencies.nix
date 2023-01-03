@@ -30,6 +30,7 @@ haskellPackages: with haskellPackages; [
   process
   process-extras
   prometheus
+  prometheus-metrics-ghc
   scotty
   stm
   text
