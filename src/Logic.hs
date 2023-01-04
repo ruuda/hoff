@@ -251,8 +251,7 @@ runAction config = foldFree $ \case
 
   GetDateTime cont -> doTime $ cont <$> Time.getDateTime
 
-  GetBaseBranch cont -> pure $ cont projectBaseBranch
-    where projectBaseBranch = BaseBranch (Config.branch config)
+  GetBaseBranch cont -> pure $ cont $ BaseBranch (Config.branch config)
 
   IncreaseMergeMetric cont -> doMetrics $ cont <$ increaseMergedPRTotal
 
@@ -917,8 +916,8 @@ describeStatus (BaseBranch projectBaseBranchName) prId pr state = case Pr.classi
   PrStatusIntegrated -> "The build succeeded."
   PrStatusIncorrectBaseBranch ->
     let BaseBranch baseBranchName = Pr.baseBranch pr
-    in format "Merge rejected: the pull request's base branch ({}) must be the same as the repository's ({}}."
-              [baseBranchName, projectBaseBranchName]
+    in format "Merge rejected: the base branch of this pull request must be set to {}. It is currently set to {}."
+              [projectBaseBranchName, baseBranchName]
   PrStatusWrongFixups -> "Pull request cannot be integrated as it contains fixup commits that do not belong to any other commits."
   PrStatusEmptyRebase -> "Empty rebase. \
                          \ Have the changes already been merged into the target branch? \
