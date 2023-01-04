@@ -1056,7 +1056,7 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment prId "Merge rejected: the target branch must be the integration branch."
+        , ALeaveComment prId "Merge rejected: the target branch (m) must point to the integration branch (p)."
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
@@ -1077,7 +1077,7 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer (Username "deckard")
-        , ALeaveComment (PullRequestId 1) "Merge rejected: the target branch must be the integration branch."
+        , ALeaveComment (PullRequestId 1) "Merge rejected: the target branch (m) must point to the integration branch (p)."
         , AIsReviewer (Username "deckard")
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"

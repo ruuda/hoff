@@ -908,7 +908,11 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
                                                   ]
   PrStatusBuildStarted url -> Text.concat ["[CI job :yellow_circle:](", url, ") started."]
   PrStatusIntegrated -> "The build succeeded."
-  PrStatusIncorrectBaseBranch -> "Merge rejected: the target branch must be the integration branch."
+  PrStatusIncorrectBaseBranch ->
+    let Branch branchName         = Pr.branch pr
+        BaseBranch baseBranchName = Pr.baseBranch pr
+    in format "Merge rejected: the target branch ({}) must point to the integration branch ({})."
+              [baseBranchName, branchName]
   PrStatusWrongFixups -> "Pull request cannot be integrated as it contains fixup commits that do not belong to any other commits."
   PrStatusEmptyRebase -> "Empty rebase. \
                          \ Have the changes already been merged into the target branch? \
