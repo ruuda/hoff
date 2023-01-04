@@ -96,6 +96,7 @@ data ActionFree a
   | GetLatestVersion Sha (Either TagName Integer -> a)
   | GetChangelog TagName Sha (Maybe Text -> a)
   | GetDateTime (UTCTime -> a)
+  | GetBaseBranch (BaseBranch -> a)
   | IncreaseMergeMetric a
   deriving (Functor)
 
@@ -173,6 +174,9 @@ getChangelog prevTag curHead = liftF $ GetChangelog prevTag curHead id
 getDateTime :: Action UTCTime
 getDateTime = liftF $ GetDateTime id
 
+getBaseBranch :: Action BaseBranch
+getBaseBranch = liftF $ GetBaseBranch id
+
 registerMergedPR :: Action ()
 registerMergedPR = liftF $ IncreaseMergeMetric ()
 
@@ -246,6 +250,9 @@ runAction config = foldFree $ \case
     cont <$> Git.shortlog (AsRefSpec prevTag) (AsRefSpec curHead)
 
   GetDateTime cont -> doTime $ cont <$> Time.getDateTime
+
+  GetBaseBranch cont -> pure $ cont projectBaseBranch
+    where projectBaseBranch = BaseBranch (Config.branch config)
 
   IncreaseMergeMetric cont -> doMetrics $ cont <$ increaseMergedPRTotal
 
@@ -884,8 +891,8 @@ proceedUntilFixedPoint state = do
     else proceedUntilFixedPoint newState
 
 -- Describe the status of the pull request.
-describeStatus :: PullRequestId -> PullRequest -> ProjectState -> Text
-describeStatus prId pr state = case Pr.classifyPullRequest pr of
+describeStatus :: BaseBranch -> PullRequestId -> PullRequest -> ProjectState -> Text
+describeStatus (BaseBranch projectBaseBranchName) prId pr state = case Pr.classifyPullRequest pr of
   PrStatusAwaitingApproval -> "Pull request awaiting approval."
   PrStatusApproved ->
     let
@@ -909,10 +916,9 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
   PrStatusBuildStarted url -> Text.concat ["[CI job :yellow_circle:](", url, ") started."]
   PrStatusIntegrated -> "The build succeeded."
   PrStatusIncorrectBaseBranch ->
-    let Branch branchName         = Pr.branch pr
-        BaseBranch baseBranchName = Pr.baseBranch pr
-    in format "Merge rejected: the target branch ({}) must point to the integration branch ({})."
-              [baseBranchName, branchName]
+    let BaseBranch baseBranchName = Pr.baseBranch pr
+    in format "Merge rejected: the pull request's base branch ({}) must be the same as the repository's ({}}."
+              [baseBranchName, projectBaseBranchName]
   PrStatusWrongFixups -> "Pull request cannot be integrated as it contains fixup commits that do not belong to any other commits."
   PrStatusEmptyRebase -> "Empty rebase. \
                          \ Have the changes already been merged into the target branch? \
@@ -948,7 +954,8 @@ describeStatus prId pr state = case Pr.classifyPullRequest pr of
 -- 'needsFeedback' flag to 'False'.
 leaveFeedback :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
 leaveFeedback (prId, pr) state = do
-  () <- leaveComment prId $ describeStatus prId pr state
+  projectBaseBranch <- getBaseBranch
+  () <- leaveComment prId $ describeStatus projectBaseBranch prId pr state
   pure $ Pr.setNeedsFeedback prId False state
 
 -- Run 'leaveFeedback' on all pull requests that need feedback.
