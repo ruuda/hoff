@@ -232,6 +232,7 @@ runActionRws =
       GetLatestVersion _ cont -> cont <$> takeResultGetLatestVersion
       GetChangelog _ _ cont -> cont <$> takeResultGetChangelog
       GetDateTime cont -> cont <$> takeResultGetDateTime
+      GetBaseBranch cont -> pure $ cont $ BaseBranch $ Config.branch testProjectConfig
       IncreaseMergeMetric cont -> pure cont
 
 -- Simulates running the action. Use the provided results as result for various
@@ -1056,7 +1057,7 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment prId "Merge rejected: the target branch must be the integration branch."
+        , ALeaveComment prId "Merge rejected: the base branch of this pull request must be set to master. It is currently set to m."
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
@@ -1077,7 +1078,7 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer (Username "deckard")
-        , ALeaveComment (PullRequestId 1) "Merge rejected: the target branch must be the integration branch."
+        , ALeaveComment (PullRequestId 1) "Merge rejected: the base branch of this pull request must be set to master. It is currently set to m."
         , AIsReviewer (Username "deckard")
         , ALeaveComment (PullRequestId 1) "Pull request approved for merge by @deckard, rebasing now."
         , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
