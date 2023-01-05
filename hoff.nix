@@ -1,4 +1,4 @@
-\{ lib, haskellPackages, nix-gitignore, git, coreutils, openssh, glibcLocales, makeWrapper }:
+{ lib, haskellPackages, nix-gitignore, git, coreutils, openssh, glibcLocales, makeWrapper }:
 let 
   haskellLibs = import ./nix/haskell-dependencies.nix haskellPackages;
 in
