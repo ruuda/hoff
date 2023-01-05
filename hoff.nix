@@ -1,10 +1,10 @@
-{ lib, haskellPackages, nix-gitignore, git, coreutils, openssh, glibcLocales, makeWrapper }:
+\{ lib, haskellPackages, nix-gitignore, git, coreutils, openssh, glibcLocales, makeWrapper }:
 let 
   haskellLibs = import ./nix/haskell-dependencies.nix haskellPackages;
 in
   haskellPackages.mkDerivation {
     pname = "hoff";
-    version = "0.27.4"; # please keep consistent with hoff.cabal
+    version = "0.27.6"; # please keep consistent with hoff.cabal
 
     src =
       let
