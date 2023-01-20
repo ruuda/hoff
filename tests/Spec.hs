@@ -31,12 +31,14 @@ import qualified Data.UUID.V4 as Uuid
 import qualified Data.Text as Text
 
 import EventLoop (convertGithubEvent)
+import Format (format, Only (..))
 import Git (BaseBranch (..), Branch (..), PushResult (..), Sha (..), TagMessage (..), TagName (..),
             GitIntegrationFailure (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
-import Logic (Action, BaseActionFree (..), Event (..), IntegrationFailure (..), RetrieveConfigFree (..))
+import Logic (Action, BaseActionFree (..), Event (..), IntegrationFailure (..), RetrieveEnvironmentFree (..))
 import Project (Approval (..), ProjectState (ProjectState), PullRequest (PullRequest))
 import Types (PullRequestId (..), Username (..))
+import Sum (runSum)
 
 import qualified Configuration as Config
 import qualified Github
@@ -47,9 +49,6 @@ import qualified WebInterface
 
 import qualified Data.Time as T
 import qualified Data.Time.Calendar.OrdinalDate as T
-
-import Sum (runSum)
-import Format (format, Only (..))
 
 masterBranch :: BaseBranch
 masterBranch = BaseBranch "master"
@@ -198,20 +197,23 @@ takeResultGetDateTime =
     resultGetDateTime
     (\v res -> res { resultGetDateTime = v })
 
-runRetrieveInfoRws :: HasCallStack => RetrieveConfigFree a -> RWS () [ActionFlat] Results a
-runRetrieveInfoRws (GetProjectConfig cont) = cont <$> pure testProjectConfig
+runRetrieveInfoRws :: HasCallStack => RetrieveEnvironmentFree a -> RWS () [ActionFlat] Results a
+runRetrieveInfoRws = \case
+  GetProjectConfig cont -> pure $ cont testProjectConfig
+  GetDateTime cont -> cont <$> takeResultGetDateTime
+  GetBaseBranch cont -> pure $ cont $ BaseBranch $ Config.branch testProjectConfig
 
 -- This function simulates running the actions, and returns the final state,
 -- together with a list of all actions that would have been performed. Some
 -- actions require input from the outside world. Simulating these actions will
 -- consume one entry from the `Results` in the state.
 runBaseActionRws :: HasCallStack => BaseActionFree a -> RWS () [ActionFlat] Results a
-runBaseActionRws baseAction =
+runBaseActionRws =
   let
     -- In the tests, only "deckard" is a reviewer.
     isReviewer username = elem username ["deckard", "bot"]
   in
-    case baseAction of
+    \case
       TryIntegrate msg candidate train alwaysAddMergeCommit' cont -> do
         Rws.tell [ATryIntegrate msg candidate train alwaysAddMergeCommit']
         cont <$> takeResultIntegrate
@@ -238,8 +240,6 @@ runBaseActionRws baseAction =
         cont <$> takeResultGetOpenPullRequests
       GetLatestVersion _ cont -> cont <$> takeResultGetLatestVersion
       GetChangelog _ _ cont -> cont <$> takeResultGetChangelog
-      GetDateTime cont -> cont <$> takeResultGetDateTime
-      GetBaseBranch cont -> pure $ cont $ BaseBranch $ Config.branch testProjectConfig
       IncreaseMergeMetric cont -> pure cont
 
 runActionRws :: HasCallStack => Action a -> RWS () [ActionFlat] Results a

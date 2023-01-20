@@ -143,7 +143,7 @@ runLogicEventLoop
   let
     repo          = Config.repository projectConfig
     runAll        = foldFree (runSum (runSum runMetrics runTime) (runSum runGit runGithub))
-    runAction     = foldFree (runSum (Logic.runBaseAction projectConfig) (Logic.runRetrieveConfig projectConfig))
+    runAction     = foldFree (runSum (Logic.runBaseAction projectConfig) (Logic.runRetrieveEnvironment projectConfig))
     handleAndContinue state0 event = do
       -- Handle the event and then perform any additional required actions until
       -- the state reaches a fixed point (when there are no further actions to

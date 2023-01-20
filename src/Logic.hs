@@ -20,8 +20,8 @@ module Logic
   EventQueue,
   IntegrationFailure (..),
   StateVar,
-  RetrieveConfig,
-  RetrieveConfigFree (..),
+  RetrieveEnvironment,
+  RetrieveEnvironmentFree (..),
   dequeueEvent,
   doBaseAction,
   enqueueEvent,
@@ -33,7 +33,7 @@ module Logic
   proceedUntilFixedPoint,
   readStateVar,
   runBaseAction,
-  runRetrieveConfig,
+  runRetrieveEnvironment,
   tryIntegratePullRequest,
   updateStateVar,
 )
@@ -81,6 +81,10 @@ import qualified GithubApi
 import qualified Project as Pr
 import qualified Time
 
+-- | There are two categories of actions, semantically distinct. BaseActionFree will
+-- actually be translated into actions, whereas RetrieveEnvironment is more focused
+-- on getting values from the context we're in. Some things could still be moved around
+-- though.
 data BaseActionFree a
   = TryIntegrate
     -- This is a record type, but the names are currently only used for documentation.
@@ -99,39 +103,21 @@ data BaseActionFree a
   | GetOpenPullRequests (Maybe IntSet -> a)
   | GetLatestVersion Sha (Either TagName Integer -> a)
   | GetChangelog TagName Sha (Maybe Text -> a)
-  | GetDateTime (UTCTime -> a)
-  | GetBaseBranch (BaseBranch -> a)
   | IncreaseMergeMetric a
   deriving (Functor)
 
-data PRCloseCause =
-      User            -- ^ The user closed the PR.
-    | StopIntegration -- ^ We close and reopen the PR internally to stop its integration if it is approved.
-  deriving Show
-
-data RetrieveConfigFree a
+data RetrieveEnvironmentFree a
   = GetProjectConfig (ProjectConfiguration -> a)
+  | GetDateTime (UTCTime -> a)
+  | GetBaseBranch (BaseBranch -> a)
   deriving (Functor)
 
-type RetrieveConfig = Free RetrieveConfigFree
-
-runRetrieveConfig :: ProjectConfiguration -> RetrieveConfigFree a -> Operation a
-runRetrieveConfig config (GetProjectConfig cont) = cont <$> pure config
-
-getProjectConfig :: Action ProjectConfiguration
-getProjectConfig = doInfo $ liftF $ GetProjectConfig id
-
 type BaseAction = Free BaseActionFree
-type Action = Free (Sum BaseActionFree RetrieveConfigFree)
+type RetrieveEnvironment = Free RetrieveEnvironmentFree
 
-doBaseAction :: BaseAction a -> Action a
-doBaseAction = hoistFree InL
-
-doInfo :: RetrieveConfig a -> Action a
-doInfo = hoistFree InR
-
-liftAction :: BaseActionFree a -> Action a
-liftAction = doBaseAction . liftF
+-- | The actions represented here will be tranformed into a lower-level type of actions,
+-- embodied in the Operation monad.
+type Action = Free (Sum BaseActionFree RetrieveEnvironmentFree)
 
 type Operation = Free (Sum
                         (Sum
@@ -141,12 +127,22 @@ type Operation = Free (Sum
                           GitOperationFree
                           GithubOperationFree))
 
-type PushWithTagResult = (Either Text TagName, PushResult)
+data PRCloseCause =
+      User            -- ^ The user closed the PR.
+    | StopIntegration -- ^ We close and reopen the PR internally to stop its integration if it is approved.
+  deriving Show
 
--- | Error returned when 'TryIntegrate' fails.
--- It contains the name of the target branch that the PR was supposed to be integrated into.
+doBaseAction :: BaseAction a -> Action a
+doBaseAction = hoistFree InL
 
-data IntegrationFailure = IntegrationFailure BaseBranch GitIntegrationFailure
+doEnvironment :: RetrieveEnvironment a -> Action a
+doEnvironment = hoistFree InR
+
+liftAction :: BaseActionFree a -> Action a
+liftAction = doBaseAction . liftF
+
+liftEnvironment :: RetrieveEnvironmentFree a -> Action a
+liftEnvironment = doEnvironment . liftF
 
 doTime :: TimeOperation a -> Operation a
 doTime = hoistFree (InL . InR)
@@ -159,6 +155,13 @@ doGithub = hoistFree (InR . InR)
 
 doMetrics :: MetricsOperation a -> Operation a
 doMetrics = hoistFree (InL . InL)
+
+type PushWithTagResult = (Either Text TagName, PushResult)
+
+-- | Error returned when 'TryIntegrate' fails.
+-- It contains the name of the target branch that the PR was supposed to be integrated into.
+
+data IntegrationFailure = IntegrationFailure BaseBranch GitIntegrationFailure
 
 tryIntegrate :: Text -> (PullRequestId, Branch, Sha) -> [PullRequestId] -> Bool -> Action (Either IntegrationFailure Sha)
 tryIntegrate mergeMessage candidate train alwaysAddMergeCommit = liftAction $ TryIntegrate mergeMessage candidate train alwaysAddMergeCommit id
@@ -198,18 +201,20 @@ getChangelog :: TagName -> Sha -> Action (Maybe Text)
 getChangelog prevTag curHead = liftAction $ GetChangelog prevTag curHead id
 
 getDateTime :: Action UTCTime
-getDateTime = liftAction $ GetDateTime id
+getDateTime = liftEnvironment $ GetDateTime id
 
 getBaseBranch :: Action BaseBranch
-getBaseBranch = liftAction $ GetBaseBranch id
+getBaseBranch = liftEnvironment $ GetBaseBranch id
+
+getProjectConfig :: Action ProjectConfiguration
+getProjectConfig = liftEnvironment $ GetProjectConfig id
 
 registerMergedPR :: Action ()
 registerMergedPR = liftAction $ IncreaseMergeMetric ()
 
 -- | Interpreter that translates high-level actions into more low-level ones.
 runBaseAction :: ProjectConfiguration -> BaseActionFree a -> Operation a
-runBaseAction config baseAction =
-  case baseAction of
+runBaseAction config = \case
     TryIntegrate message (pr, ref, sha) train alwaysAddMergeCommit cont -> do
       doGit $ ensureCloned config
 
@@ -275,16 +280,20 @@ runBaseAction config baseAction =
     GetChangelog prevTag curHead cont -> doGit $
       cont <$> Git.shortlog (AsRefSpec prevTag) (AsRefSpec curHead)
   
-    GetDateTime cont -> doTime $ cont <$> Time.getDateTime
-
-    GetBaseBranch cont -> pure $ cont $ BaseBranch (Config.branch config)
-
     IncreaseMergeMetric cont -> doMetrics $ cont <$ increaseMergedPRTotal
 
   where
     trainBranch :: [PullRequestId] -> Maybe Git.Branch
     trainBranch [] = Nothing
     trainBranch train = Just $ last [testBranch config pr | pr <- train]
+
+runRetrieveEnvironment :: ProjectConfiguration -> RetrieveEnvironmentFree a -> Operation a
+runRetrieveEnvironment config = \case
+    GetProjectConfig cont -> pure $ cont config
+
+    GetDateTime cont -> doTime $ cont <$> Time.getDateTime
+
+    GetBaseBranch cont -> pure $ cont $ BaseBranch (Config.branch config)
 
 ensureCloned :: ProjectConfiguration -> GitOperation ()
 ensureCloned config =
