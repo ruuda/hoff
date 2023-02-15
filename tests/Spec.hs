@@ -28,14 +28,17 @@ import qualified Control.Monad.Trans.RWS.Strict as Rws
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.UUID.V4 as Uuid
+import qualified Data.Text as Text
 
 import EventLoop (convertGithubEvent)
+import Format (format, Only (..))
 import Git (BaseBranch (..), Branch (..), PushResult (..), Sha (..), TagMessage (..), TagName (..),
             GitIntegrationFailure (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
-import Logic (Action, ActionFree (..), Event (..), IntegrationFailure (..))
+import Logic (Action, BaseActionFree (..), Event (..), IntegrationFailure (..), RetrieveEnvironmentFree (..))
 import Project (Approval (..), ProjectState (ProjectState), PullRequest (PullRequest))
 import Types (PullRequestId (..), Username (..))
+import Sum (runSum)
 
 import qualified Configuration as Config
 import qualified Github
@@ -194,17 +197,23 @@ takeResultGetDateTime =
     resultGetDateTime
     (\v res -> res { resultGetDateTime = v })
 
+runRetrieveInfoRws :: HasCallStack => RetrieveEnvironmentFree a -> RWS () [ActionFlat] Results a
+runRetrieveInfoRws = \case
+  GetProjectConfig cont -> pure $ cont testProjectConfig
+  GetDateTime cont -> cont <$> takeResultGetDateTime
+  GetBaseBranch cont -> pure $ cont $ BaseBranch $ Config.branch testProjectConfig
+
 -- This function simulates running the actions, and returns the final state,
 -- together with a list of all actions that would have been performed. Some
 -- actions require input from the outside world. Simulating these actions will
 -- consume one entry from the `Results` in the state.
-runActionRws :: HasCallStack => Action a -> RWS () [ActionFlat] Results a
-runActionRws =
+runBaseActionRws :: HasCallStack => BaseActionFree a -> RWS () [ActionFlat] Results a
+runBaseActionRws =
   let
     -- In the tests, only "deckard" is a reviewer.
     isReviewer username = elem username ["deckard", "bot"]
   in
-    foldFree $ \case
+    \case
       TryIntegrate msg candidate train alwaysAddMergeCommit' cont -> do
         Rws.tell [ATryIntegrate msg candidate train alwaysAddMergeCommit']
         cont <$> takeResultIntegrate
@@ -231,9 +240,10 @@ runActionRws =
         cont <$> takeResultGetOpenPullRequests
       GetLatestVersion _ cont -> cont <$> takeResultGetLatestVersion
       GetChangelog _ _ cont -> cont <$> takeResultGetChangelog
-      GetDateTime cont -> cont <$> takeResultGetDateTime
-      GetBaseBranch cont -> pure $ cont $ BaseBranch $ Config.branch testProjectConfig
       IncreaseMergeMetric cont -> pure cont
+
+runActionRws :: HasCallStack => Action a -> RWS () [ActionFlat] Results a
+runActionRws = foldFree $ runSum runBaseActionRws runRetrieveInfoRws
 
 -- Simulates running the action. Use the provided results as result for various
 -- operations. Results are consumed one by one.
@@ -247,12 +257,12 @@ runAction = runActionCustom defaultResults
 -- Handle an event, then advance the state until a fixed point,
 -- and simulate its side effects.
 handleEventTest :: Event -> ProjectState -> Action ProjectState
-handleEventTest = Logic.handleEvent testTriggerConfig testProjectConfig testmergeWindowExemptionConfig
+handleEventTest = Logic.handleEvent testTriggerConfig testmergeWindowExemptionConfig
 
 -- Handle events (advancing the state until a fixed point in between) and
 -- simulate their side effects.
 handleEventsTest :: [Event] -> ProjectState -> Action ProjectState
-handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig testProjectConfig testmergeWindowExemptionConfig) state events
+handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig testmergeWindowExemptionConfig) state events
 
 -- | Like 'classifiedPullRequests' but just with ids.
 -- This should match 'WebInterface.ClassifiedPullRequests'
@@ -1225,7 +1235,7 @@ main = hspec $ do
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
           , Project.approval            = Just (Approval "deckard" Project.MergeAndTag 0)
-          , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
+          , Project.integrationStatus   = Project.Integrated (Sha sha) Project.BuildSucceeded
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
           }
@@ -1234,18 +1244,22 @@ main = hspec $ do
           , Project.pullRequestApprovalIndex = 1
           }
         results = defaultResults
-          { resultIntegrate = [Right (Sha "38e")]
+          { resultIntegrate = [Right (Sha sha)]
           , resultGetChangelog = [Just "changelog"]
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         candidates = getIntegrationCandidates state'
+        sha = "38e"
+        tagMessage = format "@deckard I tagged your PR with [v2](https://github.com/{}/{}/tags/v2). "
+                            (Config.owner testProjectConfig, Config.repository testProjectConfig)
+        commitMessage = format "Please wait for the build of {} to pass and don't forget to deploy it!"
+                               (Only { fromOnly = sha })
       -- After a successful push, the candidate should be gone.
       candidates `shouldBe` []
       actions    `shouldBe`
-        [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2")
+        [ ATryPromoteWithTag (Branch "results/rachael") (Sha sha) (TagName "v2")
             (TagMessage "v2\n\nchangelog")
-        , ALeaveComment (PullRequestId 1)
-            "@deckard I tagged your PR with `v2`. Don't forget to deploy it!"
+        , ALeaveComment (PullRequestId 1) $ Text.concat [tagMessage, commitMessage]
         , ACleanupTestBranch (PullRequestId 1)
         ]
 
@@ -1272,13 +1286,15 @@ main = hspec $ do
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         candidates = getIntegrationCandidates state'
+        tagMessage = format "@deckard I tagged your PR with [v2](https://github.com/{}/{}/tags/v2). "
+                            (Config.owner testProjectConfig, Config.repository testProjectConfig)
       -- After a successful push, the candidate should be gone.
       candidates `shouldBe` []
       actions    `shouldBe`
         [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2")
             (TagMessage "v2 (autodeploy)\n\nchangelog")
-        , ALeaveComment (PullRequestId 1)
-            "@deckard I tagged your PR with `v2`. It is scheduled for autodeploy!"
+        , ALeaveComment (PullRequestId 1) $
+            Text.concat [tagMessage, "It is scheduled for autodeploy!"]
         , ACleanupTestBranch (PullRequestId 1)
         ]
 

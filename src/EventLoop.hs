@@ -25,9 +25,7 @@ import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN)
 import Control.Monad.STM (atomically)
 import Control.Monad.Free (foldFree)
 import Data.Foldable (traverse_)
-import Data.Functor.Sum (Sum (InL, InR))
 import Prometheus (MonadMonitor)
-
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -36,8 +34,9 @@ import Github (PullRequestPayload, CommentPayload, CommitStatusPayload, WebhookE
 import Github (eventProjectInfo)
 import Project (ProjectInfo (..), ProjectState, PullRequestId (..))
 import Time ( TimeOperationFree )
+import Sum (runSum)
 
-import qualified Configuration
+import qualified Configuration as Config
 import qualified Git
 import qualified Github
 import qualified GithubApi
@@ -117,16 +116,6 @@ runGithubEventLoop ghQueue enqueueEvent = runLoop
         traverse_ (liftIO . enqueueEvent projectInfo) (convertGithubEvent ghEvent)
       runLoop
 
-runSum
-  :: Monad m
-  => (forall a. f a -> m a)
-  -> (forall a. g a -> m a)
-  -> (forall a. (Sum f g) a -> m a)
-runSum runF runG = go
-  where
-    go (InL u) = runF u
-    go (InR v) = runG v
-
 runLogicEventLoop
   :: MonadIO m
   => MonadLogger m
@@ -152,18 +141,17 @@ runLogicEventLoop
   runMetrics runTime runGit runGithub
   getNextEvent publish initialState =
   let
-    runAll      = foldFree (runSum (runSum runMetrics runTime) (runSum runGit runGithub))
-    runAction   = Logic.runAction projectConfig
-
+    repo          = Config.repository projectConfig
+    runAll        = foldFree (runSum (runSum runMetrics runTime) (runSum runGit runGithub))
+    runAction     = foldFree (runSum (Logic.runBaseAction projectConfig) (Logic.runRetrieveEnvironment projectConfig))
     handleAndContinue state0 event = do
       -- Handle the event and then perform any additional required actions until
       -- the state reaches a fixed point (when there are no further actions to
       -- perform).
-      let repo = Configuration.repository projectConfig
       logInfoN  $ "logic loop received event (" <> repo <> "): " <> showText event
       logDebugN $ "state before (" <> repo <> "): " <> showText state0
       state1 <- runAll $ runAction $
-        Logic.handleEvent triggerConfig projectConfig mergeWindowExemptionConfig event state0
+        Logic.handleEvent triggerConfig mergeWindowExemptionConfig event state0
       publish state1
       logDebugN $ "state after (" <> repo <> "): " <> showText state1
       runLoop state1

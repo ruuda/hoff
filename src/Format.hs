@@ -8,6 +8,7 @@
 module Format
 (
   format,
+  Text.Only (..)
 )
 where
 

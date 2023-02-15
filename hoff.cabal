@@ -30,6 +30,7 @@ library
                  , Server
                  , Metrics.Server
                  , Metrics.Metrics
+                 , Sum
                  , Time
                  , Types
                  , WebInterface
