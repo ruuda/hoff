@@ -165,13 +165,15 @@ data ProjectState = ProjectState
 type Owner = Text
 
 -- | Static information about a project, which does not change while the program
---   is running.
+--   is running. Warning: Ordering owner before repository in the struct is
+--   important as we're using that property for quick lookups via the usual Ord
+--   instance.
 data ProjectInfo = ProjectInfo
   {
     owner      :: Owner,
     repository :: Text
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Ord)
 
 -- Buildable instance for use with `format`,
 -- mainly for nicer formatting in the logs.

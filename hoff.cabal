@@ -79,6 +79,7 @@ executable hoff
 
   build-depends: async
                , base
+               , containers
                , directory
                , github
                , hoff

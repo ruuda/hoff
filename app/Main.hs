@@ -21,14 +21,15 @@ import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 
 import qualified Control.Concurrent.Async as Async
 import qualified Data.Text.Encoding as Text
+import qualified Data.Map.Strict as Map
 import qualified GitHub.Auth as Github3
 import qualified System.Directory as FileSystem
 import qualified Options.Applicative as Opts
 
 import Configuration (Configuration, MetricsConfiguration (metricsPort, metricsHost))
 import EventLoop (runGithubEventLoop, runLogicEventLoop)
-import Project (ProjectState, emptyProjectState, loadProjectState, saveProjectState)
-import Project (ProjectInfo (ProjectInfo), Owner)
+import Project (ProjectInfo (ProjectInfo), Owner, ProjectState, emptyProjectState,
+                loadProjectState, saveProjectState, subMapByOwner)
 import Server (buildServer)
 
 import qualified Metrics.Metrics as Metrics
@@ -45,6 +46,7 @@ import qualified Logic
 import qualified Project
 import qualified Time
 import qualified Data.Text as Text
+import qualified Data.Set as Set
 
 version :: String
 version = showVersion Paths_hoff.version
@@ -129,24 +131,37 @@ runMain options = do
   -- Git operation), so the queue is expected to be empty most of the time.
   ghQueue <- Github.newEventQueue 10
 
-  -- Events do not stay in the webhook queue for long: they are converted into
-  -- logic events and put in the project queues, where the main event loop will
-  -- process them. This conversion process does not reject events, but it blocks
-  -- if the project queue is full (which will cause the webhook queue to fill
-  -- up, so the server will reject new events).
-  projectQueues <- forM (Config.projects config) $ \ pconfig -> do
+  -- Each project is treated in isolation, containing their own queue and state.
+  let mandatoryChecksFromConfig projectConfig = Project.MandatoryChecks
+        $ Set.mapMonotonic Project.Check
+        $ maybe mempty Config.mandatory
+        $ Config.checks projectConfig
+  projectThreadState <- Map.fromList <$> forM (Config.projects config) (\pconfig -> do
+    -- Events do not stay in the webhook queue for long: they are converted into
+    -- logic events and put in the project queues, where the main event loop will
+    -- process them. This conversion process does not reject events, but it blocks
+    -- if the project queue is full (which will cause the webhook queue to fill
+    -- up, so the server will reject new events).
     projectQueue <- Logic.newEventQueue 10
-    return (getProjectInfo pconfig, projectQueue)
+
+    -- Restore the previous state from disk if possible, or start clean.
+    projectState <- initializeProjectState
+      (mandatoryChecksFromConfig pconfig)
+      (Config.stateFile pconfig)
+
+    -- Keep track of the most recent state for every project, so the webinterface
+    -- can use it to serve a status page.
+    stateVar <- Logic.newStateVar projectState
+    let initializationState = ProjectThreadData pconfig projectQueue stateVar
+    return (getProjectInfo pconfig, initializationState))
 
   -- Define a function that enqueues an event in the right project queue.
   let
-    enqueueEvent projectInfo event =
+    enqueueEvent projectInfo event = do
       -- Call the corresponding enqueue function if the project exists,
       -- otherwise drop the event on the floor.
-      maybe (return ()) (\ queue -> Logic.enqueueEvent queue event) $
-      -- TODO: This is doing a linear scan over a linked list to find the right
-      -- queue. That can be improved. A lot.
-      lookup projectInfo projectQueues
+      maybe (return ()) (\ threadState -> Logic.enqueueEvent (projectThreadQueue threadState) event) $
+        Map.lookup projectInfo projectThreadState
 
   -- Start a worker thread to put the GitHub webhook events in the right queue.
   ghThread <- Async.async $ runStdoutLoggingT $ runGithubEventLoop ghQueue enqueueEvent
@@ -163,12 +178,9 @@ runMain options = do
     return (projectInfo, stateVar)
 
   -- Start a main event loop for every project.
-  let
-    zipped = zip3 (Config.projects config) projectQueues stateVars
-    projectsThreadData = map (\(cfg, (_, a), (_, b)) -> ProjectThreadData cfg a b) zipped
   metrics <- Metrics.registerProjectMetrics
   Metrics.registerGHCMetrics
-  projectThreads <- forM projectsThreadData $ projectThread config options metrics
+  projectThreads <- forM (map snd (Map.toList projectThreadState)) $ projectThread config options metrics
 
   let
     -- When the webhook server receives an event, enqueue it on the webhook
@@ -176,11 +188,17 @@ runMain options = do
     ghTryEnqueue = Github.tryEnqueueEvent ghQueue
 
     -- Allow the webinterface to retrieve the latest project state per project.
-    getProjectState projectInfo = Logic.readStateVar <$> lookup projectInfo stateVars
+    readProjectState = Logic.readStateVar . projectThreadStateVar
+    getProjectState projectInfo = readProjectState <$> Map.lookup projectInfo projectThreadState
     getOwnerState :: Owner -> IO [(ProjectInfo, ProjectState)]
     getOwnerState owner = do
-      let states = filter (\(projectInfo, _) -> Project.owner projectInfo == owner) stateVars
-      mapM (\(info, state) -> Logic.readStateVar state >>= \sVar -> pure (info, sVar)) states
+      -- Use the antitone functions as the owner appears first in the ordering
+      -- relation of project info. As a result of the ordering relation, we can
+      -- neatly split the map such that we get the subset of repositories that
+      -- match that specific owner using just two lookups.
+      let subsetToCheck = Map.dropWhileAntitone (\info -> Project.owner info < owner) projectThreadState
+          projectSubset = Map.takeWhileAntitone (\info -> Project.owner info == owner) subsetToCheck
+      Map.toList <$> mapM readProjectState projectSubset
 
   let
     port      = Config.port config
