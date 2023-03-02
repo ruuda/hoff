@@ -7,6 +7,8 @@
 
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Github
 (
@@ -65,6 +67,10 @@ data CommitStatus
   | Error
   deriving (Eq, Show)
 
+newtype CommitStatusContext = CommitStatusContext Text
+  deriving (Eq, Show)
+  deriving newtype (FromJSON)
+
 data PullRequestPayload = PullRequestPayload {
   action      :: PullRequestAction, -- Corresponds to "action".
   owner       :: Text,     -- Corresponds to "pull_request.base.repo.owner.login".
@@ -87,11 +93,12 @@ data CommentPayload = CommentPayload {
 } deriving (Eq, Show)
 
 data CommitStatusPayload = CommitStatusPayload {
-  owner      :: Text,         -- Corresponds to "repository.owner.login".
-  repository :: Text,         -- Corresponds to "repository.name".
-  status     :: CommitStatus, -- Corresponds to "action".
-  url        :: Maybe Text,   -- Corresponds to "target_url".
-  sha        :: Sha           -- Corresponds to "sha".
+  owner      :: Text,                -- Corresponds to "repository.owner.login".
+  repository :: Text,                -- Corresponds to "repository.name".
+  status     :: CommitStatus,        -- Corresponds to "action".
+  context    :: Context,             -- Corresponds to "context".
+  url        :: Maybe Text,          -- Corresponds to "target_url".
+  sha        :: Sha                  -- Corresponds to "sha".
 } deriving (Eq, Show)
 
 instance FromJSON PullRequestAction where
@@ -166,6 +173,7 @@ instance FromJSON CommitStatusPayload where
     <$> getNested v ["repository", "owner", "login"]
     <*> getNested v ["repository", "name"]
     <*> (v .: "state")
+    <*> (v .: "context")
     <*> (v .: "target_url")
     <*> (v .: "sha")
   parseJSON nonObject = typeMismatch "status payload" nonObject
