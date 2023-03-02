@@ -5,7 +5,10 @@
     "branch": "master",
     "testBranch": "testing",
     "checkout": "./run/checkouts/git-sandbox",
-    "stateFile": "./run/state/git-sandbox.json"
+    "stateFile": "./run/state/git-sandbox.json",
+    "checks": {
+      "mandatory": []
+    }
   }],
   "secret": "REPLACE with output of 'head --bytes 32 /dev/urandom | base64'",
   "accessToken": "REPLACE with a new personal access token from https://github.com/settings/tokens",
