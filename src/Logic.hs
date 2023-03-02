@@ -56,6 +56,8 @@ import GHC.Natural (Natural)
 
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy.Builder as B
 import qualified Data.Text.Lazy.Builder.Int as B
@@ -70,7 +72,7 @@ import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushRe
 
 import GithubApi (GithubOperation, GithubOperationFree)
 import Metrics.Metrics (MetricsOperationFree, MetricsOperation, increaseMergedPRTotal, updateTrainSizeGauge)
-import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
+import Project (Approval (..), ApprovedFor (..), BuildStatus (..), Check (..), IntegrationStatus (..),
                 MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..))
 import Time (TimeOperation, TimeOperationFree)
 import Types (PullRequestId (..), Username (..))
@@ -329,7 +331,8 @@ data Event
   | PullRequestEdited PullRequestId Text BaseBranch -- ^ PR, new title, new base branch.
   | CommentAdded PullRequestId Username Text   -- ^ PR, author and body.
   -- CI events
-  | BuildStatusChanged Sha BuildStatus
+  | BuildStatusChanged Sha Context BuildStatus
+  -- ^ sha, possible mandatory check that was submitted with the status update, new build status
   -- Internal events
   | Synchronize
   deriving (Eq, Show)
@@ -396,7 +399,7 @@ handleEventInternal triggerConfig mergeWindowExemption event = case event of
   PullRequestEdited pr title baseBranch -> handlePullRequestEdited pr title baseBranch
   CommentAdded pr author body
     -> handleCommentAdded triggerConfig mergeWindowExemption pr author body
-  BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
+  BuildStatusChanged sha context status   -> handleBuildStatusChanged sha context status
   Synchronize                     -> synchronizeState
 
 handlePullRequestOpened
@@ -640,18 +643,22 @@ unintegrateAfter pid state = case Pr.lookupPullRequest pid state of
 
 -- | If there is an integration candidate, and its integration sha matches that of the build,
 --   then update the build status for that pull request. Otherwise do nothing.
-handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
-handleBuildStatusChanged buildSha newStatus state = pure $
-  compose [ Pr.updatePullRequest pid setBuildStatus
-          . case newStatus of
-            BuildFailed _ -> unintegrateAfter pid
-            _             -> id
+handleBuildStatusChanged :: Sha -> Context -> BuildStatus -> ProjectState -> Action ProjectState
+handleBuildStatusChanged buildSha check newStatus state = pure $
+  compose [ Pr.updatePullRequest pid (setCheckIfNeeded . setBuildStatus)
+          . unintegratePullRequest pid
           | pid <- Pr.filterPullRequestsBy shouldUpdate state
           ] state
   where
   shouldUpdate pr = case Pr.integrationStatus pr of
     Integrated candidateSha oldStatus -> candidateSha == buildSha && newStatus `supersedes` oldStatus
     _                                 -> False
+  setCheckIfNeeded pr = case check of
+    Nothing -> pr
+    Just c -> pr
+      { Pr.integrationChecks = Map.insertWith (<>)
+          buildSha (Set.singleton c) (Pr.integrationChecks pr)
+      }
   setBuildStatus pr = pr
                     { Pr.integrationStatus = Integrated buildSha newStatus
                     , Pr.needsFeedback = case newStatus of

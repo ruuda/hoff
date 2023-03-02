@@ -20,6 +20,7 @@ module Git
   Branch (..),
   BaseBranch (..),
   CloneResult (..),
+  Context (..),
   GitOperation,
   GitOperationFree,
   GitIntegrationFailure (..),
@@ -63,7 +64,9 @@ import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import Data.Aeson
 import Data.Either (isLeft)
 import Data.List (intersperse)
+import Data.String (IsString)
 import Data.Text (Text)
+import GHC.Generics (Generic)
 import System.Directory (doesDirectoryExist)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (ExitSuccess))
@@ -78,7 +81,6 @@ import Configuration (UserConfiguration)
 import Format (format)
 
 import qualified Configuration as Config
-import GitHub.Internal.Prelude (Generic)
 
 -- | A branch is identified by its name.
 newtype Branch = Branch Text deriving newtype (Show, Eq)
@@ -99,7 +101,12 @@ toBaseBranch :: Branch -> BaseBranch
 toBaseBranch (Branch name) = BaseBranch name
 
 -- | A commit hash is stored as its hexadecimal representation.
-newtype Sha = Sha Text deriving newtype (Show, Eq)
+newtype Sha = Sha Text deriving newtype (Show, Eq, Ord, FromJSONKey, ToJSONKey)
+
+-- | The context a check occured in.
+newtype Context = Context Text
+  deriving newtype (Show, Eq, Ord, IsString)
+  deriving newtype (FromJSON, ToJSON, FromJSONKey, ToJSONKey)
 
 newtype RemoteUrl = RemoteUrl Text deriving newtype (Show, Eq)
 

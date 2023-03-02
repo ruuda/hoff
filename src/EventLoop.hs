@@ -87,10 +87,11 @@ mapCommitStatus status murl = case status of
 
 eventFromCommitStatusPayload :: CommitStatusPayload -> Logic.Event
 eventFromCommitStatusPayload payload =
-  let sha    = Github.sha    (payload :: CommitStatusPayload)
-      status = Github.status (payload :: CommitStatusPayload)
-      url    = Github.url    (payload :: CommitStatusPayload)
-  in  Logic.BuildStatusChanged sha (mapCommitStatus status url)
+  let sha     = Github.sha     (payload :: CommitStatusPayload)
+      status  = Github.status  (payload :: CommitStatusPayload)
+      url     = Github.url     (payload :: CommitStatusPayload)
+      context = Github.context (payload :: CommitStatusPayload)
+  in  Logic.BuildStatusChanged sha context (mapCommitStatus status url)
 
 convertGithubEvent :: Github.WebhookEvent -> Maybe Logic.Event
 convertGithubEvent event = case event of

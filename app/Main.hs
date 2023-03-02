@@ -80,22 +80,26 @@ loadConfigOrExit fname = do
     Right config -> return config
     Left msg -> die $ "Failed to parse configuration file '" ++ fname ++ "'.\n" ++ msg
 
-initializeProjectState :: FilePath -> IO ProjectState
-initializeProjectState fname = do
+-- | Initialize an empty project state.
+-- Note that the mandatory checks for a project are always fetched from the
+-- configuration file.
+initializeProjectState :: Project.MandatoryChecks -> FilePath -> IO ProjectState
+initializeProjectState mandatory fname = do
   exists <- FileSystem.doesFileExist fname
+  let setMandatoryChecks state = state { Project.mandatoryChecks = mandatory }
   if exists then do
     eitherState <- loadProjectState fname
     case eitherState of
       Right projectState -> do
         putStrLn $ "Loaded project state from '" ++ fname ++ "'."
-        return projectState
+        return (setMandatoryChecks projectState)
       Left msg -> do
         -- Fail loudly if something is wrong, and abort the program.
         die $ "Failed to parse project state in '" ++ fname ++ "' with error " ++ msg ++ ".\n" ++
               "Please repair or remove the file."
   else do
     putStrLn $ "File '" ++ fname ++ "' not found, starting with an empty state."
-    return emptyProjectState
+    return (setMandatoryChecks emptyProjectState)
 
 main :: IO ()
 main = Opts.execParser commandLineParser >>= runMain
@@ -165,17 +169,6 @@ runMain options = do
 
   -- Start a worker thread to put the GitHub webhook events in the right queue.
   ghThread <- Async.async $ runStdoutLoggingT $ runGithubEventLoop ghQueue enqueueEvent
-
-  -- Restore the previous state from disk if possible, or start clean.
-  projectStates <- forM (Config.projects config) $ \ pconfig -> do
-    projectState <- initializeProjectState (Config.stateFile pconfig)
-    return (getProjectInfo pconfig, projectState)
-
-  -- Keep track of the most recent state for every project, so the webinterface
-  -- can use it to serve a status page.
-  stateVars <- forM projectStates $ \ (projectInfo, projectState) -> do
-    stateVar <- Logic.newStateVar projectState
-    return (projectInfo, stateVar)
 
   -- Start a main event loop for every project.
   metrics <- Metrics.registerProjectMetrics
