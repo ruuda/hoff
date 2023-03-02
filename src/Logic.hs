@@ -68,7 +68,7 @@ import Configuration (ProjectConfiguration (owner, repository), TriggerConfigura
 import Format (format)
 import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushResult (..),
             GitIntegrationFailure (..), Sha (..), SomeRefSpec (..), TagMessage (..), TagName (..),
-            TagResult (..))
+            TagResult (..), Context)
 
 import GithubApi (GithubOperation, GithubOperationFree)
 import Metrics.Metrics (MetricsOperationFree, MetricsOperation, increaseMergedPRTotal, updateTrainSizeGauge)
@@ -651,21 +651,52 @@ handleBuildStatusChanged buildSha check newStatus state = pure $
           ] state
   where
   shouldUpdate pr = case Pr.integrationStatus pr of
-    Integrated candidateSha oldStatus -> candidateSha == buildSha && newStatus `supersedes` oldStatus
-    _                                 -> False
-  setCheckIfNeeded pr = case check of
+    Integrated candidateSha _ -> candidateSha == buildSha
+    _                         -> False
+
+  -- Ensure that the pull request is actually being superceded by the failure,
+  -- before unintegrating.
+  unintegratePullRequestIfNeeded pid
+    | Just pr <- Pr.lookupPullRequest pid state
+    , Integrated _ oldStatus <- Pr.integrationStatus pr
+    , newStatus `supersedes` oldStatus
+    , BuildFailed _ <- newStatus = unintegrateAfter pid
+  unintegratePullRequestIfNeeded _ = id
+
+  insertSatisfiedCheck pr = case contextSatisfiesChecks (Pr.mandatoryChecks state) check of
     Nothing -> pr
     Just c -> pr
-      { Pr.integrationChecks = Map.insertWith (<>)
-          buildSha (Set.singleton c) (Pr.integrationChecks pr)
+      -- Note that the usage of union here means that we never overwrite
+      -- status'es after they've been inserted. This corresponds to the fact
+      -- that we only insert 'final' states.
+      { Pr.integrationChecks = Map.insertWith Map.union
+          buildSha (Map.singleton c newStatus) (Pr.integrationChecks pr)
       }
-  setBuildStatus pr = pr
-                    { Pr.integrationStatus = Integrated buildSha newStatus
-                    , Pr.needsFeedback = case newStatus of
-                                         BuildStarted _ -> True
-                                         BuildFailed _  -> True
-                                         _              -> Pr.needsFeedback pr -- unchanged
-                    }
+
+  setCheckIfNeeded pr = case newStatus of
+    BuildSucceeded -> insertSatisfiedCheck pr
+    BuildFailed _  -> insertSatisfiedCheck pr
+    _              -> pr
+
+  setBuildStatus pr
+    | Integrated _ oldStatus <- Pr.integrationStatus pr, newStatus `supersedes` oldStatus
+    = pr { Pr.integrationStatus = Integrated buildSha newStatus
+         , Pr.needsFeedback = case newStatus of
+                               BuildStarted _ -> True
+                               BuildFailed _  -> True
+                               _              -> Pr.needsFeedback pr -- unchanged
+         }
+    | otherwise = pr
+
+-- | Check if the given context for a status update pertains to any of the known
+-- mandatory checks for the project.
+contextSatisfiesChecks :: Pr.MandatoryChecks -> Git.Context -> Maybe Project.Check
+contextSatisfiesChecks (Pr.MandatoryChecks checks) (Git.Context context) =
+  let go []                           = Nothing
+      go (c@(Project.Check check):cs) = if check `Text.isPrefixOf` context
+        then Just c
+        else go cs
+  in  go (Set.toList checks)
 
 -- | Does the first build status supersedes the second?
 --
@@ -683,13 +714,15 @@ handleBuildStatusChanged buildSha check newStatus state = pure $
 -- This guarantees that 'BuildSucceeded' or 'BuildFailed' statuses
 -- cannot be overridden by later builds of a branch pointing to the same hash.
 supersedes :: BuildStatus -> BuildStatus -> Bool
-newStatus `supersedes` oldStatus        | sameStatus newStatus oldStatus
-                                        = False -- url change, ignore
-_         `supersedes` (BuildFailed _)  = False -- final status
-_         `supersedes` BuildSucceeded   = False -- final status
-_         `supersedes` _                = True
+supersedes newStatus oldStatus | sameStatus newStatus oldStatus = False
+supersedes _         oldStatus = not (isFinalStatus oldStatus)
 
--- | Compares if two build statuses are the same
+isFinalStatus :: BuildStatus -> Bool
+isFinalStatus (BuildFailed _) = True
+isFinalStatus BuildSucceeded  = True
+isFinalStatus _               = False
+
+-- | Compares if t wo build statuses are the same
 --   while ignoring any URL arguments
 sameStatus :: BuildStatus -> BuildStatus -> Bool
 sameStatus BuildStarted{} BuildStarted{} = True
@@ -787,8 +820,25 @@ proceedCandidate pullRequestId state =
   Nothing -> pure state -- should not be reachable when called from 'proceed'
   Just pullRequest ->
     case Pr.integrationStatus pullRequest of
-    Integrated sha BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) sha state
-    _                             -> pure state -- BuildFailed/BuildPending
+      Integrated sha BuildSucceeded ->
+        -- Check if all mandatory checks succeeded for the given sha and push
+        -- the candidate if so.
+        if satisfiesMandatoryChecks sha pullRequest (Pr.mandatoryChecks state)
+          then pushCandidate (pullRequestId, pullRequest) sha state
+          else pure state
+      _ ->
+        pure state -- BuildFailed/BuildPending
+
+-- Check whether a pull request has satisfied all the required checks.
+-- Default to the empty list of checks, so `isSubsetOf` proceeds when no
+-- mandatory checks are required
+satisfiesMandatoryChecks :: Sha -> PullRequest -> Pr.MandatoryChecks -> Bool
+satisfiesMandatoryChecks sha pullRequest (Pr.MandatoryChecks mandatoryChecks) =
+  let satisfiedChecks = fromMaybe mempty (Map.lookup sha (Pr.integrationChecks pullRequest))
+      iterCheck check = case Map.lookup check satisfiedChecks of
+        Just BuildSucceeded -> True
+        _ -> False
+  in all iterCheck $ Set.toList mandatoryChecks
 
 -- Given a pull request id, returns the name of the GitHub ref for that pull
 -- request, so it can be fetched.
