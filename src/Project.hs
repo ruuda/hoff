@@ -6,13 +6,16 @@
 -- A copy of the License has been included in the root of the repository.
 
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Project
 (
   Approval (..),
   ApprovedFor (..),
   BuildStatus (..),
+  MandatoryChecks (..),
+  Check (..),
   IntegrationStatus (..),
   ProjectInfo (..),
   ProjectState (..),
@@ -60,13 +63,16 @@ module Project
 where
 
 import Control.Monad ((<=<))
-import Data.Aeson (FromJSON, ToJSON)
+import Data.Aeson (FromJSON, ToJSON, FromJSONKey, ToJSONKey)
 import Data.ByteString (readFile)
 import Data.ByteString.Lazy (writeFile)
 import Data.IntMap.Strict (IntMap)
 import Data.List (intersect, nub, sortBy)
 import Data.Maybe (isJust)
+import Data.Map.Strict (Map)
 import Data.Text (Text)
+import Data.Set (Set)
+import Data.String (IsString)
 import GHC.Generics
 import Git (Branch (..), BaseBranch (..), Sha (..), GitIntegrationFailure (..))
 import Prelude hiding (readFile, writeFile)
@@ -78,6 +84,7 @@ import Data.Text.Lazy.Builder as Text
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.IntMap.Strict as IntMap
+import qualified Data.Map.Strict as Map
 
 import Types (PullRequestId (..), Username)
 
@@ -143,6 +150,18 @@ data Approval = Approval
 
 data MergeWindow = OnFriday | NotFriday
 
+-- | A check is a key we check incoming build status contexts (in the case of
+-- github) against.
+newtype Check = Check Text
+  deriving (Eq, Show, Ord)
+  deriving newtype (IsString, FromJSON, ToJSON, FromJSONKey, ToJSONKey)
+
+-- | We allow to specify multiple mandatory checks that should have succeeded
+-- before being accepted, per project.
+newtype MandatoryChecks = MandatoryChecks (Set Check)
+  deriving (Eq, Show)
+  deriving newtype (FromJSON, ToJSON, Monoid, Semigroup)
+
 data PullRequest = PullRequest
   { sha                 :: Sha
   , branch              :: Branch
@@ -152,6 +171,7 @@ data PullRequest = PullRequest
   , approval            :: Maybe Approval
   , integrationStatus   :: IntegrationStatus
   , integrationAttempts :: [Sha]
+  , integrationChecks   :: Map Sha (Map Check BuildStatus)
   , needsFeedback       :: Bool
   }
   deriving (Eq, Show, Generic)
@@ -159,6 +179,7 @@ data PullRequest = PullRequest
 data ProjectState = ProjectState
   { pullRequests              :: IntMap PullRequest
   , pullRequestApprovalIndex  :: Int
+  , mandatoryChecks           :: MandatoryChecks
   }
   deriving (Eq, Show, Generic)
 
@@ -212,8 +233,9 @@ saveProjectState fname state = do
 
 emptyProjectState :: ProjectState
 emptyProjectState = ProjectState {
-  pullRequests         = IntMap.empty,
-  pullRequestApprovalIndex = 0
+  pullRequests             = IntMap.empty,
+  pullRequestApprovalIndex = 0,
+  mandatoryChecks          = mempty
 }
 
 -- Inserts a new pull request into the project, with approval set to Nothing,
@@ -238,6 +260,7 @@ insertPullRequest (PullRequestId n) prBranch bsBranch prSha prTitle prAuthor sta
         approval            = Nothing,
         integrationStatus   = NotIntegrated,
         integrationAttempts = [],
+        integrationChecks   = Map.empty,
         needsFeedback       = False
       }
   in state { pullRequests = IntMap.insert n pullRequest $ pullRequests state }

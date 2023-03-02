@@ -35,7 +35,7 @@ import Data.Aeson.Types (Parser, typeMismatch)
 import Data.Text (Text)
 import GHC.Natural (Natural)
 
-import Git (Sha (..), Branch (..), BaseBranch (..))
+import Git (Sha (..), Branch (..), BaseBranch (..), Context)
 import Project (ProjectInfo (..))
 import Types (Username)
 import Data.Maybe (fromMaybe)
@@ -66,10 +66,6 @@ data CommitStatus
   | Failure
   | Error
   deriving (Eq, Show)
-
-newtype CommitStatusContext = CommitStatusContext Text
-  deriving (Eq, Show)
-  deriving newtype (FromJSON)
 
 data PullRequestPayload = PullRequestPayload {
   action      :: PullRequestAction, -- Corresponds to "action".
