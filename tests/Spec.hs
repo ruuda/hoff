@@ -33,12 +33,13 @@ import qualified Data.Text as Text
 import EventLoop (convertGithubEvent)
 import Format (format, Only (..))
 import Git (BaseBranch (..), Branch (..), PushResult (..), Sha (..), TagMessage (..), TagName (..),
-            GitIntegrationFailure (..))
+            GitIntegrationFailure (..), Context (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
 import Logic (Action, BaseActionFree (..), Event (..), IntegrationFailure (..), RetrieveEnvironmentFree (..))
 import Project (Approval (..), ProjectState (ProjectState), PullRequest (PullRequest))
 import Types (PullRequestId (..), Username (..))
 import Sum (runSum)
+import ProjectSpec (projectSpec)
 
 import qualified Configuration as Config
 import qualified Github
@@ -66,7 +67,8 @@ testProjectConfig = Config.ProjectConfiguration {
   Config.branch = "master",
   Config.testBranch = "testing",
   Config.checkout = "/var/lib/hoff/checkouts/peter/rep",
-  Config.stateFile = "/var/lib/hoff/state/peter/rep.json"
+  Config.stateFile = "/var/lib/hoff/state/peter/rep.json",
+  Config.checks = Just (Config.ChecksConfiguration mempty)
 }
 
 testmergeWindowExemptionConfig :: Config.MergeWindowExemptionConfiguration
@@ -304,6 +306,7 @@ getIntegrationCandidates state =
 
 main :: IO ()
 main = hspec $ do
+  projectSpec
   describe "Logic.handleEvent" $ do
 
     it "handles PullRequestOpened" $ do

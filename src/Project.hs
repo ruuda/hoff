@@ -59,6 +59,7 @@ module Project
   approvedAfter,
   isIntegrated,
   isUnfailedIntegrated,
+  subMapByOwner,
   MergeWindow(..))
 where
 
@@ -195,6 +196,17 @@ data ProjectInfo = ProjectInfo
     repository :: Text
   }
   deriving (Eq, Show, Ord)
+
+-- | Get all repositories for a given owner, specialized to project info.
+subMapByOwner :: Owner -> Map ProjectInfo a -> Map ProjectInfo a
+subMapByOwner owner' perProjectInfo = do
+  -- Use the antitone functions as the owner appears first in the ordering
+  -- relation of project info. As a result of the ordering relation, we can
+  -- neatly split the map such that we get the subset of repositories that
+  -- match that specific owner using just two lookups.
+  let subsetToCheck = Map.dropWhileAntitone (\info -> owner info < owner') perProjectInfo
+      projectSubset = Map.takeWhileAntitone (\info -> owner info == owner') subsetToCheck
+  projectSubset
 
 -- Buildable instance for use with `format`,
 -- mainly for nicer formatting in the logs.

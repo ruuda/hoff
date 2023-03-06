@@ -184,14 +184,8 @@ runMain options = do
     readProjectState = Logic.readStateVar . projectThreadStateVar
     getProjectState projectInfo = readProjectState <$> Map.lookup projectInfo projectThreadState
     getOwnerState :: Owner -> IO [(ProjectInfo, ProjectState)]
-    getOwnerState owner = do
-      -- Use the antitone functions as the owner appears first in the ordering
-      -- relation of project info. As a result of the ordering relation, we can
-      -- neatly split the map such that we get the subset of repositories that
-      -- match that specific owner using just two lookups.
-      let subsetToCheck = Map.dropWhileAntitone (\info -> Project.owner info < owner) projectThreadState
-          projectSubset = Map.takeWhileAntitone (\info -> Project.owner info == owner) subsetToCheck
-      Map.toList <$> mapM readProjectState projectSubset
+    getOwnerState owner =
+      Map.toList <$> mapM readProjectState (subMapByOwner owner projectThreadState)
 
   let
     port      = Config.port config
