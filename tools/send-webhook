@@ -44,6 +44,10 @@ To simulated a failed or error build status, use:
 
     ./tools/build-status c033170123456789abcdef0123456789abcdef01 error
 
+Optionally provide a context for the status:
+
+    ./tools/build-status c033170123456789abcdef0123456789abcdef01 error https://example.com context
+
 The secret and owner/repository are figured out from your config.json.
 Current setting: $owner/$repository
 USAGE
@@ -93,6 +97,7 @@ cat <<JSON
 		"name": "$repository"
 	},
 	"sha": "$commit",
+	"context": "$context",
 	"state": "$state",
 	"target_url": $target
 }
@@ -125,6 +130,7 @@ build-status)
 	commit="$1"
 	state="$2"
 	target="$3"
+	context="${4:-default}"
 
 	[ -n "$commit" ] || errxit "Full commit sha should be provided as the 1st argument"
 	[ -n "$state" ] || state=success
