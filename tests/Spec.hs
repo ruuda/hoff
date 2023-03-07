@@ -50,6 +50,7 @@ import qualified WebInterface
 
 import qualified Data.Time as T
 import qualified Data.Time.Calendar.OrdinalDate as T
+import qualified Data.Set as Set
 
 masterBranch :: BaseBranch
 masterBranch = BaseBranch "master"
@@ -1978,6 +1979,90 @@ main = hspec $ do
         , approved = []
         , awaiting = []
         }
+
+    context "mandatory checks" $ do
+      it "does not merge when succeeding non-mandatory checks" $ do
+        let
+          projectState = Project.emptyProjectState
+            { Project.mandatoryChecks = Project.MandatoryChecks (Set.singleton "required") }
+          state
+            = Project.insertPullRequest (PullRequestId 12)
+                (Branch "tth") masterBranch (Sha "12a") "Twelfth PR"  (Username "person")
+            $ projectState
+          results = defaultResults {resultIntegrate = [Right (Sha "1b2")]}
+          events =
+            [ CommentAdded (PullRequestId 12) "deckard" "@bot merge"
+            , CommentAdded (PullRequestId 12) "bot" "Pull request approved for merge, rebasing now."
+            , CommentAdded (PullRequestId 12) "bot" "Rebased as 1b2, waiting for CI …"
+            , BuildStatusChanged (Sha "1b2") "first" (Project.BuildStarted "example.com/1b2")
+            , CommentAdded (PullRequestId 1) "bot" "[CI job :yellow_circle:](example.com/1b2) started."
+            , BuildStatusChanged (Sha "1b2") "required" (Project.BuildStarted "example.com/required/1b2")
+            , BuildStatusChanged (Sha "1b2") "first" Project.BuildSucceeded
+            ]
+          (finalState, actions) = runActionCustom results $ handleEventsTest events state
+        actions `shouldBe`
+          [ AIsReviewer (Username "deckard")
+          , ALeaveComment (PullRequestId 12) "Pull request approved for merge by @deckard, rebasing now."
+          , ATryIntegrate "Merge #12: Twelfth PR\n\n\
+                          \Approved-by: deckard\n\
+                          \Auto-deploy: false\n"
+                          (PullRequestId 12,Branch "refs/pull/12/head",Sha "12a")
+                          []
+                          False
+          , ALeaveComment (PullRequestId 12) "Rebased as 1b2, waiting for CI …"
+          , ALeaveComment (PullRequestId 12) "[CI job :yellow_circle:](example.com/1b2) started."
+          ]
+        -- test caveat, in reality, when Promote works,
+        -- the PR is removed from the building list.
+        classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
+          { building = [PullRequestId 12] -- not here in a real scenario
+          , failed   = []
+          , approved = []
+          , awaiting = []
+          }
+
+      it "does merge when succeeding mandatory checks" $ do
+        let
+          projectState = Project.emptyProjectState
+            { Project.mandatoryChecks = Project.MandatoryChecks (Set.singleton "required") }
+          state
+            = Project.insertPullRequest (PullRequestId 12)
+                (Branch "tth") masterBranch (Sha "12a") "Twelfth PR"  (Username "person")
+            $ projectState
+          results = defaultResults {resultIntegrate = [Right (Sha "1b2")]}
+          events =
+            [ CommentAdded (PullRequestId 12) "deckard" "@bot merge"
+            , CommentAdded (PullRequestId 12) "bot" "Pull request approved for merge, rebasing now."
+            , CommentAdded (PullRequestId 12) "bot" "Rebased as 1b2, waiting for CI …"
+            , BuildStatusChanged (Sha "1b2") "first" (Project.BuildStarted "example.com/1b2")
+            , CommentAdded (PullRequestId 1) "bot" "[CI job :yellow_circle:](example.com/1b2) started."
+            , BuildStatusChanged (Sha "1b2") "required" (Project.BuildStarted "example.com/required/1b2")
+            , BuildStatusChanged (Sha "1b2") "first" Project.BuildSucceeded
+            , BuildStatusChanged (Sha "1b2") "required" Project.BuildSucceeded
+            ]
+          (finalState, actions) = runActionCustom results $ handleEventsTest events state
+        actions `shouldBe`
+          [ AIsReviewer (Username "deckard")
+          , ALeaveComment (PullRequestId 12) "Pull request approved for merge by @deckard, rebasing now."
+          , ATryIntegrate "Merge #12: Twelfth PR\n\n\
+                          \Approved-by: deckard\n\
+                          \Auto-deploy: false\n"
+                          (PullRequestId 12,Branch "refs/pull/12/head",Sha "12a")
+                          []
+                          False
+          , ALeaveComment (PullRequestId 12) "Rebased as 1b2, waiting for CI …"
+          , ALeaveComment (PullRequestId 12) "[CI job :yellow_circle:](example.com/1b2) started."
+          , ATryPromote (Branch "tth") (Sha "1b2")
+          , ACleanupTestBranch (PullRequestId 12)
+          ]
+        -- test caveat, in reality, when Promote works,
+        -- the PR is removed from the building list.
+        classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
+          { building = [PullRequestId 12] -- not here in a real scenario
+          , failed   = []
+          , approved = []
+          , awaiting = []
+          }
 
     it "does not unintegrate after failing pull request (not a train)" $ do
       -- regression test for https://github.com/channable/hoff/issues/184
