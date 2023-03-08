@@ -20,13 +20,17 @@ where
 
 import Control.Concurrent.STM.TBQueue
 import Control.Monad (when)
+import Control.Monad.Free (foldFree)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN)
 import Control.Monad.STM (atomically)
-import Control.Monad.Free (foldFree)
+import Data.Aeson (encode)
+import Data.ByteString.Lazy (toStrict)
+import Data.Either (fromRight)
 import Data.Foldable (traverse_)
-import Prometheus (MonadMonitor)
 import Data.Text (Text)
+import Data.Text.Encoding (decodeUtf8')
+import Prometheus (MonadMonitor)
 import qualified Data.Text as Text
 
 import Configuration (ProjectConfiguration, TriggerConfiguration, MergeWindowExemptionConfiguration)
@@ -142,19 +146,20 @@ runLogicEventLoop
   runMetrics runTime runGit runGithub
   getNextEvent publish initialState =
   let
-    repo          = Config.repository projectConfig
-    runAll        = foldFree (runSum (runSum runMetrics runTime) (runSum runGit runGithub))
-    runAction     = foldFree (runSum (Logic.runBaseAction projectConfig) (Logic.runRetrieveEnvironment projectConfig))
+    repo             = Config.repository projectConfig
+    runAll           = foldFree (runSum (runSum runMetrics runTime) (runSum runGit runGithub))
+    runAction        = foldFree (runSum (Logic.runBaseAction projectConfig) (Logic.runRetrieveEnvironment projectConfig))
+    showState state' = fromRight (showText state') $ decodeUtf8' $ toStrict $ encode state'
     handleAndContinue state0 event = do
       -- Handle the event and then perform any additional required actions until
       -- the state reaches a fixed point (when there are no further actions to
       -- perform).
       logInfoN  $ "logic loop received event (" <> repo <> "): " <> showText event
-      logDebugN $ "state before (" <> repo <> "): " <> showText state0
+      logDebugN $ "state before (" <> repo <> "): " <> showState state0
       state1 <- runAll $ runAction $
         Logic.handleEvent triggerConfig mergeWindowExemptionConfig event state0
       publish state1
-      logDebugN $ "state after (" <> repo <> "): " <> showText state1
+      logDebugN $ "state after (" <> repo <> "): " <> showState state1
       runLoop state1
 
     runLoop state = do
