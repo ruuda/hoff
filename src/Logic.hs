@@ -650,9 +650,12 @@ handleBuildStatusChanged buildSha check newStatus state = pure $
           | pid <- Pr.filterPullRequestsBy shouldUpdate state
           ] state
   where
+  satisfiedCheck = contextSatisfiesChecks (Pr.mandatoryChecks state) check
   shouldUpdate pr = case Pr.integrationStatus pr of
     Integrated candidateSha _ -> candidateSha == buildSha
     _                         -> False
+  hasMandatoryChecks =
+    let Pr.MandatoryChecks checks = Pr.mandatoryChecks state in not (Set.null checks)
 
   -- Ensure that the pull request is actually being superceded by the failure,
   -- before unintegrating.
@@ -663,7 +666,9 @@ handleBuildStatusChanged buildSha check newStatus state = pure $
     , BuildFailed _ <- newStatus = unintegrateAfter pid
   unintegratePullRequestIfNeeded _ = id
 
-  insertSatisfiedCheck pr = case contextSatisfiesChecks (Pr.mandatoryChecks state) check of
+  -- Always keep the set of satisfied checks updated with the final status'es of
+  -- any mandatory checks.
+  insertSatisfiedCheck pr = case satisfiedCheck of
     Nothing -> pr
     Just c -> pr
       -- Note that the usage of union here means that we never overwrite
@@ -680,6 +685,7 @@ handleBuildStatusChanged buildSha check newStatus state = pure $
 
   setBuildStatus pr
     | Integrated _ oldStatus <- Pr.integrationStatus pr, newStatus `supersedes` oldStatus
+    , (hasMandatoryChecks && isJust satisfiedCheck) || not hasMandatoryChecks
     = pr { Pr.integrationStatus = Integrated buildSha newStatus
          , Pr.needsFeedback = case newStatus of
                                BuildStarted _ -> True
@@ -705,6 +711,9 @@ contextSatisfiesChecks (Pr.MandatoryChecks checks) (Git.Context context) =
 -- * Statuses 'BuildSuceeded' and 'BuildFailed' are not
 --   superseded by other statuses
 --
+-- * Statuses 'BuildFailed' does supersede 'BuildSucceeded' in the case multiple
+--   checks are required, we want failures to always be reported.
+--
 -- * We ignore changes of just the URL.
 --
 -- This is used in 'handleBuildStatusChanged`.
@@ -715,7 +724,8 @@ contextSatisfiesChecks (Pr.MandatoryChecks checks) (Git.Context context) =
 -- cannot be overridden by later builds of a branch pointing to the same hash.
 supersedes :: BuildStatus -> BuildStatus -> Bool
 supersedes newStatus oldStatus | sameStatus newStatus oldStatus = False
-supersedes _         oldStatus = not (isFinalStatus oldStatus)
+supersedes (BuildFailed _) BuildSucceeded = True
+supersedes _               oldStatus      = not (isFinalStatus oldStatus)
 
 isFinalStatus :: BuildStatus -> Bool
 isFinalStatus (BuildFailed _) = True
