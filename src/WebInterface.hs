@@ -40,12 +40,14 @@ import Text.Blaze.Html5.Attributes (charset, class_, content, href, id, name, re
 import Text.Blaze.Internal (Attribute, AttributeValue, attribute)
 
 import qualified Data.ByteString.Lazy as LazyByteString
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 
 import Format (format)
 import Git (Sha(..))
 import Project (Approval (..), BuildStatus (..), IntegrationStatus (..), Owner, ProjectInfo,
-                ProjectState, PullRequest (integrationStatus), speculativelyFailedPullRequests)
+                ProjectState, PullRequest (integrationStatus), speculativelyFailedPullRequests,
+                summarize)
 import Types (PullRequestId (..), Username (..))
 
 import qualified Project
@@ -260,20 +262,24 @@ viewPullRequestWithApproval info prId pullRequest = do
     Just Approval { approver = Username username, approvedFor = approvalType } -> do
       span ! class_ "review" $ do
         -- Show approver
-        toHtml $ (format "Approved for {} by " [approvedAction])
+        toHtml $ format "Approved for {} by " [approvedAction]
         -- TODO: Link to approval comment, not just username.
         a ! href (toValue approverProfileUrl) $ toHtml username
         -- Show build info
         case integrationStatus pullRequest of
           Integrated sha buildStatus -> do
+            let formatStatus status = case status of
+                  (BuildStarted ciUrl)       -> ciLink ciUrl "🟡"
+                  (BuildFailed (Just ciUrl)) -> ciLink ciUrl "❌"
+                  BuildSucceeded             -> ciLink (commitUrl info sha) "✅"
+                  _                          -> pure ()
+                latestStatus = summarize buildStatus
             span " | "
             case buildStatus of
-              (BuildStarted ciUrl)       -> ciLink ciUrl "🟡"
-              (BuildFailed (Just ciUrl)) -> ciLink ciUrl "❌"
-              BuildSucceeded             -> ciLink (commitUrl info sha) "✅"
-              _                          -> pure ()
+              Project.AnyCheck status -> formatStatus status
+              Project.SpecificChecks statuses -> mapM_ (formatStatus . snd) $ Map.toList statuses
             a ! href (toValue $ commitUrl info sha) $ toHtml $ prettySha sha
-            case buildStatus of
+            case latestStatus of
               (BuildStarted ciUrl)       -> span " | " >> ciLink ciUrl "CI build"
               (BuildFailed (Just ciUrl)) -> span " | " >> ciLink ciUrl "CI build"
               _                          -> pure ()

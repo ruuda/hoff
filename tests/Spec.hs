@@ -87,7 +87,7 @@ singlePullRequestState pr prBranch baseBranch prSha prAuthor =
 candidateState
   :: PullRequestId -> Branch -> BaseBranch -> Sha -> Username -> Username -> Sha -> ProjectState
 candidateState pr prBranch baseBranch prSha prAuthor approvedBy candidateSha
-  = Project.setIntegrationStatus pr (Project.Integrated candidateSha Project.BuildPending)
+  = Project.setIntegrationStatus pr (Project.Integrated candidateSha (Project.AnyCheck Project.BuildPending))
   $ Project.setApproval pr (Just (Approval approvedBy Project.Merge 0))
   $ singlePullRequestState pr prBranch baseBranch prSha prAuthor
 
@@ -362,8 +362,8 @@ main = hspec $ do
       let
         state0 = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "abc") "alice"
         state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge 0)) state0
-        state2 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc0") Project.BuildPending) state1
-        state3 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc1") Project.BuildPending) state2
+        state2 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc0") (Project.AnyCheck Project.BuildPending)) state1
+        state3 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc1") (Project.AnyCheck Project.BuildPending)) state2
         event  = PullRequestCommitChanged (PullRequestId 1) (Sha "dc0")
         stateAfterEvent = fst . runAction . handleEventTest event
       -- The commit changed, but to the sha that is the integration candidate,
@@ -382,7 +382,7 @@ main = hspec $ do
         prAt1   = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
         prAt2   = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
       Project.approval          prAt1 `shouldBe` Just (Approval "deckard" Project.Merge 0)
-      Project.integrationStatus prAt1 `shouldBe` Project.Integrated (Sha "bcd") Project.BuildPending
+      Project.integrationStatus prAt1 `shouldBe` Project.Integrated (Sha "bcd") (Project.AnyCheck Project.BuildPending)
       Project.approval          prAt2 `shouldBe` Nothing
       Project.integrationStatus prAt2 `shouldBe` Project.NotIntegrated
 
@@ -489,7 +489,7 @@ main = hspec $ do
         pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 2) state'
       -- Even though the build status changed for "0ad" which is a known commit,
       -- only the build status of the integration candidate can be changed.
-      Project.integrationStatus pr1 `shouldBe` Project.Integrated (Sha "84c") Project.BuildPending
+      Project.integrationStatus pr1 `shouldBe` Project.Integrated (Sha "84c") (Project.AnyCheck Project.BuildPending)
       Project.integrationStatus pr2 `shouldBe` Project.NotIntegrated
 
     it "only checks if a comment author is a reviewer for comment commands" $ do
@@ -602,9 +602,8 @@ main = hspec $ do
             title = "Add Nexus 7 experiment",
             author = Username "tyrell",
             approval = Just (Approval (Username "deckard") Project.Merge 0),
-            integrationStatus = Project.Integrated (Sha "b71") Project.BuildPending,
+            integrationStatus = Project.Integrated (Sha "b71") (Project.AnyCheck Project.BuildPending),
             integrationAttempts = [],
-            integrationChecks   = mempty,
             needsFeedback = False
             })
           , (2, PullRequest {
@@ -614,9 +613,8 @@ main = hspec $ do
             title = "Some PR",
             author = Username "rachael",
             approval = Just (Approval (Username "deckard") Project.Merge 2),
-            integrationStatus = Project.Integrated (Sha "b73") Project.BuildPending,
+            integrationStatus = Project.Integrated (Sha "b73") (Project.AnyCheck Project.BuildPending),
             integrationAttempts = [],
-            integrationChecks   = mempty,
             needsFeedback = False
             })
           , (3, PullRequest {
@@ -626,9 +624,8 @@ main = hspec $ do
             title = "Another PR",
             author = Username "rachael",
             approval = Just (Approval (Username "deckard") Project.Merge 1),
-            integrationStatus = Project.Integrated (Sha "b72") Project.BuildPending,
+            integrationStatus = Project.Integrated (Sha "b72") (Project.AnyCheck Project.BuildPending),
             integrationAttempts = [],
-            integrationChecks   = mempty,
             needsFeedback = False
             })
           ]
@@ -1113,7 +1110,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.integrationStatus pr == Project.Integrated (Sha "def2345") Project.BuildPending)
+        (\pr -> Project.integrationStatus pr == Project.Integrated (Sha "def2345") (Project.AnyCheck Project.BuildPending))
 
     it "loses approval after an invalid base branch change" $ do
       let
@@ -1183,7 +1180,7 @@ main = hspec $ do
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         [(prId, pullRequest)] = getIntegrationCandidates state'
-      Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") Project.BuildPending
+      Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") (Project.AnyCheck Project.BuildPending)
       prId    `shouldBe` PullRequestId 1
       actions `shouldBe`
         [ ATryIntegrate "Merge #1: Untitled\n\nApproved-by: fred\nAuto-deploy: false\n"
@@ -1205,7 +1202,7 @@ main = hspec $ do
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         (prId, pullRequest):_ = getIntegrationCandidates state'
-      Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") Project.BuildPending
+      Project.integrationStatus pullRequest `shouldBe` Project.Integrated (Sha "38c") (Project.AnyCheck Project.BuildPending)
       prId    `shouldBe` PullRequestId 2
       actions `shouldBe`
         [ ATryIntegrate "Merge #2: Another untitled\n\nApproved-by: fred\nAuto-deploy: false\n"
@@ -1225,9 +1222,8 @@ main = hspec $ do
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
           , Project.approval            = Just (Approval "deckard" Project.Merge 0)
-          , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
+          , Project.integrationStatus   = Project.Integrated (Sha "38d") (Project.AnyCheck Project.BuildSucceeded)
           , Project.integrationAttempts = []
-          , Project.integrationChecks   = mempty
           , Project.needsFeedback       = False
           }
         state = ProjectState
@@ -1253,9 +1249,8 @@ main = hspec $ do
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
           , Project.approval            = Just (Approval "deckard" Project.MergeAndTag 0)
-          , Project.integrationStatus   = Project.Integrated (Sha sha) Project.BuildSucceeded
+          , Project.integrationStatus   = Project.Integrated (Sha sha) (Project.AnyCheck Project.BuildSucceeded)
           , Project.integrationAttempts = []
-          , Project.integrationChecks   = mempty
           , Project.needsFeedback       = False
           }
         state = ProjectState
@@ -1292,9 +1287,8 @@ main = hspec $ do
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
           , Project.approval            = Just (Approval "deckard" Project.MergeAndDeploy 0)
-          , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
+          , Project.integrationStatus   = Project.Integrated (Sha "38d") (Project.AnyCheck Project.BuildSucceeded)
           , Project.integrationAttempts = []
-          , Project.integrationChecks   = mempty
           , Project.needsFeedback       = False
           }
         state = ProjectState
@@ -1329,9 +1323,8 @@ main = hspec $ do
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
           , Project.approval            = Just (Approval "deckard" Project.MergeAndTag 0)
-          , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
+          , Project.integrationStatus   = Project.Integrated (Sha "38d") (Project.AnyCheck Project.BuildSucceeded)
           , Project.integrationAttempts = []
-          , Project.integrationChecks   = mempty
           , Project.needsFeedback       = False
           }
         state = ProjectState
@@ -1362,9 +1355,8 @@ main = hspec $ do
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
           , Project.approval            = Just (Approval "deckard" Project.Merge 0)
-          , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
+          , Project.integrationStatus   = Project.Integrated (Sha "38d") (Project.AnyCheck Project.BuildSucceeded)
           , Project.integrationAttempts = []
-          , Project.integrationChecks   = mempty
           , Project.needsFeedback       = False
           }
         state = ProjectState
@@ -1381,7 +1373,7 @@ main = hspec $ do
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         [(_, pullRequest')] = getIntegrationCandidates state'
 
-      Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") Project.BuildPending
+      Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") (Project.AnyCheck Project.BuildPending)
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
       actions `shouldBe`
         [ ATryPromote (Branch "results/rachael") (Sha "38d")
@@ -1401,9 +1393,8 @@ main = hspec $ do
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
           , Project.approval            = Just (Approval "deckard" Project.MergeAndTag 0)
-          , Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded
+          , Project.integrationStatus   = Project.Integrated (Sha "38d") (Project.AnyCheck Project.BuildSucceeded)
           , Project.integrationAttempts = []
-          , Project.integrationChecks   = mempty
           , Project.needsFeedback       = False
           }
         state = ProjectState
@@ -1421,7 +1412,7 @@ main = hspec $ do
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         [(_, pullRequest')] = getIntegrationCandidates state'
 
-      Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") Project.BuildPending
+      Project.integrationStatus   pullRequest' `shouldBe` Project.Integrated (Sha "38e") (Project.AnyCheck Project.BuildPending)
       Project.integrationAttempts pullRequest' `shouldBe` [Sha "38d"]
       actions `shouldBe`
         [ ATryPromoteWithTag (Branch "results/rachael") (Sha "38d") (TagName "v2") (TagMessage "v2\n\nchangelog")
@@ -1489,9 +1480,8 @@ main = hspec $ do
               Project.title               = "Add Leon test results",
               Project.author              = "rachael",
               Project.approval            = Just (Approval "deckard" Project.Merge 1),
-              Project.integrationStatus   = Project.Integrated (Sha "38d") Project.BuildSucceeded,
+              Project.integrationStatus   = Project.Integrated (Sha "38d") (Project.AnyCheck Project.BuildSucceeded),
               Project.integrationAttempts = [],
-              Project.integrationChecks   = mempty,
               Project.needsFeedback       = False
             }
           pullRequest2 = PullRequest
@@ -1504,8 +1494,7 @@ main = hspec $ do
               Project.approval            = Just (Approval "deckard" Project.Merge 0),
               Project.integrationStatus   = Project.NotIntegrated,
               Project.integrationAttempts = [],
-              Project.needsFeedback       = False,
-              Project.integrationChecks   = mempty
+              Project.needsFeedback       = False
             }
           prMap = IntMap.fromList [(1, pullRequest1), (2, pullRequest2)]
           -- After a successful push, the state of pull request 1 will still be
@@ -2213,6 +2202,108 @@ main = hspec $ do
           , awaiting = []
           }
 
+      it "only merges when all mandatory checks pass" $ do
+        let
+          projectState = Project.emptyProjectState
+            { Project.mandatoryChecks = Project.MandatoryChecks (Set.fromList ["required", "mandatory"]) }
+          state
+            = Project.insertPullRequest (PullRequestId 12)
+                (Branch "tth") masterBranch (Sha "12a") "Twelfth PR"  (Username "person")
+            $ projectState
+          results = defaultResults {resultIntegrate = [Right (Sha "1b2")]}
+          events =
+            [ CommentAdded (PullRequestId 12) "deckard" "@bot merge"
+            , CommentAdded (PullRequestId 12) "bot" "Pull request approved for merge, rebasing now."
+            , CommentAdded (PullRequestId 12) "bot" "Rebased as 1b2, waiting for CI …"
+            , BuildStatusChanged (Sha "1b2") "required" (Project.BuildStarted "example.com/required/1b2")
+            , BuildStatusChanged (Sha "1b2") "mandatory" (Project.BuildStarted "example.com/mandatory/1b2")
+            , CommentAdded (PullRequestId 1) "bot" "[CI job :yellow_circle:](example.com/required/1b2) started."
+            , BuildStatusChanged (Sha "1b2") "required" Project.BuildSucceeded
+            , BuildStatusChanged (Sha "1b2") "mandatory" Project.BuildSucceeded
+            ]
+          (finalState, actions) = runActionCustom results $ handleEventsTest events state
+        actions `shouldBe`
+          [ AIsReviewer (Username "deckard")
+          , ALeaveComment (PullRequestId 12) "Pull request approved for merge by @deckard, rebasing now."
+          , ATryIntegrate "Merge #12: Twelfth PR\n\n\
+                          \Approved-by: deckard\n\
+                          \Auto-deploy: false\n"
+                          (PullRequestId 12,Branch "refs/pull/12/head",Sha "12a")
+                          []
+                          False
+          , ALeaveComment (PullRequestId 12) "Rebased as 1b2, waiting for CI …"
+          , ALeaveComment (PullRequestId 12) "[CI job :yellow_circle:](example.com/required/1b2) started."
+          , ATryPromote (Branch "tth") (Sha "1b2")
+          , ACleanupTestBranch (PullRequestId 12)
+          ]
+        -- test caveat, in reality, when Promote works,
+        -- the PR is removed from the building list.
+        classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
+          { building = [PullRequestId 12] -- not here in a real scenario
+          , failed   = []
+          , approved = []
+          , awaiting = []
+          }
+
+      context "does not merge when one mandatory check out of many fail irrespective of status arrival" $ do
+        let
+          projectState = Project.emptyProjectState
+            { Project.mandatoryChecks = Project.MandatoryChecks (Set.fromList ["required", "mandatory"]) }
+          state
+            = Project.insertPullRequest (PullRequestId 12)
+                (Branch "tth") masterBranch (Sha "12a") "Twelfth PR"  (Username "person")
+            $ projectState
+          results = defaultResults {resultIntegrate = [Right (Sha "1b2")]}
+          events =
+            [ CommentAdded (PullRequestId 12) "deckard" "@bot merge"
+            , CommentAdded (PullRequestId 12) "bot" "Pull request approved for merge, rebasing now."
+            , CommentAdded (PullRequestId 12) "bot" "Rebased as 1b2, waiting for CI …"
+            , BuildStatusChanged (Sha "1b2") "required" (Project.BuildStarted "example.com/required/1b2")
+            , BuildStatusChanged (Sha "1b2") "mandatory" (Project.BuildStarted "example.com/mandatory/1b2")
+            , CommentAdded (PullRequestId 1) "bot" "[CI job :yellow_circle:](example.com/required/1b2) started."
+            ]
+          commonAssertions actions finalState = do
+            actions `shouldBe`
+              [ AIsReviewer (Username "deckard")
+              , ALeaveComment (PullRequestId 12) "Pull request approved for merge by @deckard, rebasing now."
+              , ATryIntegrate "Merge #12: Twelfth PR\n\n\
+                              \Approved-by: deckard\n\
+                              \Auto-deploy: false\n"
+                              (PullRequestId 12,Branch "refs/pull/12/head",Sha "12a")
+                              []
+                              False
+              , ALeaveComment (PullRequestId 12) "Rebased as 1b2, waiting for CI …"
+              , ALeaveComment (PullRequestId 12) "[CI job :yellow_circle:](example.com/required/1b2) started."
+              , ALeaveComment (PullRequestId 12) "The build failed :x:.\n\n\
+                                                \If this is the result of a flaky test, \
+                                                \close and reopen the PR, then tag me again.  \
+                                                \Otherwise, push a new commit and tag me again."
+              ]
+            -- test caveat, in reality, when Promote works,
+            -- the PR is removed from the building list.
+            classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
+              { building = [] -- not here in a real scenario
+              , failed   = [PullRequestId 12]
+              , approved = []
+              , awaiting = []
+              }
+
+        it "failure arrives first" $ do
+          let
+            extraEvents =
+              [ BuildStatusChanged (Sha "1b2") "required" (Project.BuildFailed Nothing)
+              , BuildStatusChanged (Sha "1b2") "mandatory" Project.BuildSucceeded
+              ]
+            (finalState, actions) = runActionCustom results $ handleEventsTest (events ++ extraEvents) state
+          commonAssertions actions finalState
+        it "success arrives first" $ do
+          let
+            extraEvents =
+              [ BuildStatusChanged (Sha "1b2") "mandatory" Project.BuildSucceeded
+              , BuildStatusChanged (Sha "1b2") "required" (Project.BuildFailed Nothing)
+              ]
+            (finalState, actions) = runActionCustom results $ handleEventsTest (events ++ extraEvents) state
+          commonAssertions actions finalState
     it "does not unintegrate after failing pull request (not a train)" $ do
       -- regression test for https://github.com/channable/hoff/issues/184
       let

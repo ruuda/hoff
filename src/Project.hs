@@ -5,9 +5,13 @@
 -- you may not use this file except in compliance with the License.
 -- A copy of the License has been included in the root of the repository.
 
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Project
 (
@@ -17,6 +21,7 @@ module Project
   MandatoryChecks (..),
   Check (..),
   IntegrationStatus (..),
+  OutstandingChecks (..),
   ProjectInfo (..),
   ProjectState (..),
   PullRequest (..),
@@ -60,6 +65,8 @@ module Project
   isIntegrated,
   isUnfailedIntegrated,
   subMapByOwner,
+  supersedes,
+  summarize,
   MergeWindow(..))
 where
 
@@ -67,6 +74,7 @@ import Control.Monad ((<=<))
 import Data.Aeson (FromJSON, ToJSON, FromJSONKey, ToJSONKey)
 import Data.ByteString (readFile)
 import Data.ByteString.Lazy (writeFile)
+import Data.Foldable (asum)
 import Data.IntMap.Strict (IntMap)
 import Data.List (intersect, nub, sortBy)
 import Data.Maybe (isJust)
@@ -89,6 +97,14 @@ import qualified Data.Map.Strict as Map
 
 import Types (PullRequestId (..), Username)
 
+-- For any integrated sha, we either wait for the first check, or for
+-- a variety of mandatory checks to pass before merging the pullrequest.
+data OutstandingChecks
+  = AnyCheck BuildStatus
+  | SpecificChecks (Map Check BuildStatus)
+  deriving (Eq, Show, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
 -- | The build status of a pull request.
 data BuildStatus
   = BuildPending             -- ^ we have just pushed to @testing/id@
@@ -109,7 +125,7 @@ data BuildStatus
 -- * and an attempt to integrate was made, but it wasn't successful.
 data IntegrationStatus
   = NotIntegrated
-  | Integrated Sha BuildStatus
+  | Integrated Sha OutstandingChecks
   | Promoted
   | Conflicted BaseBranch GitIntegrationFailure
   | IncorrectBaseBranch
@@ -172,7 +188,6 @@ data PullRequest = PullRequest
   , approval            :: Maybe Approval
   , integrationStatus   :: IntegrationStatus
   , integrationAttempts :: [Sha]
-  , integrationChecks   :: Map Sha (Map Check BuildStatus)
   , needsFeedback       :: Bool
   }
   deriving (Eq, Show, Generic)
@@ -272,7 +287,6 @@ insertPullRequest (PullRequestId n) prBranch bsBranch prSha prTitle prAuthor sta
         approval            = Nothing,
         integrationStatus   = NotIntegrated,
         integrationAttempts = [],
-        integrationChecks   = Map.empty,
         needsFeedback       = False
       }
   in state { pullRequests = IntMap.insert n pullRequest $ pullRequests state }
@@ -349,7 +363,7 @@ classifyPullRequest pr = case approval pr of
     Conflicted base _ | base /= baseBranch pr -> PrStatusSpeculativeConflict
     Conflicted _ EmptyRebase -> PrStatusEmptyRebase
     Conflicted _ _  -> PrStatusFailedConflict
-    Integrated _ buildStatus -> case buildStatus of
+    Integrated _ buildStatus -> case summarize buildStatus of
       BuildPending     -> PrStatusBuildPending
       BuildStarted url -> PrStatusBuildStarted url
       BuildSucceeded   -> PrStatusIntegrated
@@ -420,7 +434,7 @@ isInProgress pr = case approval pr of
     NotIntegrated -> False
     IncorrectBaseBranch -> False
     Conflicted _ _ -> False
-    Integrated _ buildStatus -> case buildStatus of
+    Integrated _ buildStatus -> case summarize buildStatus of
       BuildPending   -> True
       BuildStarted _ -> True
       BuildSucceeded -> False
@@ -527,13 +541,13 @@ isIntegrated _                = False
 -- | Returns whether an 'IntegrationStatus' is integrated with a build failure:
 --   @ Integrated _ (BuildFailed _) @
 isFailedIntegrated :: IntegrationStatus -> Bool
-isFailedIntegrated (Integrated _ (BuildFailed _)) = True
+isFailedIntegrated (Integrated _ (summarize -> BuildFailed _)) = True
 isFailedIntegrated _ = False
 
 -- | Returns whether an 'IntegrationStatus' is integrated
 --   without a build failure, i.e. build pending, started or succeeded.
 isUnfailedIntegrated :: IntegrationStatus -> Bool
-isUnfailedIntegrated (Integrated _ buildStatus) = case buildStatus of
+isUnfailedIntegrated (Integrated _ buildStatus) = case summarize buildStatus of
                                                   BuildPending     -> True
                                                   (BuildStarted _) -> True
                                                   BuildSucceeded   -> True
@@ -547,3 +561,62 @@ isIntegratedOrSpeculativelyConflicted pr =
   (Integrated _ _)                            -> True
   (Conflicted base _) | base /= baseBranch pr -> True
   _                                           -> False
+
+summarize :: OutstandingChecks -> BuildStatus
+summarize (AnyCheck status) = status
+summarize (SpecificChecks statusChecks) =
+  let go :: [BuildStatus] -> BuildStatus
+      go checks = if
+        | all (== BuildSucceeded) checks -> BuildSucceeded
+        | Just failure <- findFirst checks isBuildFailed -> failure
+        | Just started <- findFirst checks isBuildStarted -> started
+        | otherwise -> BuildPending
+      findFirst checks isConstr = asum (map isConstr checks)
+  in go $ map snd $ Map.toList statusChecks
+
+-- | Does the first build status supersedes the second?
+--
+-- * The same status does not supersede itself
+--
+-- * Statuses 'BuildSuceeded' and 'BuildFailed' are not
+--   superseded by other statuses
+--
+-- * Statuses 'BuildFailed' does supersede 'BuildSucceeded'. In the case of
+--   multiple mandatory checks, we want failures to always be reported.
+--
+-- * We ignore changes of just the URL.
+--
+-- This is used in 'handleBuildStatusChanged`.
+--
+-- This is needed because there may be two concurrent builds pointing to the
+-- same commit hash depending on the CI you are using with GitHub.
+-- This guarantees that 'BuildSucceeded' or 'BuildFailed' statuses
+-- cannot be overridden by later builds of a branch pointing to the same hash.
+supersedes :: BuildStatus -> BuildStatus -> Bool
+supersedes newStatus oldStatus | sameStatus newStatus oldStatus = False
+supersedes (BuildFailed _) BuildSucceeded = True
+supersedes _               oldStatus      = not (isFinalStatus oldStatus)
+
+isFinalStatus :: BuildStatus -> Bool
+isFinalStatus (BuildFailed _) = True
+isFinalStatus BuildSucceeded  = True
+isFinalStatus _               = False
+
+-- | Compares if two build statuses are the same
+--   while ignoring any URL arguments
+sameStatus :: BuildStatus -> BuildStatus -> Bool
+sameStatus BuildStarted{} BuildStarted{} = True
+sameStatus BuildFailed{}  BuildFailed{}  = True
+sameStatus status1        status2        = status1 == status2
+
+-- | Total function for checking and returning whether the build status
+-- corresponds to check failure
+isBuildFailed :: BuildStatus -> Maybe BuildStatus
+isBuildFailed s@(BuildFailed _) = Just s
+isBuildFailed _ = Nothing
+
+-- | Total function for checking and returning whether the build status
+-- corresponds to a start of a check
+isBuildStarted :: BuildStatus -> Maybe BuildStatus
+isBuildStarted s@(BuildStarted _) = Just s
+isBuildStarted _ = Nothing
