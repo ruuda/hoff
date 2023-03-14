@@ -241,6 +241,7 @@ runBaseActionRws =
       GetLatestVersion _ cont -> cont <$> takeResultGetLatestVersion
       GetChangelog _ _ cont -> cont <$> takeResultGetChangelog
       IncreaseMergeMetric cont -> pure cont
+      UpdateTrainSizeMetric _ cont -> pure cont
 
 runActionRws :: HasCallStack => Action a -> RWS () [ActionFlat] Results a
 runActionRws = foldFree $ runSum runBaseActionRws runRetrieveInfoRws

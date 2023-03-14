@@ -69,7 +69,7 @@ import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushRe
             TagResult (..))
 
 import GithubApi (GithubOperation, GithubOperationFree)
-import Metrics.Metrics (MetricsOperationFree, MetricsOperation, increaseMergedPRTotal)
+import Metrics.Metrics (MetricsOperationFree, MetricsOperation, increaseMergedPRTotal, updateTrainSizeGauge)
 import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
                 MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..))
 import Time (TimeOperation, TimeOperationFree)
@@ -104,6 +104,7 @@ data BaseActionFree a
   | GetLatestVersion Sha (Either TagName Integer -> a)
   | GetChangelog TagName Sha (Maybe Text -> a)
   | IncreaseMergeMetric a
+  | UpdateTrainSizeMetric Int a
   deriving (Functor)
 
 data RetrieveEnvironmentFree a
@@ -212,6 +213,9 @@ getProjectConfig = liftEnvironment $ GetProjectConfig id
 registerMergedPR :: Action ()
 registerMergedPR = liftAction $ IncreaseMergeMetric ()
 
+triggerTrainSizeUpdate :: Int -> Action ()
+triggerTrainSizeUpdate n = liftAction $ UpdateTrainSizeMetric n ()
+
 -- | Interpreter that translates high-level actions into more low-level ones.
 runBaseAction :: ProjectConfiguration -> BaseActionFree a -> Operation a
 runBaseAction config = \case
@@ -279,8 +283,10 @@ runBaseAction config = \case
 
     GetChangelog prevTag curHead cont -> doGit $
       cont <$> Git.shortlog (AsRefSpec prevTag) (AsRefSpec curHead)
-  
+
     IncreaseMergeMetric cont -> doMetrics $ cont <$ increaseMergedPRTotal
+
+    UpdateTrainSizeMetric n cont -> doMetrics $ cont <$ updateTrainSizeGauge n
 
   where
     trainBranch :: [PullRequestId] -> Maybe Git.Branch
@@ -1008,8 +1014,10 @@ handleEvent
   -> Event
   -> ProjectState
   -> Action ProjectState
-handleEvent triggerConfig mergeWindowExemption event state =
-  handleEventInternal triggerConfig mergeWindowExemption event state >>= proceedUntilFixedPoint
+handleEvent triggerConfig mergeWindowExemption event state = do
+  projectState <- handleEventInternal triggerConfig mergeWindowExemption event state >>= proceedUntilFixedPoint
+  triggerTrainSizeUpdate (IntMap.size (Pr.pullRequests projectState))
+  pure projectState
 
 
 -- TODO this is very Channable specific, perhaps it should be more generic
