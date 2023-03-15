@@ -1,4 +1,4 @@
--- Hoff
+-- Hofww
 -- A gatekeeper for your commits
 -- Copyright 2016 Ruud van Asseldonk
 --
@@ -116,6 +116,7 @@ data Results = Results
   , resultGetLatestVersion    :: [Either TagName Integer]
   , resultGetChangelog        :: [Maybe Text]
   , resultGetDateTime         :: [T.UTCTime]
+  , resultTrainSizeUpdates    :: [Int]
   }
 
 defaultResults :: Results
@@ -131,6 +132,7 @@ defaultResults = Results
   , resultGetLatestVersion = Right <$> [1 ..]
   , resultGetChangelog = repeat Nothing
   , resultGetDateTime = repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 1) (T.secondsToDiffTime 0))
+  , resultTrainSizeUpdates = []
   }
 
 -- Consume the head of the field with given getter and setter in the Results.
@@ -241,7 +243,10 @@ runBaseActionRws =
       GetLatestVersion _ cont -> cont <$> takeResultGetLatestVersion
       GetChangelog _ _ cont -> cont <$> takeResultGetChangelog
       IncreaseMergeMetric cont -> pure cont
-      UpdateTrainSizeMetric _ cont -> pure cont
+      UpdateTrainSizeMetric n cont -> do
+        results <- Rws.get
+        Rws.put $ results { resultTrainSizeUpdates = n : resultTrainSizeUpdates results }
+        pure cont
 
 runActionRws :: HasCallStack => Action a -> RWS () [ActionFlat] Results a
 runActionRws = foldFree $ runSum runBaseActionRws runRetrieveInfoRws
@@ -250,6 +255,9 @@ runActionRws = foldFree $ runSum runBaseActionRws runRetrieveInfoRws
 -- operations. Results are consumed one by one.
 runActionCustom :: HasCallStack => Results -> Action a -> (a, [ActionFlat])
 runActionCustom results action = Rws.evalRWS (runActionRws action) () results
+
+runActionCustomResults :: HasCallStack => Results -> Action a -> (a, Results, [ActionFlat])
+runActionCustomResults results action = Rws.runRWS (runActionRws action) () results
 
 -- Simulates running the action with default results.
 runAction :: Action a -> (a, [ActionFlat])
@@ -2013,6 +2021,30 @@ main = hspec $ do
         , approved = []
         , awaiting = []
         }
+
+    it "correctly updates the metric for the merge train size after each event" $ do
+      let
+        state = Project.emptyProjectState
+        events =
+          [ PullRequestOpened (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR" (Username "huey")
+          , PullRequestOpened (PullRequestId 2) (Branch "fst") masterBranch (Sha "ab1") "First PR" (Username "louie")
+          , PullRequestOpened (PullRequestId 3) (Branch "fst") masterBranch (Sha "ab1") "First PR" (Username "dewey")
+          , CommentAdded (PullRequestId 1) "huey" "@bot merge"
+          , CommentAdded (PullRequestId 2) "louie" "@bot merge"
+          , CommentAdded (PullRequestId 3) "dewey" "@bot merge"
+          , PullRequestClosed (PullRequestId 1)
+          , PullRequestClosed (PullRequestId 2)
+          , PullRequestClosed (PullRequestId 3)
+          ]
+        -- For this test, we assume all integrations and pushes succeed.
+        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
+                                                     , Right (Sha "2bc")
+                                                     , Right (Sha "3cd")
+                                                     , Right (Sha "5bc")
+                                                     , Right (Sha "6cd") ] }
+        (_, postResults, _) = runActionCustomResults results $ handleEventsTest events state
+      -- the list represents the updates emitted in reverse order
+      resultTrainSizeUpdates postResults `shouldBe` [0,1,2,3,3,3,3,2,1]
 
     it "resets the integration of PRs in the train after the PR commit has changed" $ do
       let
