@@ -87,6 +87,10 @@ If using Nix, you may get a `ssh: command not found` error
 
     $ nix run -c stack exec hoff config.json --no-nix-pure
 
+Hoff also comes with an `.envrc` file that can be used by direnv. You have to run
+`direnv allow` once to give permission. From then on you will always be in the right
+nix shell when cd'ing to the Hoff project.
+
 You can then access [http://localhost:1979](http://localhost:1979)
 to see the open PRs and build queue.
 

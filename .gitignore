@@ -36,3 +36,6 @@ webhook-data.json
 
 # Nix build result
 result
+
+# Direnv
+.direnv/
