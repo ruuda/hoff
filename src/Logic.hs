@@ -7,9 +7,11 @@
 
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Logic
 (
@@ -56,6 +58,8 @@ import GHC.Natural (Natural)
 
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy.Builder as B
 import qualified Data.Text.Lazy.Builder.Int as B
@@ -66,12 +70,13 @@ import Configuration (ProjectConfiguration (owner, repository), TriggerConfigura
 import Format (format)
 import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushResult (..),
             GitIntegrationFailure (..), Sha (..), SomeRefSpec (..), TagMessage (..), TagName (..),
-            TagResult (..))
+            TagResult (..), Context)
 
 import GithubApi (GithubOperation, GithubOperationFree)
 import Metrics.Metrics (MetricsOperationFree, MetricsOperation, increaseMergedPRTotal, updateTrainSizeGauge)
-import Project (Approval (..), ApprovedFor (..), BuildStatus (..), IntegrationStatus (..),
-                MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..))
+import Project (Approval (..), ApprovedFor (..), BuildStatus (..), Check (..), IntegrationStatus (..),
+                MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..), 
+                summarize, supersedes)
 import Time (TimeOperation, TimeOperationFree)
 import Types (PullRequestId (..), Username (..))
 
@@ -329,7 +334,8 @@ data Event
   | PullRequestEdited PullRequestId Text BaseBranch -- ^ PR, new title, new base branch.
   | CommentAdded PullRequestId Username Text   -- ^ PR, author and body.
   -- CI events
-  | BuildStatusChanged Sha BuildStatus
+  | BuildStatusChanged Sha Context BuildStatus
+  -- ^ sha, possible mandatory check that was submitted with the status update, new build status
   -- Internal events
   | Synchronize
   deriving (Eq, Show)
@@ -396,7 +402,7 @@ handleEventInternal triggerConfig mergeWindowExemption event = case event of
   PullRequestEdited pr title baseBranch -> handlePullRequestEdited pr title baseBranch
   CommentAdded pr author body
     -> handleCommentAdded triggerConfig mergeWindowExemption pr author body
-  BuildStatusChanged sha status   -> handleBuildStatusChanged sha status
+  BuildStatusChanged sha context status   -> handleBuildStatusChanged sha context status
   Synchronize                     -> synchronizeState
 
 handlePullRequestOpened
@@ -640,54 +646,65 @@ unintegrateAfter pid state = case Pr.lookupPullRequest pid state of
 
 -- | If there is an integration candidate, and its integration sha matches that of the build,
 --   then update the build status for that pull request. Otherwise do nothing.
-handleBuildStatusChanged :: Sha -> BuildStatus -> ProjectState -> Action ProjectState
-handleBuildStatusChanged buildSha newStatus state = pure $
-  compose [ Pr.updatePullRequest pid setBuildStatus
-          . case newStatus of
-            BuildFailed _ -> unintegrateAfter pid
-            _             -> id
+handleBuildStatusChanged :: Sha -> Context -> BuildStatus -> ProjectState -> Action ProjectState
+handleBuildStatusChanged buildSha context newStatus state = pure $
+  compose [ unintegratePullRequestIfNeeded pid
+          . Pr.updatePullRequest pid setBuildStatus
           | pid <- Pr.filterPullRequestsBy shouldUpdate state
           ] state
   where
+  satisfiedCheck = contextSatisfiesChecks (Pr.mandatoryChecks state) context
+  getNewStatus new old = if new `supersedes` old then new else old
+  newStatusState oldStatus = case oldStatus of
+    Pr.AnyCheck old -> Pr.AnyCheck $ getNewStatus newStatus old
+    Pr.SpecificChecks checks -> case satisfiedCheck of
+      Just check -> Pr.SpecificChecks $ Map.insertWith getNewStatus check newStatus checks
+      -- Ignore status updates that aren't relevant to the mandatory checks
+      Nothing -> Pr.SpecificChecks checks
+
   shouldUpdate pr = case Pr.integrationStatus pr of
-    Integrated candidateSha oldStatus -> candidateSha == buildSha && newStatus `supersedes` oldStatus
-    _                                 -> False
-  setBuildStatus pr = pr
-                    { Pr.integrationStatus = Integrated buildSha newStatus
-                    , Pr.needsFeedback = case newStatus of
-                                         BuildStarted _ -> True
-                                         BuildFailed _  -> True
-                                         _              -> Pr.needsFeedback pr -- unchanged
-                    }
+    Integrated candidateSha _ -> candidateSha == buildSha
+    _                         -> False
 
--- | Does the first build status supersedes the second?
---
--- * The same status does not supersede itself
---
--- * Statuses 'BuildSuceeded' and 'BuildFailed' are not
---   superseded by other statuses
---
--- * We ignore changes of just the URL.
---
--- This is used in 'handleBuildStatusChanged`.
---
--- This is needed because there may be two concurrent builds pointing to the
--- same commit hash depending on the CI you are using with GitHub.
--- This guarantees that 'BuildSucceeded' or 'BuildFailed' statuses
--- cannot be overridden by later builds of a branch pointing to the same hash.
-supersedes :: BuildStatus -> BuildStatus -> Bool
-newStatus `supersedes` oldStatus        | sameStatus newStatus oldStatus
-                                        = False -- url change, ignore
-_         `supersedes` (BuildFailed _)  = False -- final status
-_         `supersedes` BuildSucceeded   = False -- final status
-_         `supersedes` _                = True
+  -- We need to do edge detection for failures on the summarized status of the
+  -- pull request, as we only want to trigger unintegration once. The nature of
+  -- webhooks make arrival guarentees annoying to deal with, so we opt for
+  -- only dealing with the first appearance of a status.
+  unintegratePullRequestIfNeeded pid newState
+    | Just oldPr <- Pr.lookupPullRequest pid state
+    , Just newPr <- Pr.lookupPullRequest pid newState
+    , Integrated _ oldStatus <- Pr.integrationStatus oldPr
+    , Integrated _ newStatus' <- Pr.integrationStatus newPr
+    = let summarized = summarize newStatus' in if
+        | summarized `supersedes` summarize oldStatus
+        , BuildFailed _ <- summarized -> unintegrateAfter pid newState
+        | otherwise -> newState
+  unintegratePullRequestIfNeeded _ newState = newState
 
--- | Compares if two build statuses are the same
---   while ignoring any URL arguments
-sameStatus :: BuildStatus -> BuildStatus -> Bool
-sameStatus BuildStarted{} BuildStarted{} = True
-sameStatus BuildFailed{}  BuildFailed{}  = True
-sameStatus status1        status2        = status1 == status2
+  -- Like unintegration, we also need edge detection to avoid commenting
+  -- multiple times on the same PR.
+  setBuildStatus pr
+    | Integrated _ oldStatus <- Pr.integrationStatus pr
+    = let newStatus' = newStatusState oldStatus
+          wasSuperseded = summarize newStatus' `supersedes` summarize oldStatus
+      in pr
+        { Pr.integrationStatus = Integrated buildSha newStatus'
+        , Pr.needsFeedback = case newStatus of
+                              BuildStarted _ -> wasSuperseded
+                              BuildFailed _  -> wasSuperseded
+                              _              -> Pr.needsFeedback pr -- unchanged
+        }
+    | otherwise = pr
+
+-- | Check if the given context for a status update pertains to any of the known
+-- mandatory checks for the project.
+contextSatisfiesChecks :: Pr.MandatoryChecks -> Git.Context -> Maybe Project.Check
+contextSatisfiesChecks (Pr.MandatoryChecks checks) (Git.Context context) =
+  let go []                           = Nothing
+      go (c@(Project.Check check):cs) = if check `Text.isPrefixOf` context
+        then Just c
+        else go cs
+  in  go (Set.toList checks)
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
 synchronizeState :: ProjectState -> Action ProjectState
@@ -780,8 +797,12 @@ proceedCandidate pullRequestId state =
   Nothing -> pure state -- should not be reachable when called from 'proceed'
   Just pullRequest ->
     case Pr.integrationStatus pullRequest of
-    Integrated sha BuildSucceeded -> pushCandidate (pullRequestId, pullRequest) sha state
-    _                             -> pure state -- BuildFailed/BuildPending
+      -- Check if all mandatory checks succeeded for the given sha and push
+      -- the candidate if so.
+      Integrated sha (summarize -> BuildSucceeded) ->
+        pushCandidate (pullRequestId, pullRequest) sha state
+      _ ->
+        pure state -- BuildFailed/BuildPending
 
 -- Given a pull request id, returns the name of the GitHub ref for that pull
 -- request, so it can be fetched.
@@ -823,9 +844,14 @@ tryIntegratePullRequest pr state =
       Right (Sha sha) -> do
         -- If it succeeded, set the build to pending,
         -- as pushing should have triggered a build.
+        let Pr.MandatoryChecks check = Pr.mandatoryChecks state
+            integrationStatus = if Set.null check
+              then Pr.AnyCheck BuildPending
+              else Pr.SpecificChecks (Map.fromSet (const BuildPending) check)
+
         pure
           -- The build pending has no URL here, we need to wait for semaphore
-          $ Pr.setIntegrationStatus pr (Integrated (Sha sha) BuildPending)
+          $ Pr.setIntegrationStatus pr (Integrated (Sha sha) integrationStatus)
           $ Pr.setNeedsFeedback pr True
           $ state
 
@@ -916,7 +942,7 @@ unspeculateConflictsAfter promotedPullRequest pr
 -- failure will be reported as a real definitive failure.
 unspeculateFailuresAfter :: PullRequest -> PullRequest -> PullRequest
 unspeculateFailuresAfter promotedPullRequest pr
-  | Pr.PullRequest{Pr.integrationStatus = Integrated _ (BuildFailed _)} <- pr
+  | Pr.PullRequest{Pr.integrationStatus = Integrated _ (summarize -> BuildFailed _)} <- pr
   , pr `Pr.approvedAfter` promotedPullRequest
   = pr{Pr.needsFeedback = True}
   | otherwise

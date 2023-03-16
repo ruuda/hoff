@@ -11,6 +11,7 @@ module Configuration
 (
   Configuration (..),
   ProjectConfiguration (..),
+  ChecksConfiguration (..),
   TlsConfiguration (..),
   TriggerConfiguration (..),
   UserConfiguration (..),
@@ -22,6 +23,7 @@ where
 
 import Data.Aeson (FromJSON, eitherDecodeStrict')
 import Data.ByteString (readFile)
+import Data.Set (Set)
 import Data.Text (Text)
 import GHC.Generics
 import Prelude hiding (readFile)
@@ -34,7 +36,8 @@ data ProjectConfiguration = ProjectConfiguration
     branch     :: Text,       -- The branch to guard and integrate commits into.
     testBranch :: Text,       -- The branch to force-push candidates to for testing.
     checkout   :: FilePath,   -- The path to a local checkout of the repository.
-    stateFile  :: FilePath    -- The file where project state is stored.
+    stateFile  :: FilePath,   -- The file where project state is stored.
+    checks     :: Maybe ChecksConfiguration -- Optional configuration related to checks for the project.
   }
   deriving (Generic)
 
@@ -54,6 +57,17 @@ data UserConfiguration = UserConfiguration
     name :: Text,                 -- Name used for Git committer.
     email :: Text,                -- Email address used for Git committer.
     sshConfigFile :: FilePath     -- The path to ~/.ssh/config.
+  }
+  deriving (Generic)
+
+newtype ChecksConfiguration = ChecksConfiguration
+  {
+    -- Multiple checks can succeed on a PR, the normal behaviour is to merge
+    -- once the first one succeeds. Instead, we make it possible to configure a
+    -- list of mandatory checks that should have succesfully finished before we
+    -- allow the merge. Each entry is a prefix of the context that sent the
+    -- status update.
+    mandatory :: Set Text
   }
   deriving (Generic)
 
@@ -112,6 +126,7 @@ data Configuration = Configuration
   deriving (Generic)
 
 instance FromJSON Configuration
+instance FromJSON ChecksConfiguration
 instance FromJSON ProjectConfiguration
 instance FromJSON TlsConfiguration
 instance FromJSON TriggerConfiguration

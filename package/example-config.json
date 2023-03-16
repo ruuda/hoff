@@ -5,7 +5,10 @@
     "branch": "master",
     "testBranch": "testing",
     "checkout": "/var/lib/hoff/checkouts/your-username/your-repo",
-    "stateFile": "/var/lib/hoff/state/your-username/your-repo.json"
+    "stateFile": "/var/lib/hoff/state/your-username/your-repo.json",
+    "checks": {
+      "mandatory": []
+    }
   }],
   "secret": "run 'head --bytes 32 /dev/urandom | base64' and paste output here",
   "accessToken": "paste a personal access token for a bot user here",

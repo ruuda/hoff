@@ -18,6 +18,7 @@ haskellPackages: with haskellPackages; [
   file-embed
   filepath
   free
+  generic-arbitrary
   github
   hspec
   hspec-core
@@ -31,6 +32,8 @@ haskellPackages: with haskellPackages; [
   process-extras
   prometheus
   prometheus-metrics-ghc
+  QuickCheck
+  quickcheck-instances
   scotty
   stm
   text
