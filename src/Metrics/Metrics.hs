@@ -11,6 +11,7 @@ module Metrics.Metrics
   runLoggingMonitorT,
   runNoMonitorT,
   increaseMergedPRTotal,
+  updateTrainSizeGauge,
   registerGHCMetrics,
   registerProjectMetrics
   )
@@ -29,10 +30,12 @@ type ProjectLabel = Text
 
 data ProjectMetrics = ProjectMetrics
   { projectMetricsMergedPR :: Vector ProjectLabel Counter
+  , projectMetricsMergeTrainSize :: Vector ProjectLabel Gauge
   }
 
 data MetricsOperationFree a
   = MergeBranch a
+  | UpdateTrainSize Int a
   deriving (Functor)
 
 type MetricsOperation = Free MetricsOperationFree
@@ -53,6 +56,9 @@ instance MonadIO m => MonadMonitor (NoMonitorT m) where
 increaseMergedPRTotal :: MetricsOperation ()
 increaseMergedPRTotal = liftF $ MergeBranch ()
 
+updateTrainSizeGauge :: Int -> MetricsOperation ()
+updateTrainSizeGauge n = liftF $ UpdateTrainSize n ()
+
 runMetrics
   :: (MonadMonitor m, MonadIO m)
   => ProjectMetrics
@@ -61,6 +67,8 @@ runMetrics
   -> m a
 runMetrics metrics label operation =
   case operation of
+    UpdateTrainSize n cont -> cont <$
+      setProjectMetricMergeTrainSize metrics label n
     MergeBranch cont -> cont <$
       incProjectMergedPR metrics label
 
@@ -71,7 +79,13 @@ registerProjectMetrics :: IO ProjectMetrics
 registerProjectMetrics = ProjectMetrics
   <$> register (vector "project" (counter (Info "hoff_project_merged_pull_requests"
                                                  "Number of merged pull requests")))
+  <*> register (vector "project" (gauge (Info "hoff_project_merge_train_size"
+                                                "Number of pull requests currently in the queue (merge train)")))
 
 incProjectMergedPR :: (MonadMonitor m, MonadIO m) => ProjectMetrics -> ProjectLabel -> m ()
 incProjectMergedPR metrics project =
   withLabel (projectMetricsMergedPR metrics) project incCounter
+
+setProjectMetricMergeTrainSize :: (MonadMonitor m, MonadIO m) => ProjectMetrics -> ProjectLabel -> Int -> m ()
+setProjectMetricMergeTrainSize metrics project n =
+  withLabel (projectMetricsMergeTrainSize metrics) project (\g -> setGauge g (fromIntegral n))

@@ -228,6 +228,7 @@ fakeRunTime (Time.GetDateTime cont) = pure (cont (T.UTCTime (T.fromMondayStartWe
 fakeRunMetrics :: Monad m => MetricsOperationFree a -> m a
 fakeRunMetrics action = case action of
   MergeBranch cont -> pure cont
+  UpdateTrainSize _ cont -> pure cont
 
 -- Runs the main loop in a separate thread, and feeds it the given events.
 runMainEventLoop
