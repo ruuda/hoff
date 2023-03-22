@@ -8,6 +8,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -41,6 +42,7 @@ module Logic
 )
 where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Concurrent.STM.TMVar (TMVar, newTMVarIO, readTMVar, swapTMVar)
 import Control.Exception (assert)
@@ -223,7 +225,9 @@ triggerTrainSizeUpdate n = liftAction $ UpdateTrainSizeMetric n ()
 
 -- | Interpreter that translates high-level actions into more low-level ones.
 runBaseAction :: ProjectConfiguration -> BaseActionFree a -> Operation a
-runBaseAction config = \case
+runBaseAction config =
+  let pushDelayMicroseconds = 2 * 1_000_000
+   in \case
     TryIntegrate message (pr, ref, sha) train alwaysAddMergeCommit cont -> do
       doGit $ ensureCloned config
 
@@ -246,6 +250,10 @@ runBaseAction config = \case
       case forcePushResult of
         PushRejected _ -> pure $ cont forcePushResult
         PushOk -> do
+          -- TODO: Find a safer way to make sure Github doesn't get confused
+          -- by 2 pushes close together, the delay is all arbitrary and not nice.
+          -- See https://github.com/channable/hoff/issues/196
+          _ <- pure $ threadDelay pushDelayMicroseconds
           pushResult <- Git.push sha (Git.Branch $ Config.branch config)
           pure $ cont pushResult
 
@@ -255,6 +263,10 @@ runBaseAction config = \case
       case forcePushResult of
         PushRejected err -> pure $ cont (Left err, forcePushResult)
         PushOk -> do
+          -- TODO: Find a safer way to make sure Github doesn't get confused
+          -- by 2 pushes close together, the delay is all arbitrary and not nice.
+          -- See https://github.com/channable/hoff/issues/196
+          _ <- pure $ threadDelay pushDelayMicroseconds
           tagResult <- Git.tag sha newTagName newTagMessage
           case tagResult of
             TagFailed _ -> do

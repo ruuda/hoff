@@ -12,7 +12,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -58,7 +57,6 @@ module Git
 )
 where
 
-import Control.Concurrent (threadDelay)
 import Control.Monad (mzero, when)
 import Control.Monad.Free (Free, liftF)
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -369,13 +367,7 @@ runGit userConfig repoDir operation =
       -- not exist.
       gitResult <- callGitInRepo ["push", "--force", "origin", refSpec (sha, branch)]
       case gitResult of
-        Right _ -> do
-          let delayMicroseconds = 2 * 1_000_000
-          -- TODO: Find a safer way to make sure Github doesn't get confused
-          -- by 2 pushes close together, the delay is all arbitrary and not nice.
-          -- See https://github.com/channable/hoff/issues/196
-          liftIO $ threadDelay delayMicroseconds
-          pure $ cont PushOk
+        Right _ -> pure $ cont PushOk
         Left (_, message) -> do
           logWarnN $ "error: git push --force failed. Reason: " <> message
           pure $ cont $ PushRejected message
