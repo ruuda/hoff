@@ -8,6 +8,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -41,6 +42,7 @@ module Logic
 )
 where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Concurrent.STM.TMVar (TMVar, newTMVarIO, readTMVar, swapTMVar)
 import Control.Exception (assert)
@@ -223,7 +225,9 @@ triggerTrainSizeUpdate n = liftAction $ UpdateTrainSizeMetric n ()
 
 -- | Interpreter that translates high-level actions into more low-level ones.
 runBaseAction :: ProjectConfiguration -> BaseActionFree a -> Operation a
-runBaseAction config = \case
+runBaseAction config =
+  let pushDelayMicroseconds = 2 * 1_000_000
+   in \case
     TryIntegrate message (pr, ref, sha) train alwaysAddMergeCommit cont -> do
       doGit $ ensureCloned config
 
@@ -240,23 +244,38 @@ runBaseAction config = \case
       case shaOrFailed of
         Left failure -> pure $ cont $ Left $ IntegrationFailure (Git.toBaseBranch targetBranch) failure
         Right integratedSha -> pure $ cont $ Right integratedSha
-    TryPromote prBranch sha cont -> do
-      doGit $ ensureCloned config
-      forcePushResult <- doGit $ Git.forcePush sha prBranch
+    TryPromote prBranch sha cont -> doGit $ do
+      ensureCloned config
+      forcePushResult <- Git.forcePush sha prBranch
       case forcePushResult of
         PushRejected _ -> pure $ cont forcePushResult
         PushOk -> do
-          pushResult <- doGit $ Git.push sha (Git.Branch $ Config.branch config)
+          -- TODO: Find a safer way to make sure Github doesn't get confused
+          -- by 2 pushes close together, the delay is all arbitrary and not nice.
+          -- See https://github.com/channable/hoff/issues/196
+          _ <- pure $ threadDelay pushDelayMicroseconds
+          pushResult <- Git.push sha (Git.Branch $ Config.branch config)
           pure $ cont pushResult
 
-    TryPromoteWithTag prBranch sha newTagName newTagMessage cont -> doGit $
-      ensureCloned config >>
-      Git.forcePush sha prBranch >>
-      Git.tag sha newTagName newTagMessage >>=
-      \case TagFailed _ -> cont . (Left "Please check the logs",) <$> Git.push sha (Git.Branch $ Config.branch config)
-            TagOk tagName -> cont . (Right tagName,)
-              <$> Git.pushAtomic [AsRefSpec tagName, AsRefSpec (sha, Git.Branch $ Config.branch config)]
-              <*  Git.deleteTag tagName
+    TryPromoteWithTag prBranch sha newTagName newTagMessage cont -> doGit $ do
+      ensureCloned config
+      forcePushResult <- Git.forcePush sha prBranch
+      case forcePushResult of
+        PushRejected err -> pure $ cont (Left err, forcePushResult)
+        PushOk -> do
+          -- TODO: Find a safer way to make sure Github doesn't get confused
+          -- by 2 pushes close together, the delay is all arbitrary and not nice.
+          -- See https://github.com/channable/hoff/issues/196
+          _ <- pure $ threadDelay pushDelayMicroseconds
+          tagResult <- Git.tag sha newTagName newTagMessage
+          case tagResult of
+            TagFailed _ -> do
+              pushResult <- Git.push sha (Git.Branch $ Config.branch config)
+              pure $ cont (Left "Please check the logs", pushResult)
+            TagOk tagName -> do
+              atomicPushResult <- Git.pushAtomic [AsRefSpec tagName, AsRefSpec (sha, Git.Branch $ Config.branch config)]
+              Git.deleteTag tagName
+              pure $ cont (Right tagName, atomicPushResult)
               -- Deleting tag after atomic push is important to maintain one "source of truth", namely
               -- the origin
 
