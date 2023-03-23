@@ -17,6 +17,7 @@ import Data.Aeson (decode, encode)
 import Data.ByteString.Lazy (readFile)
 import Data.Foldable (foldlM)
 import Data.IntSet (IntSet)
+import Data.List (group)
 import Data.Maybe (fromJust, isJust, isNothing)
 import Data.Text (Text, pack)
 import Prelude hiding (readFile)
@@ -2371,27 +2372,41 @@ main = hspec $ do
 
     it "correctly updates the metric for the merge train size after each event" $ do
       let
-        state = Project.emptyProjectState
+        state
+          = Project.insertPullRequest (PullRequestId 1)
+              (Branch "fst") masterBranch (Sha "ab1") "Improvements..." (Username "huey")
+          $ Project.insertPullRequest (PullRequestId 2)
+              (Branch "snd") masterBranch (Sha "ab2") "... Of the ..." (Username "dewey")
+          $ Project.insertPullRequest (PullRequestId 3)
+              (Branch "trd") masterBranch (Sha "ab3") "... Performance" (Username "louie")
+          $ Project.emptyProjectState
         events =
-          [ PullRequestOpened (PullRequestId 1) (Branch "fst") masterBranch (Sha "ab1") "First PR" (Username "huey")
-          , PullRequestOpened (PullRequestId 2) (Branch "fst") masterBranch (Sha "ab1") "First PR" (Username "louie")
-          , PullRequestOpened (PullRequestId 3) (Branch "fst") masterBranch (Sha "ab1") "First PR" (Username "dewey")
-          , CommentAdded (PullRequestId 1) "huey" "@bot merge"
-          , CommentAdded (PullRequestId 2) "louie" "@bot merge"
-          , CommentAdded (PullRequestId 3) "dewey" "@bot merge"
+          [ CommentAdded (PullRequestId 1) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "ab1") "default" (Project.BuildStarted "url")
+          , CommentAdded (PullRequestId 2) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "ab2") "default" (Project.BuildStarted "url")
+          , CommentAdded (PullRequestId 3) "deckard" "@bot merge"
+          , BuildStatusChanged (Sha "ab3") "default" (Project.BuildStarted "url")
+
+          , BuildStatusChanged (Sha "ab1") "default" Project.BuildSucceeded
           , PullRequestClosed (PullRequestId 1)
+          , BuildStatusChanged (Sha "ab2") "default" (Project.BuildFailed Nothing)
           , PullRequestClosed (PullRequestId 2)
+          , BuildStatusChanged (Sha "ab3") "default" Project.BuildSucceeded
           , PullRequestClosed (PullRequestId 3)
           ]
-        -- For this test, we assume all integrations and pushes succeed.
-        results = defaultResults { resultIntegrate = [ Right (Sha "1ab")
-                                                     , Right (Sha "2bc")
-                                                     , Right (Sha "3cd")
-                                                     , Right (Sha "5bc")
-                                                     , Right (Sha "6cd") ] }
+        results = defaultResults { resultIntegrate = [ Right (Sha "ab1")
+                                                     , Right (Sha "ab2")
+                                                     , Right (Sha "ab3")
+                                                     , Right (Sha "ab1")
+                                                     , Right (Sha "ab2")
+                                                     , Right (Sha "ab3")
+                                                     ] }
         (_, postResults, _) = runActionCustomResults results $ handleEventsTest events state
-      -- the list represents the updates emitted in reverse order
-      resultTrainSizeUpdates postResults `shouldBe` [0,1,2,3,3,3,3,2,1]
+        -- the gauge is updated after each event, we only care about changes
+        stripRepeating = map head . group
+      -- note that the updates are stored in reverse
+      stripRepeating (resultTrainSizeUpdates postResults) `shouldBe` [0,1,2,3,2,1]
 
     it "resets the integration of PRs in the train after the PR commit has changed" $ do
       let

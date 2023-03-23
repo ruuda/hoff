@@ -38,6 +38,7 @@ module Project
   classifyPullRequests,
   deletePullRequest,
   emptyProjectState,
+  isInProgress,
   existsPullRequest,
   getQueuePosition,
   insertPullRequest,

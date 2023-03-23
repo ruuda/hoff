@@ -77,7 +77,7 @@ import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushRe
 import GithubApi (GithubOperation, GithubOperationFree)
 import Metrics.Metrics (MetricsOperationFree, MetricsOperation, increaseMergedPRTotal, updateTrainSizeGauge)
 import Project (Approval (..), ApprovedFor (..), BuildStatus (..), Check (..), IntegrationStatus (..),
-                MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..), 
+                MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..),
                 summarize, supersedes)
 import Time (TimeOperation, TimeOperationFree)
 import Types (PullRequestId (..), Username (..))
@@ -220,8 +220,10 @@ getProjectConfig = liftEnvironment $ GetProjectConfig id
 registerMergedPR :: Action ()
 registerMergedPR = liftAction $ IncreaseMergeMetric ()
 
-triggerTrainSizeUpdate :: Int -> Action ()
-triggerTrainSizeUpdate n = liftAction $ UpdateTrainSizeMetric n ()
+triggerTrainSizeUpdate :: ProjectState -> Action ()
+triggerTrainSizeUpdate projectState = do
+  let n = IntMap.size $ IntMap.filter Pr.isInProgress (Pr.pullRequests projectState)
+  liftAction $ UpdateTrainSizeMetric n ()
 
 -- | Interpreter that translates high-level actions into more low-level ones.
 runBaseAction :: ProjectConfiguration -> BaseActionFree a -> Operation a
@@ -1061,7 +1063,7 @@ handleEvent
   -> Action ProjectState
 handleEvent triggerConfig mergeWindowExemption event state = do
   projectState <- handleEventInternal triggerConfig mergeWindowExemption event state >>= proceedUntilFixedPoint
-  triggerTrainSizeUpdate (IntMap.size (Pr.pullRequests projectState))
+  triggerTrainSizeUpdate projectState
   pure projectState
 
 
