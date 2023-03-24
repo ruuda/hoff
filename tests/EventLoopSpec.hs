@@ -225,6 +225,7 @@ fakeRunGithub action = case action of
 
 fakeRunTime :: Monad m => Time.TimeOperationFree a -> m a
 fakeRunTime (Time.GetDateTime cont) = pure (cont (T.UTCTime (T.fromMondayStartWeek 2021 2 1) (T.secondsToDiffTime 0)))
+fakeRunTime (Time.SleepMicros _ cont) = pure cont
 
 fakeRunMetrics :: Monad m => MetricsOperationFree a -> m a
 fakeRunMetrics action = case action of
