@@ -67,7 +67,7 @@ import qualified Data.Text.Lazy.Builder.Int as B
 import qualified Data.Text.Read as Text
 import Data.Time (UTCTime, DayOfWeek (Friday), dayOfWeek, utctDay)
 
-import Configuration (ProjectConfiguration (owner, repository), TriggerConfiguration, MergeWindowExemptionConfiguration)
+import Configuration (ProjectConfiguration (owner, repository, deployEnvironments), TriggerConfiguration, MergeWindowExemptionConfiguration)
 import Format (format)
 import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushResult (..),
             GitIntegrationFailure (..), Sha (..), SomeRefSpec (..), TagMessage (..), TagName (..),
@@ -504,6 +504,7 @@ data ParseResult a
   -- | The parser decided to ignore the message because it did
   -- not contain a valid prefix.
   | Ignored
+  deriving (Show)
 
 -- Checks whether the parse result was valid.
 isSuccess :: ParseResult a -> Bool
@@ -517,8 +518,8 @@ isSuccess _ = False
 -- Returns `Ignored` if the bot was not mentioned, `Success` if it was mentioned
 -- in the same message as a valid command, and `Unknown` if it was mentioned but
 -- no valid command was found.
-parseMergeCommand :: TriggerConfiguration -> Text -> ParseResult (ApprovedFor, MergeWindow)
-parseMergeCommand config message =
+parseMergeCommand :: ProjectConfiguration -> TriggerConfiguration -> Text -> ParseResult (ApprovedFor, MergeWindow)
+parseMergeCommand projectConfig triggerConfig message =
   let
     normalise :: Text -> Text
     normalise msg =
@@ -528,29 +529,36 @@ parseMergeCommand config message =
       in Text.toCaseFold multiWhitespaceStripped
 
     messageNormalised = normalise message
-    prefixNormalised = normalise $ Config.commentPrefix config
+    prefixNormalised = normalise $ Config.commentPrefix triggerConfig
     mentioned = prefixNormalised `Text.isPrefixOf` messageNormalised
     -- Determines if any individual mention matches the given command message
     matchWith :: Text -> Bool
     matchWith msg = any (Text.isPrefixOf msg) mentions
       where mentions = Text.splitOn prefixNormalised messageNormalised
-    -- Check if the prefix followed by ` merge [and {deploy,tag}] [on friday]` occurs within the message.
-    -- We opt to include the space here, instead of making it part of the
-    -- prefix, because having the trailing space in config is something that is
-    -- easy to get wrong.
-    -- Note that because "merge" is an infix of "merge and xxx" we need to
-    -- check for the "merge and xxx" commands first: if this order were
-    -- reversed all "merge and xxx" commands would be detected as a Merge
-    -- command.
-    cases =
-      [ (" merge and deploy on friday", (MergeAndDeploy, OnFriday)),
-        (" merge and deploy", (MergeAndDeploy, NotFriday)),
-        (" merge and tag on friday", (MergeAndTag, OnFriday)),
-        (" merge and tag", (MergeAndTag, NotFriday)),
-        (" merge on friday", (Merge, OnFriday)),
-        (" merge", (Merge, NotFriday))
-      ]
-   in case listToMaybe [ cmd | (msg, cmd) <- cases, matchWith msg ] of
+
+    deployCommands :: [(Text, ApprovedFor)]
+    deployCommands = if length (deployEnvironments projectConfig) > 0
+        then map (\x -> (format " merge and deploy to {}" [x], MergeAndDeploy x)) (deployEnvironments projectConfig)
+          ++ [(" merge and deploy", MergeAndDeploy (head (deployEnvironments projectConfig)))]
+        else []
+
+    defaultCommands :: [(Text, ApprovedFor)]
+    defaultCommands = [(" merge and tag", MergeAndTag),(" merge", Merge)]
+
+    -- Check if the prefix followed by ` merge [and {deploy,tag} [to
+    -- <environment>]] [on friday]` occurs within the message. We opt to include
+    -- the space here, instead of making it part of the prefix, because having
+    -- the trailing space in config is something that is easy to get wrong. Note
+    -- that because "merge" is an infix of "merge and xxx" we need to check for
+    -- the "merge and xxx" commands first: if this order were reversed all
+    -- "merge and xxx" commands would be detected as a Merge command. This
+    -- strict order requirement also holds for the `to <environment>` and `on
+    -- Friday` options
+    commands :: [(Text, (ApprovedFor, MergeWindow))]
+    commands = (\(cmd, af) (cont, mw) -> (Text.append cmd cont, (af, mw))) <$>
+      deployCommands ++ defaultCommands <*> [(" on friday", OnFriday), ("", NotFriday)]
+
+   in case listToMaybe [ cmd | (msg, cmd) <- commands, matchWith msg ] of
      Just command -> Success command
      Nothing | mentioned -> Unknown message
              | otherwise -> Ignored
@@ -580,7 +588,9 @@ handleCommentAdded triggerConfig mergeWindowExemption prId author body state =
     -- frequently, but most comments are not merge commands, and checking that
     -- a user has push access requires an API call.
     Just pr -> do
-      let commandType = parseMergeCommand triggerConfig body
+      projectConfig <- getProjectConfig
+
+      let commandType = parseMergeCommand projectConfig triggerConfig body
           exempted :: Username -> Bool
           exempted (Username user) =
             let (Config.MergeWindowExemptionConfiguration users) = mergeWindowExemption
@@ -593,7 +603,6 @@ handleCommentAdded triggerConfig mergeWindowExemption prId author body state =
       -- For now Friday at UTC+0 is good enough.
       -- See https://github.com/channable/hoff/pull/95 for caveats and improvement ideas.
       day <- dayOfWeek . utctDay <$> getDateTime
-      projectConfig <- getProjectConfig
       case commandType of
         -- The bot was not mentioned in the comment, ignore
         Ignored -> pure state
@@ -845,8 +854,13 @@ tryIntegratePullRequest pr state =
       [ format "Merge #{}: {}" (prNumber, title)
       , ""
       , format "Approved-by: {}" [approvedBy]
-      , format "Auto-deploy: {}" [if approvalType == MergeAndDeploy then "true" else "false" :: Text]
-      ]
+      ] ++
+        case approvalType of
+          MergeAndDeploy env ->
+            [ "Auto-deploy: true"
+            , format "Deploy-Environment: {}" [env]]
+          _ -> [ "Auto-deploy: false" ]
+
     mergeMessage = Text.unlines mergeMessageLines
     -- the takeWhile here is needed in case of reintegrations after failing pushes
     train = takeWhile (/= pr) $ Pr.unfailedIntegratedPullRequests state

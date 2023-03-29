@@ -70,7 +70,8 @@ testProjectConfig = Config.ProjectConfiguration {
   Config.testBranch = "testing",
   Config.checkout = "/var/lib/hoff/checkouts/peter/rep",
   Config.stateFile = "/var/lib/hoff/state/peter/rep.json",
-  Config.checks = Just (Config.ChecksConfiguration mempty)
+  Config.checks = Just (Config.ChecksConfiguration mempty),
+  Config.deployEnvironments = ["staging", "production"]
 }
 
 testmergeWindowExemptionConfig :: Config.MergeWindowExemptionConfiguration
@@ -546,8 +547,8 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as c82 behind 1 other PR, waiting for CI …"
 
         , AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 3) "Pull request approved for merge and deploy by @deckard, waiting for rebase behind 2 pull requests."
-        , ATryIntegrate "Merge #3: Another PR\n\nApproved-by: deckard\nAuto-deploy: true\n"
+        , ALeaveComment (PullRequestId 3) "Pull request approved for merge and deploy to staging by @deckard, waiting for rebase behind 2 pull requests."
+        , ATryIntegrate "Merge #3: Another PR\n\nApproved-by: deckard\nAuto-deploy: true\nDeploy-Environment: staging\n"
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "f16")
                         [PullRequestId 1, PullRequestId 2]
                         True
@@ -813,14 +814,14 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment prId "Pull request approved for merge and deploy by @deckard, rebasing now."
-        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\n"
+        , ALeaveComment prId "Pull request approved for merge and deploy to staging by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\nDeploy-Environment: staging\n"
                         (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] True
         , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr== Just (Approval (Username "deckard") Project.MergeAndDeploy 0))
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy "staging") 0))
 
     it "recognizes 'merge and deploy on Friday' commands as the proper ApprovedFor value" $ do
       let
@@ -834,14 +835,14 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment prId "Pull request approved for merge and deploy by @deckard, rebasing now."
-        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\n"
+        , ALeaveComment prId "Pull request approved for merge and deploy to staging by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\nDeploy-Environment: staging\n"
                         (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] True
         , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr== Just (Approval (Username "deckard") Project.MergeAndDeploy 0))
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy "staging") 0))
 
     it "recognizes 'merge and tag' command" $ do
       let
@@ -1027,7 +1028,7 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment prId "Your merge request has been denied, because merging on Fridays is not recommended. To override this behaviour use the command `merge and deploy on Friday`."
+        , ALeaveComment prId "Your merge request has been denied, because merging on Fridays is not recommended. To override this behaviour use the command `merge and deploy to staging on Friday`."
         ]
 
     it "doesn't allow 'merge' command on Friday" $ do
@@ -1287,7 +1288,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approval            = Just (Approval "deckard" Project.MergeAndDeploy 0)
+          , Project.approval            = Just (Approval "deckard" (Project.MergeAndDeploy "staging") 0)
           , Project.integrationStatus   = Project.Integrated (Sha "38d") (Project.AnyCheck Project.BuildSucceeded)
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False

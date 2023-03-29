@@ -83,6 +83,7 @@ import Data.Map.Strict (Map)
 import Data.Text (Text)
 import Data.Set (Set)
 import Data.String (IsString)
+import Format (format)
 import GHC.Generics
 import Git (Branch (..), BaseBranch (..), Sha (..), GitIntegrationFailure (..))
 import Prelude hiding (readFile, writeFile)
@@ -153,7 +154,7 @@ data PullRequestStatus
 -- This enumeration distinguishes these cases.
 data ApprovedFor
   = Merge
-  | MergeAndDeploy
+  | MergeAndDeploy Text
   | MergeAndTag
   deriving (Eq, Show, Generic)
 
@@ -167,6 +168,7 @@ data Approval = Approval
   deriving (Eq, Show, Generic)
 
 data MergeWindow = OnFriday | NotFriday
+  deriving (Show)
 
 -- | A check is a key we check incoming build status contexts (in the case of
 -- github) against.
@@ -497,24 +499,24 @@ getOwners :: [ProjectInfo] -> [Owner]
 getOwners = nub . map owner
 
 displayApproval :: ApprovedFor -> Text
-displayApproval Merge          = "merge"
-displayApproval MergeAndDeploy = "merge and deploy"
-displayApproval MergeAndTag    = "merge and tag"
+displayApproval Merge                = "merge"
+displayApproval (MergeAndDeploy env) = format "merge and deploy to {}" [env]
+displayApproval MergeAndTag          = "merge and tag"
 
 alwaysAddMergeCommit :: ApprovedFor -> Bool
-alwaysAddMergeCommit Merge          = False
-alwaysAddMergeCommit MergeAndDeploy = True
-alwaysAddMergeCommit MergeAndTag    = False
+alwaysAddMergeCommit Merge              = False
+alwaysAddMergeCommit (MergeAndDeploy _) = True
+alwaysAddMergeCommit MergeAndTag        = False
 
 needsDeploy :: ApprovedFor -> Bool
-needsDeploy Merge          = False
-needsDeploy MergeAndDeploy = True
-needsDeploy MergeAndTag    = False
+needsDeploy Merge              = False
+needsDeploy (MergeAndDeploy _) = True
+needsDeploy MergeAndTag        = False
 
 needsTag :: ApprovedFor -> Bool
-needsTag Merge          = False
-needsTag MergeAndDeploy = True
-needsTag MergeAndTag    = True
+needsTag Merge              = False
+needsTag (MergeAndDeploy _) = True
+needsTag MergeAndTag        = True
 
 integrationSha :: PullRequest -> Maybe Sha
 integrationSha PullRequest{integrationStatus = Integrated s _} = Just s
