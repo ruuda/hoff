@@ -204,9 +204,9 @@ takeResultGetDateTime =
     resultGetDateTime
     (\v res -> res { resultGetDateTime = v })
 
-runRetrieveInfoRws :: HasCallStack => RetrieveEnvironmentFree a -> RWS () [ActionFlat] Results a
-runRetrieveInfoRws = \case
-  GetProjectConfig cont -> pure $ cont testProjectConfig
+runRetrieveInfoRws :: HasCallStack => Config.ProjectConfiguration -> RetrieveEnvironmentFree a -> RWS () [ActionFlat] Results a
+runRetrieveInfoRws projectConfig = \case
+  GetProjectConfig cont -> pure $ cont projectConfig
   GetDateTime cont -> cont <$> takeResultGetDateTime
   GetBaseBranch cont -> pure $ cont $ BaseBranch $ Config.branch testProjectConfig
 
@@ -253,16 +253,19 @@ runBaseActionRws =
         Rws.put $ results { resultTrainSizeUpdates = n : resultTrainSizeUpdates results }
         pure cont
 
-runActionRws :: HasCallStack => Action a -> RWS () [ActionFlat] Results a
-runActionRws = foldFree $ runSum runBaseActionRws runRetrieveInfoRws
+runActionRws :: HasCallStack => Config.ProjectConfiguration -> Action a -> RWS () [ActionFlat] Results a
+runActionRws config = foldFree $ runSum runBaseActionRws $ runRetrieveInfoRws config
 
 -- Simulates running the action. Use the provided results as result for various
 -- operations. Results are consumed one by one.
 runActionCustom :: HasCallStack => Results -> Action a -> (a, [ActionFlat])
-runActionCustom results action = Rws.evalRWS (runActionRws action) () results
+runActionCustom results action = Rws.evalRWS (runActionRws testProjectConfig action) () results
 
 runActionCustomResults :: HasCallStack => Results -> Action a -> (a, Results, [ActionFlat])
-runActionCustomResults results action = Rws.runRWS (runActionRws action) () results
+runActionCustomResults results action = Rws.runRWS (runActionRws testProjectConfig action) () results
+
+runActionCustomConfig :: HasCallStack => Config.ProjectConfiguration -> Results -> Action a -> (a, [ActionFlat])
+runActionCustomConfig projectConfig results action = Rws.evalRWS (runActionRws projectConfig action) () results
 
 -- Simulates running the action with default results.
 runAction :: Action a -> (a, [ActionFlat])
@@ -843,6 +846,28 @@ main = hspec $ do
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "production") 0))
+
+
+    it "ignores the 'deploy' in 'merge and deploy' commands when no deployEnvironments are configured " $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge and deploy"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (state', actions) = runActionCustomConfig (testProjectConfig{Config.deployEnvironments = []}) results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.Merge) 0))
 
     it "recognizes 'merge and deploy on Friday' commands as the proper ApprovedFor value" $ do
       let
