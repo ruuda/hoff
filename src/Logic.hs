@@ -537,10 +537,11 @@ parseMergeCommand projectConfig triggerConfig message =
       where mentions = Text.splitOn prefixNormalised messageNormalised
 
     deployCommands :: [(Text, ApprovedFor)]
-    deployCommands = if length (deployEnvironments projectConfig) > 0
-        then map (\x -> (format " merge and deploy to {}" [x], MergeAndDeploy (DeployEnvironment x))) (deployEnvironments projectConfig)
-          ++ [(" merge and deploy", MergeAndDeploy (DeployEnvironment $ head (deployEnvironments projectConfig)))]
-        else []
+    deployCommands = case deployEnvironments projectConfig of
+      Nothing     -> []
+      Just []     -> []
+      Just (e:es) -> map (\y -> (format " merge and deploy to {}" [y], MergeAndDeploy (DeployEnvironment y))) (e:es)
+                       ++ [(" merge and deploy", MergeAndDeploy $ DeployEnvironment e)]
 
     defaultCommands :: [(Text, ApprovedFor)]
     defaultCommands = [(" merge and tag", MergeAndTag),(" merge", Merge)]

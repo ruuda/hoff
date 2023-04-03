@@ -71,7 +71,7 @@ testProjectConfig = Config.ProjectConfiguration {
   Config.checkout = "/var/lib/hoff/checkouts/peter/rep",
   Config.stateFile = "/var/lib/hoff/state/peter/rep.json",
   Config.checks = Just (Config.ChecksConfiguration mempty),
-  Config.deployEnvironments = ["staging", "production"]
+  Config.deployEnvironments = Just ["staging", "production"]
 }
 
 testmergeWindowExemptionConfig :: Config.MergeWindowExemptionConfiguration
@@ -856,7 +856,7 @@ main = hspec $ do
         event = CommentAdded prId "deckard" "@bot merge and deploy"
 
         results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
-        (state', actions) = runActionCustomConfig (testProjectConfig{Config.deployEnvironments = []}) results $ handleEventTest event state
+        (state', actions) = runActionCustomConfig (testProjectConfig{Config.deployEnvironments = Just []}) results $ handleEventTest event state
 
       actions `shouldBe`
         [ AIsReviewer "deckard"

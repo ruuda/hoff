@@ -192,7 +192,7 @@ buildProjectConfig repoDir stateFile = Config.ProjectConfiguration {
   Config.checkout           = repoDir,
   Config.stateFile          = stateFile,
   Config.checks             = Just (Config.ChecksConfiguration Set.empty),
-  Config.deployEnvironments = ["staging", "production"]
+  Config.deployEnvironments = Just ["staging", "production"]
 }
 
 -- Dummy user configuration used in test environment.
