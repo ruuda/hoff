@@ -75,7 +75,7 @@ import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushRe
 
 import GithubApi (GithubOperation, GithubOperationFree)
 import Metrics.Metrics (MetricsOperationFree, MetricsOperation, increaseMergedPRTotal, updateTrainSizeGauge)
-import Project (Approval (..), ApprovedFor (..), BuildStatus (..), Check (..), IntegrationStatus (..),
+import Project (Approval (..), ApprovedFor (..), BuildStatus (..), Check (..), DeployEnvironment (..), IntegrationStatus (..),
                 MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..),
                 summarize, supersedes)
 import Time (TimeOperation, TimeOperationFree)
@@ -538,8 +538,8 @@ parseMergeCommand projectConfig triggerConfig message =
 
     deployCommands :: [(Text, ApprovedFor)]
     deployCommands = if length (deployEnvironments projectConfig) > 0
-        then map (\x -> (format " merge and deploy to {}" [x], MergeAndDeploy x)) (deployEnvironments projectConfig)
-          ++ [(" merge and deploy", MergeAndDeploy (head (deployEnvironments projectConfig)))]
+        then map (\x -> (format " merge and deploy to {}" [x], MergeAndDeploy (DeployEnvironment x))) (deployEnvironments projectConfig)
+          ++ [(" merge and deploy", MergeAndDeploy (DeployEnvironment $ head (deployEnvironments projectConfig)))]
         else []
 
     defaultCommands :: [(Text, ApprovedFor)]
@@ -856,7 +856,7 @@ tryIntegratePullRequest pr state =
       , format "Approved-by: {}" [approvedBy]
       ] ++
         case approvalType of
-          MergeAndDeploy env ->
+          MergeAndDeploy (DeployEnvironment env) ->
             [ "Auto-deploy: true"
             , format "Deploy-Environment: {}" [env]]
           _ -> [ "Auto-deploy: false" ]

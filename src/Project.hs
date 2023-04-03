@@ -18,6 +18,7 @@ module Project
   Approval (..),
   ApprovedFor (..),
   BuildStatus (..),
+  DeployEnvironment(..),
   MandatoryChecks (..),
   Check (..),
   IntegrationStatus (..),
@@ -149,12 +150,15 @@ data PullRequestStatus
                                       --   explaining the build failure.
   deriving (Eq, Show)
 
+newtype DeployEnvironment = DeployEnvironment Text
+  deriving (Eq, Show, Generic)
+
 -- | A PR can be approved to be merged with "<prefix> merge", or it can be
 -- approved to be merged and also deployed with "<prefix> merge and deploy".
 -- This enumeration distinguishes these cases.
 data ApprovedFor
   = Merge
-  | MergeAndDeploy Text
+  | MergeAndDeploy DeployEnvironment
   | MergeAndTag
   deriving (Eq, Show, Generic)
 
@@ -236,6 +240,7 @@ instance Buildable ProjectInfo where
 
 instance FromJSON BuildStatus
 instance FromJSON IntegrationStatus
+instance FromJSON DeployEnvironment
 instance FromJSON ApprovedFor
 instance FromJSON Approval
 instance FromJSON ProjectState
@@ -243,6 +248,7 @@ instance FromJSON PullRequest
 
 instance ToJSON BuildStatus where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 instance ToJSON IntegrationStatus where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
+instance ToJSON DeployEnvironment where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 instance ToJSON ApprovedFor where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 instance ToJSON Approval where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 instance ToJSON ProjectState where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
@@ -499,9 +505,9 @@ getOwners :: [ProjectInfo] -> [Owner]
 getOwners = nub . map owner
 
 displayApproval :: ApprovedFor -> Text
-displayApproval Merge                = "merge"
-displayApproval (MergeAndDeploy env) = format "merge and deploy to {}" [env]
-displayApproval MergeAndTag          = "merge and tag"
+displayApproval Merge                                    = "merge"
+displayApproval (MergeAndDeploy (DeployEnvironment env)) = format "merge and deploy to {}" [env]
+displayApproval MergeAndTag                              = "merge and tag"
 
 alwaysAddMergeCommit :: ApprovedFor -> Bool
 alwaysAddMergeCommit Merge              = False
