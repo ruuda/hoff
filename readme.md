@@ -34,7 +34,8 @@ following commands:
 
 * `@hoffbot merge`: rebase then merge;
 * `@hoffbot merge and tag`: rebase, merge then tag.
-* `@hoffbot merge and deploy`: rebase, merge, tag then deploy;
+* `@hoffbot merge and deploy`: rebase, merge, tag then deploy to the default environment;
+* `@hoffbot merge and deploy to <env>`: rebase, merge, tag then deploy to the specified environment;
 
 For all the commands, Hoff will wait for the builds to pass after rebasing and
 before merging.  When the PR is merged, GitHub closes the PR as merged and,

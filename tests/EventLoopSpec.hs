@@ -185,13 +185,14 @@ initializeRepository originDir repoDir = do
 -- Generate a project configuration to be used in the test environment.
 buildProjectConfig :: FilePath -> FilePath -> ProjectConfiguration
 buildProjectConfig repoDir stateFile = Config.ProjectConfiguration {
-  Config.owner      = "ruuda",
-  Config.repository = "blog",
-  Config.branch     = "master",
-  Config.testBranch = "integration",
-  Config.checkout   = repoDir,
-  Config.stateFile  = stateFile,
-  Config.checks     = Just (Config.ChecksConfiguration Set.empty)
+  Config.owner              = "ruuda",
+  Config.repository         = "blog",
+  Config.branch             = "master",
+  Config.testBranch         = "integration",
+  Config.checkout           = repoDir,
+  Config.stateFile          = stateFile,
+  Config.checks             = Just (Config.ChecksConfiguration Set.empty),
+  Config.deployEnvironments = Just ["staging", "production"]
 }
 
 -- Dummy user configuration used in test environment.

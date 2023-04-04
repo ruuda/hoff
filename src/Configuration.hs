@@ -31,13 +31,14 @@ import qualified Network.Wai.Handler.Warp as Warp
 
 data ProjectConfiguration = ProjectConfiguration
   {
-    owner      :: Text,       -- The GitHub user or organization who owns the repo.
-    repository :: Text,       -- The name of the repository.
-    branch     :: Text,       -- The branch to guard and integrate commits into.
-    testBranch :: Text,       -- The branch to force-push candidates to for testing.
-    checkout   :: FilePath,   -- The path to a local checkout of the repository.
-    stateFile  :: FilePath,   -- The file where project state is stored.
-    checks     :: Maybe ChecksConfiguration -- Optional configuration related to checks for the project.
+    owner              :: Text,                      -- The GitHub user or organization who owns the repo.
+    repository         :: Text,                      -- The name of the repository.
+    branch             :: Text,                      -- The branch to guard and integrate commits into.
+    testBranch         :: Text,                      -- The branch to force-push candidates to for testing.
+    checkout           :: FilePath,                  -- The path to a local checkout of the repository.
+    stateFile          :: FilePath,                  -- The file where project state is stored.
+    checks             :: Maybe ChecksConfiguration, -- Optional configuration related to checks for the project.
+    deployEnvironments :: Maybe [Text]               -- The environments which the `deploy to <environment>` command should be enabled for
   }
   deriving (Generic)
 

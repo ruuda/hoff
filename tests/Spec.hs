@@ -37,7 +37,7 @@ import Git (BaseBranch (..), Branch (..), PushResult (..), Sha (..), TagMessage 
             GitIntegrationFailure (..), Context (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
 import Logic (Action, BaseActionFree (..), Event (..), IntegrationFailure (..), RetrieveEnvironmentFree (..))
-import Project (Approval (..), ProjectState (ProjectState), PullRequest (PullRequest))
+import Project (Approval (..), DeployEnvironment (..), ProjectState (ProjectState), PullRequest (PullRequest))
 import Types (PullRequestId (..), Username (..))
 import Sum (runSum)
 import ProjectSpec (projectSpec)
@@ -70,7 +70,8 @@ testProjectConfig = Config.ProjectConfiguration {
   Config.testBranch = "testing",
   Config.checkout = "/var/lib/hoff/checkouts/peter/rep",
   Config.stateFile = "/var/lib/hoff/state/peter/rep.json",
-  Config.checks = Just (Config.ChecksConfiguration mempty)
+  Config.checks = Just (Config.ChecksConfiguration mempty),
+  Config.deployEnvironments = Just ["staging", "production"]
 }
 
 testmergeWindowExemptionConfig :: Config.MergeWindowExemptionConfiguration
@@ -203,9 +204,9 @@ takeResultGetDateTime =
     resultGetDateTime
     (\v res -> res { resultGetDateTime = v })
 
-runRetrieveInfoRws :: HasCallStack => RetrieveEnvironmentFree a -> RWS () [ActionFlat] Results a
-runRetrieveInfoRws = \case
-  GetProjectConfig cont -> pure $ cont testProjectConfig
+runRetrieveInfoRws :: HasCallStack => Config.ProjectConfiguration -> RetrieveEnvironmentFree a -> RWS () [ActionFlat] Results a
+runRetrieveInfoRws projectConfig = \case
+  GetProjectConfig cont -> pure $ cont projectConfig
   GetDateTime cont -> cont <$> takeResultGetDateTime
   GetBaseBranch cont -> pure $ cont $ BaseBranch $ Config.branch testProjectConfig
 
@@ -252,16 +253,19 @@ runBaseActionRws =
         Rws.put $ results { resultTrainSizeUpdates = n : resultTrainSizeUpdates results }
         pure cont
 
-runActionRws :: HasCallStack => Action a -> RWS () [ActionFlat] Results a
-runActionRws = foldFree $ runSum runBaseActionRws runRetrieveInfoRws
+runActionRws :: HasCallStack => Config.ProjectConfiguration -> Action a -> RWS () [ActionFlat] Results a
+runActionRws config = foldFree $ runSum runBaseActionRws $ runRetrieveInfoRws config
 
 -- Simulates running the action. Use the provided results as result for various
 -- operations. Results are consumed one by one.
 runActionCustom :: HasCallStack => Results -> Action a -> (a, [ActionFlat])
-runActionCustom results action = Rws.evalRWS (runActionRws action) () results
+runActionCustom results action = Rws.evalRWS (runActionRws testProjectConfig action) () results
 
 runActionCustomResults :: HasCallStack => Results -> Action a -> (a, Results, [ActionFlat])
-runActionCustomResults results action = Rws.runRWS (runActionRws action) () results
+runActionCustomResults results action = Rws.runRWS (runActionRws testProjectConfig action) () results
+
+runActionCustomConfig :: HasCallStack => Config.ProjectConfiguration -> Results -> Action a -> (a, [ActionFlat])
+runActionCustomConfig projectConfig results action = Rws.evalRWS (runActionRws projectConfig action) () results
 
 -- Simulates running the action with default results.
 runAction :: Action a -> (a, [ActionFlat])
@@ -546,8 +550,8 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as c82 behind 1 other PR, waiting for CI …"
 
         , AIsReviewer "deckard"
-        , ALeaveComment (PullRequestId 3) "Pull request approved for merge and deploy by @deckard, waiting for rebase behind 2 pull requests."
-        , ATryIntegrate "Merge #3: Another PR\n\nApproved-by: deckard\nAuto-deploy: true\n"
+        , ALeaveComment (PullRequestId 3) "Pull request approved for merge and deploy to staging by @deckard, waiting for rebase behind 2 pull requests."
+        , ATryIntegrate "Merge #3: Another PR\n\nApproved-by: deckard\nAuto-deploy: true\nDeploy-Environment: staging\n"
                         (PullRequestId 3, Branch "refs/pull/3/head", Sha "f16")
                         [PullRequestId 1, PullRequestId 2]
                         True
@@ -813,14 +817,57 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment prId "Pull request approved for merge and deploy by @deckard, rebasing now."
-        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\n"
+        , ALeaveComment prId "Pull request approved for merge and deploy to staging by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\nDeploy-Environment: staging\n"
                         (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] True
         , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr== Just (Approval (Username "deckard") Project.MergeAndDeploy 0))
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0))
+
+    it "recognizes 'merge and deploy to <environment>' commands as the proper ApprovedFor value" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge and deploy to production"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (state', actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge and deploy to production by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\nDeploy-Environment: production\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] True
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "production") 0))
+
+
+    it "ignores the 'deploy' in 'merge and deploy' commands when no deployEnvironments are configured " $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@bot merge and deploy"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (state', actions) = runActionCustomConfig (testProjectConfig{Config.deployEnvironments = Just []}) results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.Merge) 0))
 
     it "recognizes 'merge and deploy on Friday' commands as the proper ApprovedFor value" $ do
       let
@@ -834,14 +881,14 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment prId "Pull request approved for merge and deploy by @deckard, rebasing now."
-        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\n"
+        , ALeaveComment prId "Pull request approved for merge and deploy to staging by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\nDeploy-Environment: staging\n"
                         (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] True
         , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr== Just (Approval (Username "deckard") Project.MergeAndDeploy 0))
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0))
 
     it "recognizes 'merge and tag' command" $ do
       let
@@ -1027,7 +1074,7 @@ main = hspec $ do
 
       actions `shouldBe`
         [ AIsReviewer "deckard"
-        , ALeaveComment prId "Your merge request has been denied, because merging on Fridays is not recommended. To override this behaviour use the command `merge and deploy on Friday`."
+        , ALeaveComment prId "Your merge request has been denied, because merging on Fridays is not recommended. To override this behaviour use the command `merge and deploy to staging on Friday`."
         ]
 
     it "doesn't allow 'merge' command on Friday" $ do
@@ -1287,7 +1334,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approval            = Just (Approval "deckard" Project.MergeAndDeploy 0)
+          , Project.approval            = Just (Approval "deckard" (Project.MergeAndDeploy $ DeployEnvironment "staging") 0)
           , Project.integrationStatus   = Project.Integrated (Sha "38d") (Project.AnyCheck Project.BuildSucceeded)
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
