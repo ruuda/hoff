@@ -51,7 +51,7 @@ import qualified Metrics.Metrics as Metrics
 eventFromPullRequestPayload :: PullRequestPayload -> Logic.Event
 eventFromPullRequestPayload payload =
   let
-    number = payload.number
+    number = PullRequestId payload.number
     title  = payload.title
     author = payload.author
     branch = payload.branch
@@ -59,18 +59,18 @@ eventFromPullRequestPayload payload =
     baseBranch = Github.baseBranch (payload :: PullRequestPayload)
   in
     case payload.action of
-      Github.Opened      -> Logic.PullRequestOpened (PullRequestId number) branch baseBranch sha title author
-      Github.Reopened    -> Logic.PullRequestOpened (PullRequestId number) branch baseBranch sha title author
-      Github.Closed      -> Logic.PullRequestClosed (PullRequestId number)
-      Github.Synchronize -> Logic.PullRequestCommitChanged (PullRequestId number) sha
-      Github.Edited      -> Logic.PullRequestEdited (PullRequestId number) title baseBranch
+      Github.Opened      -> Logic.PullRequestOpened number branch baseBranch sha title author
+      Github.Reopened    -> Logic.PullRequestOpened number branch baseBranch sha title author
+      Github.Closed      -> Logic.PullRequestClosed number
+      Github.Synchronize -> Logic.PullRequestCommitChanged number sha
+      Github.Edited      -> Logic.PullRequestEdited number title baseBranch
 
 eventFromCommentPayload :: CommentPayload -> Maybe Logic.Event
 eventFromCommentPayload payload =
-  let number = payload.number
-      author = payload.author
+  let number = PullRequestId payload.number
+      author = payload.author -- TODO: Wrapper type
       body   = payload.body
-      commentAdded = Logic.CommentAdded (PullRequestId number) author body
+      commentAdded = Logic.CommentAdded number author body
   in case payload.action of
     Left Github.CommentCreated -> Just commentAdded
     Right Github.ReviewSubmitted -> Just commentAdded
