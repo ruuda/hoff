@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 -- Hoff -- A gatekeeper for your commits
 -- Copyright 2016 Ruud van Asseldonk
 --

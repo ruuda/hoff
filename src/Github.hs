@@ -8,7 +8,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 module Github
 (
@@ -31,7 +31,7 @@ import Control.Applicative ((<|>), optional)
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueue, writeTBQueue)
 import Control.Monad.STM (atomically)
 import Data.Aeson (FromJSON (parseJSON), Object, Value (Object, String), (.:))
-import Data.Aeson.Types (Parser, typeMismatch)
+import Data.Aeson.Types (Parser, Key, typeMismatch)
 import Data.Text (Text)
 import GHC.Natural (Natural)
 
@@ -125,7 +125,7 @@ instance FromJSON CommitStatus where
   parseJSON _                  = fail "unexpected status state"
 
 -- A helper function to parse nested fields in json.
-getNested :: FromJSON a => Object -> [Text] -> Parser a
+getNested :: FromJSON a => Object -> [Key] -> Parser a
 getNested rootObject fields =
   -- Build object parsers for every field except the last one. The last field is
   -- different, as it needs a parser of type "a", not "Object".
@@ -187,17 +187,17 @@ data WebhookEvent
 eventRepositoryOwner :: WebhookEvent -> Text
 eventRepositoryOwner event = case event of
   Ping                 -> error "ping event must not be processed"
-  PullRequest payload  -> owner (payload :: PullRequestPayload)
-  Comment payload      -> owner (payload :: CommentPayload)
-  CommitStatus payload -> owner (payload :: CommitStatusPayload)
+  PullRequest payload  -> payload.owner
+  Comment payload      -> payload.owner
+  CommitStatus payload -> payload.owner
 
 -- Returns the name of the repository for which the webhook was triggered.
 eventRepository :: WebhookEvent -> Text
 eventRepository event = case event of
   Ping                 -> error "ping event must not be processed"
-  PullRequest payload  -> repository (payload :: PullRequestPayload)
-  Comment payload      -> repository (payload :: CommentPayload)
-  CommitStatus payload -> repository (payload :: CommitStatusPayload)
+  PullRequest payload  -> payload.repository
+  Comment payload      -> payload.repository
+  CommitStatus payload -> payload.repository
 
 eventProjectInfo :: WebhookEvent -> ProjectInfo
 eventProjectInfo event =
