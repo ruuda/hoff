@@ -11,6 +11,7 @@ let
       pkgs.dpkg
       pkgs.git
       pkgs.haskellPackages.haskell-language-server
+      pkgs.haskellPackages.ghc # Needed for the language server
       pkgs.haskellPackages.stylish-haskell
       pkgs.niv
       pkgs.shellcheck

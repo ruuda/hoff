@@ -6,8 +6,8 @@
 -- A copy of the License has been included in the root of the repository.
 
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RankNTypes #-}
 
 module EventLoop
@@ -51,27 +51,27 @@ import qualified Metrics.Metrics as Metrics
 eventFromPullRequestPayload :: PullRequestPayload -> Logic.Event
 eventFromPullRequestPayload payload =
   let
-    number = Github.number (payload :: PullRequestPayload) -- TODO: Use PullRequestId wrapper from beginning.
-    title  = Github.title  (payload :: PullRequestPayload)
-    author = Github.author (payload :: PullRequestPayload)
-    branch = Github.branch (payload :: PullRequestPayload)
-    sha    = Github.sha    (payload :: PullRequestPayload)
+    number = PullRequestId payload.number
+    title  = payload.title
+    author = payload.author
+    branch = payload.branch
+    sha    = payload.sha
     baseBranch = Github.baseBranch (payload :: PullRequestPayload)
   in
-    case Github.action (payload :: PullRequestPayload) of
-      Github.Opened      -> Logic.PullRequestOpened (PullRequestId number) branch baseBranch sha title author
-      Github.Reopened    -> Logic.PullRequestOpened (PullRequestId number) branch baseBranch sha title author
-      Github.Closed      -> Logic.PullRequestClosed (PullRequestId number)
-      Github.Synchronize -> Logic.PullRequestCommitChanged (PullRequestId number) sha
-      Github.Edited      -> Logic.PullRequestEdited (PullRequestId number) title baseBranch
+    case payload.action of
+      Github.Opened      -> Logic.PullRequestOpened number branch baseBranch sha title author
+      Github.Reopened    -> Logic.PullRequestOpened number branch baseBranch sha title author
+      Github.Closed      -> Logic.PullRequestClosed number
+      Github.Synchronize -> Logic.PullRequestCommitChanged number sha
+      Github.Edited      -> Logic.PullRequestEdited number title baseBranch
 
 eventFromCommentPayload :: CommentPayload -> Maybe Logic.Event
 eventFromCommentPayload payload =
-  let number = Github.number (payload :: CommentPayload) -- TODO: Use PullRequestId wrapper from beginning.
-      author = Github.author (payload :: CommentPayload) -- TODO: Wrapper type
-      body   = Github.body   (payload :: CommentPayload)
-      commentAdded = Logic.CommentAdded (PullRequestId number) author body
-  in case Github.action (payload :: CommentPayload) of
+  let number = PullRequestId payload.number
+      author = payload.author -- TODO: Wrapper type
+      body   = payload.body
+      commentAdded = Logic.CommentAdded number author body
+  in case payload.action of
     Left Github.CommentCreated -> Just commentAdded
     Right Github.ReviewSubmitted -> Just commentAdded
     -- Do not bother with edited and deleted comments, as it would tremendously
@@ -91,10 +91,10 @@ mapCommitStatus status murl = case status of
 
 eventFromCommitStatusPayload :: CommitStatusPayload -> Logic.Event
 eventFromCommitStatusPayload payload =
-  let sha     = Github.sha     (payload :: CommitStatusPayload)
-      status  = Github.status  (payload :: CommitStatusPayload)
-      url     = Github.url     (payload :: CommitStatusPayload)
-      context = Github.context (payload :: CommitStatusPayload)
+  let sha     = payload.sha
+      status  = payload.status
+      url     = payload.url
+      context = payload.context
   in  Logic.BuildStatusChanged sha context (mapCommitStatus status url)
 
 convertGithubEvent :: Github.WebhookEvent -> Maybe Logic.Event

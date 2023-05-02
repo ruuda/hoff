@@ -1,4 +1,5 @@
--- Hofww
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+-- Hoff
 -- A gatekeeper for your commits
 -- Copyright 2016 Ruud van Asseldonk
 --
@@ -9,6 +10,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TupleSections #-}
 
 import Control.Monad.Free (foldFree)
@@ -1630,25 +1632,16 @@ main = hspec $ do
       let maybePayload :: Maybe PullRequestPayload
           maybePayload = decode examplePayload
       maybePayload `shouldSatisfy` isJust
-      let payload    = fromJust maybePayload
-          action     = Github.action     (payload :: PullRequestPayload)
-          owner      = Github.owner      (payload :: PullRequestPayload)
-          repository = Github.repository (payload :: PullRequestPayload)
-          number     = Github.number     (payload :: PullRequestPayload)
-          headSha    = Github.sha        (payload :: PullRequestPayload)
-          title      = Github.title      (payload :: PullRequestPayload)
-          prAuthor   = Github.author     (payload :: PullRequestPayload)
-          prBranch   = Github.branch     (payload :: PullRequestPayload)
-          baseBranch = Github.baseBranch (payload :: PullRequestPayload)
-      action     `shouldBe` Github.Opened
-      owner      `shouldBe` "baxterthehacker"
-      repository `shouldBe` "public-repo"
-      number     `shouldBe` 1
-      headSha    `shouldBe` (Sha "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c")
-      prBranch   `shouldBe` (Branch "changes")
-      baseBranch `shouldBe` masterBranch
-      title      `shouldBe` "Update the README with new information"
-      prAuthor   `shouldBe` "baxterthehacker2"
+      let payload       = fromJust maybePayload
+      payload.action     `shouldBe` Github.Opened
+      payload.owner      `shouldBe` "baxterthehacker"
+      payload.repository `shouldBe` "public-repo"
+      payload.number     `shouldBe` 1
+      payload.sha        `shouldBe` (Sha "0d1a26e67d8f5eaf1f6ba5c57fc3c7d91ac0fd1c")
+      payload.branch     `shouldBe` (Branch "changes")
+      payload.baseBranch `shouldBe` masterBranch
+      payload.title      `shouldBe` "Update the README with new information"
+      payload.author     `shouldBe` "baxterthehacker2"
 
 
     it "parses a CommentPayload from a created issue_comment correctly" $ do
@@ -1657,18 +1650,12 @@ main = hspec $ do
           maybePayload = decode examplePayload
       maybePayload `shouldSatisfy` isJust
       let payload       = fromJust maybePayload
-          action        = Github.action     (payload :: CommentPayload)
-          owner         = Github.owner      (payload :: CommentPayload)
-          repository    = Github.repository (payload :: CommentPayload)
-          number        = Github.number     (payload :: CommentPayload)
-          commentAuthor = Github.author     (payload :: CommentPayload)
-          commentBody   = Github.body       (payload :: CommentPayload)
-      action        `shouldBe` Left Github.CommentCreated
-      owner         `shouldBe` "baxterthehacker"
-      repository    `shouldBe` "public-repo"
-      number        `shouldBe` 2
-      commentAuthor `shouldBe` "baxterthehacker2"
-      commentBody   `shouldBe` "You are totally right! I'll get this fixed right away."
+      payload.action        `shouldBe` Left Github.CommentCreated
+      payload.owner         `shouldBe` "baxterthehacker"
+      payload.repository    `shouldBe` "public-repo"
+      payload.number        `shouldBe` 2
+      payload.author        `shouldBe` "baxterthehacker2"
+      payload.body          `shouldBe` "You are totally right! I'll get this fixed right away."
 
     it "parses a CommentPayload from an edited issue_comment correctly" $ do
       examplePayload <- readFile "tests/data/issue-comment-edited-payload.json"
@@ -1676,18 +1663,12 @@ main = hspec $ do
           maybePayload = decode examplePayload
       maybePayload `shouldSatisfy` isJust
       let payload       = fromJust maybePayload
-          action        = Github.action     (payload :: CommentPayload)
-          owner         = Github.owner      (payload :: CommentPayload)
-          repository    = Github.repository (payload :: CommentPayload)
-          number        = Github.number     (payload :: CommentPayload)
-          commentAuthor = Github.author     (payload :: CommentPayload)
-          commentBody   = Github.body       (payload :: CommentPayload)
-      action        `shouldBe` Left Github.CommentEdited
-      owner         `shouldBe` "crtschin"
-      repository    `shouldBe` "test"
-      number        `shouldBe` 1
-      commentAuthor `shouldBe` "crtschin"
-      commentBody   `shouldBe` "This is an edit of a comment on the issue page."
+      payload.action        `shouldBe` Left Github.CommentEdited
+      payload.owner         `shouldBe` "crtschin"
+      payload.repository    `shouldBe` "test"
+      payload.number        `shouldBe` 1
+      payload.author        `shouldBe` "crtschin"
+      payload.body          `shouldBe` "This is an edit of a comment on the issue page."
 
     it "parses a CommentPayload from a submitted pull_request_review correctly" $ do
       examplePayload <- readFile "tests/data/pull-request-review-submitted-payload.json"
@@ -1695,18 +1676,12 @@ main = hspec $ do
           maybePayload = decode examplePayload
       maybePayload `shouldSatisfy` isJust
       let payload       = fromJust maybePayload
-          action        = Github.action     (payload :: CommentPayload)
-          owner         = Github.owner      (payload :: CommentPayload)
-          repository    = Github.repository (payload :: CommentPayload)
-          number        = Github.number     (payload :: CommentPayload)
-          commentAuthor = Github.author     (payload :: CommentPayload)
-          commentBody   = Github.body       (payload :: CommentPayload)
-      action        `shouldBe` Right Github.ReviewSubmitted
-      owner         `shouldBe` "crtschin"
-      repository    `shouldBe` "test"
-      number        `shouldBe` 1
-      commentAuthor `shouldBe` "crtschin"
-      commentBody   `shouldBe` "This is the finalization comment on the pull request review page."
+      payload.action        `shouldBe` Right Github.ReviewSubmitted
+      payload.owner         `shouldBe` "crtschin"
+      payload.repository    `shouldBe` "test"
+      payload.number        `shouldBe` 1
+      payload.author        `shouldBe` "crtschin"
+      payload.body          `shouldBe` "This is the finalization comment on the pull request review page."
 
     it "parses a CommentPayload from a edited pull_request_review correctly" $ do
       examplePayload <- readFile "tests/data/pull-request-review-edited-payload.json"
@@ -1714,18 +1689,12 @@ main = hspec $ do
           maybePayload = decode examplePayload
       maybePayload `shouldSatisfy` isJust
       let payload       = fromJust maybePayload
-          action        = Github.action     (payload :: CommentPayload)
-          owner         = Github.owner      (payload :: CommentPayload)
-          repository    = Github.repository (payload :: CommentPayload)
-          number        = Github.number     (payload :: CommentPayload)
-          commentAuthor = Github.author     (payload :: CommentPayload)
-          commentBody   = Github.body       (payload :: CommentPayload)
-      action        `shouldBe` Right Github.ReviewEdited
-      owner         `shouldBe` "crtschin"
-      repository    `shouldBe` "test"
-      number        `shouldBe` 1
-      commentAuthor `shouldBe` "crtschin"
-      commentBody   `shouldBe` "This is an edit of the finalization comment of the review on the issue page."
+      payload.action        `shouldBe` Right Github.ReviewEdited
+      payload.owner         `shouldBe` "crtschin"
+      payload.repository    `shouldBe` "test"
+      payload.number        `shouldBe` 1
+      payload.author        `shouldBe` "crtschin"
+      payload.body          `shouldBe` "This is an edit of the finalization comment of the review on the issue page."
 
     it "parses a CommitStatusPayload correctly" $ do
       examplePayload <- readFile "tests/data/status-payload.json"
@@ -1733,16 +1702,11 @@ main = hspec $ do
           maybePayload = decode examplePayload
       maybePayload `shouldSatisfy` isJust
       let payload       = fromJust maybePayload
-          owner         = Github.owner      (payload :: CommitStatusPayload)
-          repository    = Github.repository (payload :: CommitStatusPayload)
-          status        = Github.status     (payload :: CommitStatusPayload)
-          url           = Github.url        (payload :: CommitStatusPayload)
-          commitSha     = Github.sha        (payload :: CommitStatusPayload)
-      owner      `shouldBe` "baxterthehacker"
-      repository `shouldBe` "public-repo"
-      status     `shouldBe` Github.Success
-      url        `shouldBe` Nothing
-      commitSha  `shouldBe` (Sha "9049f1265b7d61be4a8904a9a27120d2064dab3b")
+      payload.owner      `shouldBe` "baxterthehacker"
+      payload.repository `shouldBe` "public-repo"
+      payload.status     `shouldBe` Github.Success
+      payload.url        `shouldBe` Nothing
+      payload.sha        `shouldBe` (Sha "9049f1265b7d61be4a8904a9a27120d2064dab3b")
 
   describe "Configuration" $ do
 

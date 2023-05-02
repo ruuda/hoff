@@ -3,7 +3,7 @@
 # Via nix (see `nix.shell-file` down below), we provide a GHC that comes
 # with all the packages we need. Therefore, stack does not have to
 # download or build any snapshot packages, they all come directly from nixpkgs.
-resolver: ghc-8.10
+resolver: ghc-9.2
 
 # This makes stack pick up our nix environment for building by default.
 nix:
