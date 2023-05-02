@@ -9,9 +9,9 @@ makes the application work well with systemd.
 
 ## Building a package
 
-Enter an environment with development dependencies available throuhg [Nix][nix]:
+Enter an environment with development dependencies available through [Nix][nix]:
 
-    $ nix run --command $SHELL
+    $ nix shell --file default.nix
 
 There is a script to build a Debian package:
 

@@ -86,7 +86,7 @@ Give it a 7 days expiration and access to just "repo"s.
 If using Nix, you may get a `ssh: command not found` error
 -- just pass `--no-nix-pure` to `stack exec` to avoid it:
 
-    $ nix run -c stack exec hoff config.json --no-nix-pure
+    $ nix shell --file default.nix -c stack exec hoff config.json --no-nix-pure
 
 Hoff also comes with an `.envrc` file that can be used by direnv. You have to run
 `direnv allow` once to give permission. From then on you will always be in the right
@@ -115,7 +115,7 @@ The tests of Hoff are extensive, you may be able to get by just by running them
 when making changes to the code.  To run a specific test, use `--match` giving
 part of the test title:
 
-	$ nix run -c stack test --ta '--match "part of the test title"'
+	$ nix shell --file default.nix -c stack test --ta '--match "part of the test title"'
 
 The implementation uses free monads and some of the tests replace lower level
 functionality with mocks.
