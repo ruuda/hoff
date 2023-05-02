@@ -14,10 +14,10 @@ haskellPackages: with haskellPackages; [
   containers
   cryptonite
   directory
+  effectful
   extra
   file-embed
   filepath
-  free
   generic-arbitrary
   github
   hspec

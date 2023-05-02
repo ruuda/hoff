@@ -45,10 +45,10 @@ library
                , containers
                , cryptonite
                , directory
+               , effectful
                , extra
                , file-embed
                , filepath
-               , free
                , github
                , http-client
                , http-types
