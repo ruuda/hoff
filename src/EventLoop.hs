@@ -5,10 +5,13 @@
 -- you may not use this file except in compliance with the License.
 -- A copy of the License has been included in the root of the repository.
 
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeOperators #-}
 
 module EventLoop
 (
@@ -20,7 +23,6 @@ where
 
 import Control.Concurrent.STM.TBQueue
 import Control.Monad (when)
-import Control.Monad.Free (foldFree)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN)
 import Control.Monad.STM (atomically)
@@ -30,15 +32,15 @@ import Data.Either (fromRight)
 import Data.Foldable (traverse_)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8')
-import Prometheus (MonadMonitor)
+import Effectful (Eff, (:>))
 import qualified Data.Text as Text
 
 import Configuration (ProjectConfiguration, TriggerConfiguration, MergeWindowExemptionConfiguration)
 import Github (PullRequestPayload, CommentPayload, CommitStatusPayload, WebhookEvent (..))
 import Github (eventProjectInfo)
+import MonadLoggerEffect (MonadLoggerEffect)
 import Project (ProjectInfo (..), ProjectState, PullRequestId (..))
-import Time ( TimeOperationFree )
-import Sum (runSum)
+import Time ( TimeOperation )
 
 import qualified Configuration as Config
 import qualified Git
@@ -122,33 +124,30 @@ runGithubEventLoop ghQueue enqueueEvent = runLoop
       runLoop
 
 runLogicEventLoop
-  :: MonadIO m
-  => MonadLogger m
-  => MonadMonitor m
+  :: forall es
+  .  MonadLoggerEffect :> es
   => TriggerConfiguration
   -> ProjectConfiguration
   -> MergeWindowExemptionConfiguration
   -- Interpreters for Git and GitHub actions.
-  -> (forall a. Metrics.MetricsOperationFree a -> m a)
-  -> (forall a. Time.TimeOperationFree a -> m a)
-  -> (forall a. Git.GitOperationFree a -> m a)
-  -> (forall a. GithubApi.GithubOperationFree a -> m a)
+  -> (forall a es1. Eff (Metrics.MetricsOperation : es1) a -> Eff es1 a)
+  -> (forall a es1. Eff (Time.TimeOperation : es1) a -> Eff es1 a)
+  -> (forall a es1. Eff (Git.GitOperation : es1) a -> Eff es1 a)
+  -> (forall a es1. Eff (GithubApi.GithubOperation : es1) a -> Eff es1 a)
   -- Action that gets the next event from the queue.
-  -> m (Maybe Logic.Event)
+  -> (forall es1 . Eff es1 (Maybe Logic.Event))
   -- Action to perform after the state has changed, such as
   -- persisting the new state, and making it available to the
   -- webinterface.
-  -> (ProjectState -> m ())
+  -> (forall es1 . ProjectState -> Eff es1 ())
   -> ProjectState
-  -> m ProjectState
+  -> Eff es ProjectState
 runLogicEventLoop
   triggerConfig projectConfig mergeWindowExemptionConfig
   runMetrics runTime runGit runGithub
   getNextEvent publish initialState =
   let
     repo             = Config.repository projectConfig
-    runAll           = foldFree (runSum (runSum runMetrics runTime) (runSum runGit runGithub))
-    runAction        = foldFree (runSum (Logic.runBaseAction projectConfig) (Logic.runRetrieveEnvironment projectConfig))
     showState state' = fromRight (showText state') $ decodeUtf8' $ toStrict $ encode state'
     handleAndContinue state0 event = do
       -- Handle the event and then perform any additional required actions until
@@ -156,7 +155,7 @@ runLogicEventLoop
       -- perform).
       logInfoN  $ "logic loop received event (" <> repo <> "): " <> showText event
       logDebugN $ "state before (" <> repo <> "): " <> showState state0
-      state1 <- runAll $ runAction $
+      state1 <-
         Logic.handleEvent triggerConfig mergeWindowExemptionConfig event state0
       publish state1
       logDebugN $ "state after (" <> repo <> "): " <> showState state1
@@ -164,7 +163,7 @@ runLogicEventLoop
 
     runLoop state = do
       -- Before anything, clone the repository if there is no clone.
-      foldFree runGit $ Logic.ensureCloned projectConfig
+      Logic.ensureCloned projectConfig
       -- Take one event off the queue, block if there is none.
       eventOrStopSignal <- getNextEvent
       -- Queue items are of type 'Maybe Event'; 'Nothing' signals loop
@@ -174,7 +173,13 @@ runLogicEventLoop
         Nothing    -> return state
 
   in
-    runLoop initialState
+    runMetrics $
+      runGit $
+      runGithub $
+      runTime $
+      Logic.runBaseAction projectConfig $
+      Logic.runRetrieveEnvironment projectConfig $
+      runLoop initialState
 
 showText :: Show a => a -> Text
 showText  =  Text.pack . show

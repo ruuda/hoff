@@ -5,28 +5,28 @@
 -- you may not use this file except in compliance with the License.
 -- A copy of the License has been included in the root of the repository.
 
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module Logic
 (
-  Action,
+  -- Action,
   BaseAction,
-  BaseActionFree (..),
   Event (..),
   EventQueue,
   IntegrationFailure (..),
   StateVar,
   RetrieveEnvironment,
-  RetrieveEnvironmentFree (..),
   dequeueEvent,
-  doBaseAction,
   enqueueEvent,
   enqueueStopSignal,
   ensureCloned,
@@ -46,11 +46,9 @@ import Control.Concurrent.STM.TBQueue (TBQueue, newTBQueue, readTBQueue, writeTB
 import Control.Concurrent.STM.TMVar (TMVar, newTMVarIO, readTMVar, swapTMVar)
 import Control.Exception (assert)
 import Control.Monad (foldM, unless, void, when, (>=>))
-import Control.Monad.Free (Free (..), hoistFree, liftF)
 import Control.Monad.STM (atomically)
 import Data.Bifunctor (first)
 import Data.Either.Extra (maybeToEither)
-import Data.Functor.Sum (Sum (InL, InR))
 import Data.IntSet (IntSet)
 import Data.Maybe (fromJust, isJust, listToMaybe, fromMaybe)
 import Data.Text (Text)
@@ -68,17 +66,19 @@ import qualified Data.Text.Read as Text
 import Data.Time (UTCTime, DayOfWeek (Friday), dayOfWeek, utctDay)
 
 import Configuration (ProjectConfiguration (owner, repository, deployEnvironments), TriggerConfiguration, MergeWindowExemptionConfiguration)
+import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, (:>))
+import Effectful.Dispatch.Dynamic (interpret, send)
 import Format (format)
-import Git (Branch (..), BaseBranch (..), GitOperation, GitOperationFree, PushResult (..),
+import Git (Branch (..), BaseBranch (..), GitOperation, PushResult (..),
             GitIntegrationFailure (..), Sha (..), SomeRefSpec (..), TagMessage (..), TagName (..),
             TagResult (..), Context)
 
-import GithubApi (GithubOperation, GithubOperationFree)
-import Metrics.Metrics (MetricsOperationFree, MetricsOperation, increaseMergedPRTotal, updateTrainSizeGauge)
+import GithubApi (GithubOperation)
+import Metrics.Metrics (MetricsOperation, increaseMergedPRTotal, updateTrainSizeGauge)
 import Project (Approval (..), ApprovedFor (..), BuildStatus (..), Check (..), DeployEnvironment (..), IntegrationStatus (..),
                 MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..),
                 summarize, supersedes)
-import Time (TimeOperation, TimeOperationFree)
+import Time (TimeOperation)
 import Types (PullRequestId (..), Username (..))
 
 import qualified Configuration as Config
@@ -91,150 +91,125 @@ import qualified Time
 -- actually be translated into actions, whereas RetrieveEnvironment is more focused
 -- on getting values from the context we're in. Some things could still be moved around
 -- though.
-data BaseActionFree a
-  = TryIntegrate
+data BaseAction :: Effect where
     -- This is a record type, but the names are currently only used for documentation.
+  TryIntegrate ::
     { _mergeCommitMessage   :: Text
     , _integrationCandidate :: (PullRequestId, Branch, Sha)
     , _train                :: [PullRequestId]
     , _alwaysAddMergeCommit :: Bool
-    , _cont                 :: Either IntegrationFailure Sha -> a
-    }
-  | TryPromote Branch Sha (PushResult -> a)
-  | TryPromoteWithTag Branch Sha TagName TagMessage (PushWithTagResult -> a)
-  | CleanupTestBranch PullRequestId a
-  | LeaveComment PullRequestId Text a
-  | IsReviewer Username (Bool -> a)
-  | GetPullRequest PullRequestId (Maybe GithubApi.PullRequest -> a)
-  | GetOpenPullRequests (Maybe IntSet -> a)
-  | GetLatestVersion Sha (Either TagName Integer -> a)
-  | GetChangelog TagName Sha (Maybe Text -> a)
-  | IncreaseMergeMetric a
-  | UpdateTrainSizeMetric Int a
-  deriving (Functor)
+    } -> BaseAction m (Either IntegrationFailure Sha)
+  TryPromote :: Branch -> Sha -> BaseAction m PushResult
+  TryPromoteWithTag :: Branch -> Sha -> TagName -> TagMessage -> BaseAction m PushWithTagResult
+  CleanupTestBranch :: PullRequestId -> BaseAction m ()
+  LeaveComment :: PullRequestId -> Text -> BaseAction m ()
+  IsReviewer :: Username -> BaseAction m Bool
+  GetPullRequest :: PullRequestId -> BaseAction m (Maybe GithubApi.PullRequest)
+  GetOpenPullRequests :: BaseAction m (Maybe IntSet)
+  GetLatestVersion :: Sha -> BaseAction m (Either TagName Integer)
+  GetChangelog :: TagName -> Sha -> BaseAction m (Maybe Text)
+  IncreaseMergeMetric :: BaseAction m ()
+  UpdateTrainSizeMetric :: Int -> BaseAction m ()
 
-data RetrieveEnvironmentFree a
-  = GetProjectConfig (ProjectConfiguration -> a)
-  | GetDateTime (UTCTime -> a)
-  | GetBaseBranch (BaseBranch -> a)
-  deriving (Functor)
+type instance DispatchOf BaseAction = 'Dynamic
 
-type BaseAction = Free BaseActionFree
-type RetrieveEnvironment = Free RetrieveEnvironmentFree
+data RetrieveEnvironment :: Effect where
+  GetProjectConfig :: RetrieveEnvironment m ProjectConfiguration
+  GetDateTime :: RetrieveEnvironment m UTCTime
+  GetBaseBranch :: RetrieveEnvironment m BaseBranch
 
--- | The actions represented here will be tranformed into a lower-level type of actions,
--- embodied in the Operation monad.
-type Action = Free (Sum BaseActionFree RetrieveEnvironmentFree)
-
-type Operation = Free (Sum
-                        (Sum
-                          MetricsOperationFree
-                          TimeOperationFree)
-                        (Sum
-                          GitOperationFree
-                          GithubOperationFree))
+type instance DispatchOf RetrieveEnvironment = 'Dynamic
 
 data PRCloseCause =
       User            -- ^ The user closed the PR.
     | StopIntegration -- ^ We close and reopen the PR internally to stop its integration if it is approved.
   deriving Show
 
-doBaseAction :: BaseAction a -> Action a
-doBaseAction = hoistFree InL
-
-doEnvironment :: RetrieveEnvironment a -> Action a
-doEnvironment = hoistFree InR
-
-liftAction :: BaseActionFree a -> Action a
-liftAction = doBaseAction . liftF
-
-liftEnvironment :: RetrieveEnvironmentFree a -> Action a
-liftEnvironment = doEnvironment . liftF
-
-doTime :: TimeOperation a -> Operation a
-doTime = hoistFree (InL . InR)
-
-doGit :: GitOperation a -> Operation a
-doGit = hoistFree (InR . InL)
-
-doGithub :: GithubOperation a -> Operation a
-doGithub = hoistFree (InR . InR)
-
-doMetrics :: MetricsOperation a -> Operation a
-doMetrics = hoistFree (InL . InL)
-
 type PushWithTagResult = (Either Text TagName, PushResult)
 
 -- | Error returned when 'TryIntegrate' fails.
 -- It contains the name of the target branch that the PR was supposed to be integrated into.
-
 data IntegrationFailure = IntegrationFailure BaseBranch GitIntegrationFailure
 
-tryIntegrate :: Text -> (PullRequestId, Branch, Sha) -> [PullRequestId] -> Bool -> Action (Either IntegrationFailure Sha)
-tryIntegrate mergeMessage candidate train alwaysAddMergeCommit = liftAction $ TryIntegrate mergeMessage candidate train alwaysAddMergeCommit id
+tryIntegrate
+  :: BaseAction :> es
+  => Text
+  -> (PullRequestId, Branch, Sha)
+  -> [PullRequestId]
+  -> Bool
+  -> Eff es (Either IntegrationFailure Sha)
+tryIntegrate mergeMessage candidate train alwaysAddMergeCommit =
+  send $ TryIntegrate mergeMessage candidate train alwaysAddMergeCommit
 
 -- | Try to fast-forward the remote target branch (usually master) to the new sha.
 -- Before doing so, force-push that SHA to the pull request branch, and after
 -- success, delete the pull request branch. These steps ensure that Github marks
 -- the pull request as merged, rather than closed.
-tryPromote :: Branch -> Sha -> Action PushResult
-tryPromote prBranch newHead = liftAction $ TryPromote prBranch newHead id
+tryPromote :: BaseAction :> es => Branch -> Sha -> Eff es PushResult
+tryPromote prBranch newHead = send $ TryPromote prBranch newHead
 
-tryPromoteWithTag :: Branch -> Sha -> TagName -> TagMessage -> Action PushWithTagResult
+tryPromoteWithTag :: BaseAction :> es => Branch -> Sha -> TagName -> TagMessage -> Eff es PushWithTagResult
 tryPromoteWithTag prBranch newHead tagName tagMessage =
-  liftAction $ TryPromoteWithTag prBranch newHead tagName tagMessage id
+  send $ TryPromoteWithTag prBranch newHead tagName tagMessage
 
-cleanupTestBranch :: PullRequestId -> Action ()
-cleanupTestBranch pullRequestId = liftAction $ CleanupTestBranch pullRequestId ()
+cleanupTestBranch :: BaseAction :> es => PullRequestId -> Eff es ()
+cleanupTestBranch pullRequestId = send $ CleanupTestBranch pullRequestId
 
 -- | Leave a comment on the given pull request.
-leaveComment :: PullRequestId -> Text -> Action ()
-leaveComment pr body = liftAction $ LeaveComment pr body ()
+leaveComment :: BaseAction :> es => PullRequestId -> Text -> Eff es ()
+leaveComment pr body = send $ LeaveComment pr body
 
 -- | Check if this user is allowed to issue merge commands.
-isReviewer :: Username -> Action Bool
-isReviewer username = liftAction $ IsReviewer username id
+isReviewer :: BaseAction :> es => Username -> Eff es Bool
+isReviewer username = send $ IsReviewer username
 
-getPullRequest :: PullRequestId -> Action (Maybe GithubApi.PullRequest)
-getPullRequest pr = liftAction $ GetPullRequest pr id
+getPullRequest :: BaseAction :> es => PullRequestId -> Eff es (Maybe GithubApi.PullRequest)
+getPullRequest pr = send $ GetPullRequest pr
 
-getOpenPullRequests :: Action (Maybe IntSet)
-getOpenPullRequests = liftAction $ GetOpenPullRequests id
+getOpenPullRequests :: BaseAction :> es => Eff es (Maybe IntSet)
+getOpenPullRequests = send GetOpenPullRequests
 
-getLatestVersion :: Sha -> Action (Either TagName Integer)
-getLatestVersion sha = liftAction $ GetLatestVersion sha id
+getLatestVersion :: BaseAction :> es => Sha -> Eff es (Either TagName Integer)
+getLatestVersion sha = send $ GetLatestVersion sha
 
-getChangelog :: TagName -> Sha -> Action (Maybe Text)
-getChangelog prevTag curHead = liftAction $ GetChangelog prevTag curHead id
+getChangelog :: BaseAction :> es => TagName -> Sha -> Eff es (Maybe Text)
+getChangelog prevTag curHead = send $ GetChangelog prevTag curHead
 
-getDateTime :: Action UTCTime
-getDateTime = liftEnvironment $ GetDateTime id
+getDateTime :: RetrieveEnvironment :> es => Eff es UTCTime
+getDateTime = send GetDateTime
 
-getBaseBranch :: Action BaseBranch
-getBaseBranch = liftEnvironment $ GetBaseBranch id
+getBaseBranch :: RetrieveEnvironment :> es => Eff es BaseBranch
+getBaseBranch = send GetBaseBranch
 
-getProjectConfig :: Action ProjectConfiguration
-getProjectConfig = liftEnvironment $ GetProjectConfig id
+getProjectConfig :: RetrieveEnvironment :> es => Eff es ProjectConfiguration
+getProjectConfig = send GetProjectConfig
 
-registerMergedPR :: Action ()
-registerMergedPR = liftAction $ IncreaseMergeMetric ()
+registerMergedPR :: BaseAction :> es => Eff es ()
+registerMergedPR = send IncreaseMergeMetric
 
-triggerTrainSizeUpdate :: ProjectState -> Action ()
+triggerTrainSizeUpdate :: BaseAction :> es => ProjectState -> Eff es ()
 triggerTrainSizeUpdate projectState = do
   let n = IntMap.size $ IntMap.filter Pr.isInProgress (Pr.pullRequests projectState)
-  liftAction $ UpdateTrainSizeMetric n ()
+  send $ UpdateTrainSizeMetric n
 
 -- | Interpreter that translates high-level actions into more low-level ones.
-runBaseAction :: ProjectConfiguration -> BaseActionFree a -> Operation a
+runBaseAction
+  :: MetricsOperation :> es
+  => GitOperation :> es
+  => GithubOperation :> es
+  => TimeOperation :> es
+  => ProjectConfiguration
+  -> Eff (BaseAction : es) a
+  -> Eff es a
 runBaseAction config =
-  let pushDelayMicroseconds = 2 * 1_000_000
-   in \case
-    TryIntegrate message (pr, ref, sha) train alwaysAddMergeCommit cont -> do
-      doGit $ ensureCloned config
+  let pushDelayMicroseconds :: Int = 2 * 1_000_000
+   in interpret $ \_ -> \case
+    TryIntegrate message (pr, ref, sha) train alwaysAddMergeCommit -> do
+      ensureCloned config
 
       let targetBranch = fromMaybe (Git.Branch $ Config.branch config) (trainBranch train)
 
-      shaOrFailed <- doGit $ Git.tryIntegrate
+      shaOrFailed <- Git.tryIntegrate
         message
         ref
         sha
@@ -243,90 +218,84 @@ runBaseAction config =
         alwaysAddMergeCommit
 
       case shaOrFailed of
-        Left failure -> pure $ cont $ Left $ IntegrationFailure (Git.toBaseBranch targetBranch) failure
-        Right integratedSha -> pure $ cont $ Right integratedSha
-    TryPromote prBranch sha cont -> do
-      doGit $ ensureCloned config
-      forcePushResult <- doGit $ Git.forcePush sha prBranch
+        Left failure -> pure $ Left $ IntegrationFailure (Git.toBaseBranch targetBranch) failure
+        Right integratedSha -> pure $ Right integratedSha
+    TryPromote prBranch sha -> do
+      ensureCloned config
+      forcePushResult <- Git.forcePush sha prBranch
       case forcePushResult of
-        PushRejected _ -> pure $ cont forcePushResult
+        PushRejected _ -> pure forcePushResult
         PushOk -> do
           -- TODO: Find a safer way to make sure Github doesn't get confused
           -- by 2 pushes close together, the delay is all arbitrary and not nice.
           -- See https://github.com/channable/hoff/issues/196
-          doTime $ Time.sleepMicros pushDelayMicroseconds
-          pushResult <- doGit $ Git.push sha (Git.Branch $ Config.branch config)
-          pure $ cont pushResult
+          Time.sleepMicros pushDelayMicroseconds
+          Git.push sha (Git.Branch $ Config.branch config)
 
-    TryPromoteWithTag prBranch sha newTagName newTagMessage cont -> do
-      doGit $ ensureCloned config
-      forcePushResult <- doGit $ Git.forcePush sha prBranch
+    TryPromoteWithTag prBranch sha newTagName newTagMessage -> do
+      ensureCloned config
+      forcePushResult <- Git.forcePush sha prBranch
       case forcePushResult of
-        PushRejected err -> pure $ cont (Left err, forcePushResult)
+        PushRejected err -> pure (Left err, forcePushResult)
         PushOk -> do
           -- TODO: Find a safer way to make sure Github doesn't get confused
           -- by 2 pushes close together, the delay is all arbitrary and not nice.
           -- See https://github.com/channable/hoff/issues/196
-          doTime $ Time.sleepMicros pushDelayMicroseconds
-          tagResult <- doGit $ Git.tag sha newTagName newTagMessage
+          Time.sleepMicros pushDelayMicroseconds
+          tagResult <- Git.tag sha newTagName newTagMessage
           case tagResult of
             TagFailed _ -> do
-              pushResult <- doGit $ Git.push sha (Git.Branch $ Config.branch config)
-              pure $ cont (Left "Please check the logs", pushResult)
+              pushResult <- Git.push sha (Git.Branch $ Config.branch config)
+              pure (Left "Please check the logs", pushResult)
             TagOk tagName -> do
-              atomicPushResult <- doGit $ Git.pushAtomic [AsRefSpec tagName, AsRefSpec (sha, Git.Branch $ Config.branch config)]
-              doGit $ Git.deleteTag tagName
-              pure $ cont (Right tagName, atomicPushResult)
+              atomicPushResult <- Git.pushAtomic [AsRefSpec tagName, AsRefSpec (sha, Git.Branch $ Config.branch config)]
+              Git.deleteTag tagName
+              pure (Right tagName, atomicPushResult)
               -- Deleting tag after atomic push is important to maintain one "source of truth", namely
               -- the origin
 
-    CleanupTestBranch pr cont -> do
+    CleanupTestBranch pr -> do
       let branch = testBranch config pr
-      doGit $ Git.deleteBranch branch
-      _ <- doGit $ Git.deleteRemoteBranch branch
-      pure cont
+      Git.deleteBranch branch
+      void $ Git.deleteRemoteBranch branch
 
-    LeaveComment pr body cont -> do
-      doGithub $ GithubApi.leaveComment pr body
-      pure cont
+    LeaveComment pr body -> do
+      GithubApi.leaveComment pr body
 
-    IsReviewer username cont -> do
-      hasPushAccess <- doGithub $ GithubApi.hasPushAccess username
-      pure $ cont hasPushAccess
+    IsReviewer username -> do
+      GithubApi.hasPushAccess username
 
-    GetPullRequest pr cont -> do
-      details <- doGithub $ GithubApi.getPullRequest pr
-      pure $ cont details
+    GetPullRequest pr -> do
+      GithubApi.getPullRequest pr
 
-    GetOpenPullRequests cont -> do
-      openPrIds <- doGithub GithubApi.getOpenPullRequests
-      pure $ cont openPrIds
+    GetOpenPullRequests -> do
+      GithubApi.getOpenPullRequests
 
-    GetLatestVersion sha cont -> doGit $ do
+    GetLatestVersion sha -> do
       Git.fetchBranchWithTags $ Branch (Config.branch config)
-      cont . maybe (Right 0) (\t -> maybeToEither t $ parseVersion t) <$> Git.lastTag sha
+      maybe (Right 0) (\t -> maybeToEither t $ parseVersion t) <$> Git.lastTag sha
 
-    GetChangelog prevTag curHead cont -> doGit $
-      cont <$> Git.shortlog (AsRefSpec prevTag) (AsRefSpec curHead)
+    GetChangelog prevTag curHead ->
+      Git.shortlog (AsRefSpec prevTag) (AsRefSpec curHead)
 
-    IncreaseMergeMetric cont -> doMetrics $ cont <$ increaseMergedPRTotal
+    IncreaseMergeMetric -> increaseMergedPRTotal
 
-    UpdateTrainSizeMetric n cont -> doMetrics $ cont <$ updateTrainSizeGauge n
+    UpdateTrainSizeMetric n -> updateTrainSizeGauge n
 
   where
     trainBranch :: [PullRequestId] -> Maybe Git.Branch
     trainBranch [] = Nothing
     trainBranch train = Just $ last [testBranch config pr | pr <- train]
 
-runRetrieveEnvironment :: ProjectConfiguration -> RetrieveEnvironmentFree a -> Operation a
-runRetrieveEnvironment config = \case
-    GetProjectConfig cont -> pure $ cont config
+runRetrieveEnvironment :: TimeOperation :> es => ProjectConfiguration -> Eff (RetrieveEnvironment : es) a -> Eff es a
+runRetrieveEnvironment config = interpret $ \_ -> \case
+    GetProjectConfig -> pure config
 
-    GetDateTime cont -> doTime $ cont <$> Time.getDateTime
+    GetDateTime -> Time.getDateTime
 
-    GetBaseBranch cont -> pure $ cont $ BaseBranch (Config.branch config)
+    GetBaseBranch -> pure $ BaseBranch (Config.branch config)
 
-ensureCloned :: ProjectConfiguration -> GitOperation ()
+ensureCloned :: GitOperation :> es => ProjectConfiguration -> Eff es ()
 ensureCloned config =
   let
     url = format "git@github.com:{}/{}.git" (Config.owner config, Config.repository config)
@@ -393,7 +362,7 @@ readStateVar :: StateVar -> IO ProjectState
 readStateVar var = atomically $ readTMVar var
 
 -- | Closes and opens a new PR with the same id. Useful for clearing approval and build status safely.
-clearPullRequest :: PullRequestId -> PullRequest -> ProjectState -> Action ProjectState
+clearPullRequest :: BaseAction :> es => PullRequestId -> PullRequest -> ProjectState -> Eff es ProjectState
 clearPullRequest prId pr state =
   let
     branch = Pr.branch pr
@@ -409,11 +378,13 @@ clearPullRequest prId pr state =
 -- of the event, we must also call `proceed` on the state until we reach a fixed
 -- point. This is handled by `handleEvent`.
 handleEventInternal
-  :: TriggerConfiguration
+  :: BaseAction :> es
+  => RetrieveEnvironment :> es
+  => TriggerConfiguration
   -> MergeWindowExemptionConfiguration
   -> Event
   -> ProjectState
-  -> Action ProjectState
+  -> Eff es ProjectState
 handleEventInternal triggerConfig mergeWindowExemption event = case event of
   PullRequestOpened pr branch baseBranch sha title author
     -> handlePullRequestOpened pr branch baseBranch sha title author
@@ -433,11 +404,16 @@ handlePullRequestOpened
   -> Text
   -> Username
   -> ProjectState
-  -> Action ProjectState
+  -> Eff es ProjectState
 handlePullRequestOpened pr branch baseBranch sha title author =
   return . Pr.insertPullRequest pr branch baseBranch sha title author
 
-handlePullRequestCommitChanged :: PullRequestId -> Sha -> ProjectState -> Action ProjectState
+handlePullRequestCommitChanged
+  :: BaseAction :> es
+  => PullRequestId
+  -> Sha
+  -> ProjectState
+  -> Eff es ProjectState
 handlePullRequestCommitChanged prId newSha state =
   -- If the commit changes, pretend that the PR was closed. This forgets about
   -- approval and build status. Then pretend a new PR was opened, with the same
@@ -460,10 +436,19 @@ prClosingMessage User = "Abandoning this pull request because it was closed."
 prClosingMessage StopIntegration = "Stopping integration because the PR changed after approval."
 
 -- | Handle PR close when a user actually closes a PR.
-handlePullRequestClosedByUser :: PullRequestId -> ProjectState -> Action ProjectState
+handlePullRequestClosedByUser
+  :: BaseAction :> es
+  => PullRequestId
+  -> ProjectState
+  -> Eff es ProjectState
 handlePullRequestClosedByUser = handlePullRequestClosed User
 
-handlePullRequestClosed :: PRCloseCause -> PullRequestId -> ProjectState -> Action ProjectState
+handlePullRequestClosed
+  :: BaseAction :> es
+  => PRCloseCause
+  -> PullRequestId
+  -> ProjectState
+  -> Eff es ProjectState
 handlePullRequestClosed closingReason pid state =
   case Pr.lookupPullRequest pid state of
   Nothing -> pure state
@@ -481,7 +466,13 @@ handlePullRequestClosed closingReason pid state =
       then unintegrateAfter pid state
       else state
 
-handlePullRequestEdited :: PullRequestId -> Text -> BaseBranch -> ProjectState -> Action ProjectState
+handlePullRequestEdited
+  :: BaseAction :> es
+  => PullRequestId
+  -> Text
+  -> BaseBranch
+  -> ProjectState
+  -> Eff es ProjectState
 handlePullRequestEdited prId newTitle newBaseBranch state =
   let updatePr pr =  pr { Pr.title = newTitle, Pr.baseBranch = newBaseBranch } in
   case Pr.lookupPullRequest prId state of
@@ -566,7 +557,7 @@ parseMergeCommand projectConfig triggerConfig message =
 
 
 -- Mark the pull request as approved, and leave a comment to acknowledge that.
-approvePullRequest :: PullRequestId -> Approval -> ProjectState -> Action ProjectState
+approvePullRequest :: PullRequestId -> Approval -> ProjectState -> Eff es ProjectState
 approvePullRequest pr approval = pure . Pr.updatePullRequest pr
     (\pullRequest -> pullRequest
       { Pr.approval = Just approval
@@ -574,13 +565,15 @@ approvePullRequest pr approval = pure . Pr.updatePullRequest pr
       })
 
 handleCommentAdded
-  :: TriggerConfiguration
+  :: RetrieveEnvironment :> es
+  => BaseAction :> es
+  => TriggerConfiguration
   -> MergeWindowExemptionConfiguration
   -> PullRequestId
   -> Username
   -> Text
   -> ProjectState
-  -> Action ProjectState
+  -> Eff es ProjectState
 handleCommentAdded triggerConfig mergeWindowExemption prId author body state =
   let maybePR = Pr.lookupPullRequest prId state in
   case maybePR of
@@ -650,7 +643,7 @@ handleMergeRequested
   -> ProjectState
   -> PullRequest
   -> ApprovedFor
-  -> Action ProjectState
+  -> Eff es ProjectState
 handleMergeRequested projectConfig prId author state pr approvalType = do
   let (order, state') = Pr.newApprovalOrder state
   state'' <- approvePullRequest prId (Approval author approvalType order) state'
@@ -676,7 +669,7 @@ unintegrateAfter pid state = case Pr.lookupPullRequest pid state of
 
 -- | If there is an integration candidate, and its integration sha matches that of the build,
 --   then update the build status for that pull request. Otherwise do nothing.
-handleBuildStatusChanged :: Sha -> Context -> BuildStatus -> ProjectState -> Action ProjectState
+handleBuildStatusChanged :: Sha -> Context -> BuildStatus -> ProjectState -> Eff es ProjectState
 handleBuildStatusChanged buildSha context newStatus state = pure $
   compose [ unintegratePullRequestIfNeeded pid
           . Pr.updatePullRequest pid setBuildStatus
@@ -737,7 +730,7 @@ contextSatisfiesChecks (Pr.MandatoryChecks checks) (Git.Context context) =
   in  go (Set.toList checks)
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
-synchronizeState :: ProjectState -> Action ProjectState
+synchronizeState :: BaseAction :> es => ProjectState -> Eff es ProjectState
 synchronizeState stateInitial =
   getOpenPullRequests >>= \case
     -- If we fail to obtain the currently open pull requests from GitHub, then
@@ -799,7 +792,10 @@ synchronizeState stateInitial =
 -- pass the failure will be reported to the user.  Since this function is
 -- always called from 'proceedUntilFixedPoint', this happens as a single
 -- action.
-proceed :: ProjectState -> Action ProjectState
+proceed :: BaseAction :> es
+  => RetrieveEnvironment :> es
+  => ProjectState
+  -> Eff es ProjectState
 proceed = provideFeedback
       >=> proceedFirstCandidate
       >=> tryIntegrateFirstPullRequest
@@ -807,7 +803,10 @@ proceed = provideFeedback
 -- | Proceeds with the candidate that was approved first
 -- by pushing it to be the new master if the build succeeded.
 -- (cf. 'proceedCandidate')
-proceedFirstCandidate :: ProjectState -> Action ProjectState
+proceedFirstCandidate :: BaseAction :> es
+  => RetrieveEnvironment :> es
+  => ProjectState
+  -> Eff es ProjectState
 proceedFirstCandidate state = case Pr.unfailedIntegratedPullRequests state of
   (candidate:_) -> proceedCandidate candidate state
   _ -> pure state
@@ -815,13 +814,17 @@ proceedFirstCandidate state = case Pr.unfailedIntegratedPullRequests state of
 -- | Try to integrate the pull request that was approved first
 -- if there's one.
 -- (cf. 'tryIntegratePullRequest')
-tryIntegrateFirstPullRequest :: ProjectState -> Action ProjectState
+tryIntegrateFirstPullRequest :: BaseAction :> es => ProjectState -> Eff es ProjectState
 tryIntegrateFirstPullRequest state = case Pr.candidatePullRequests state of
   (pr:_) -> tryIntegratePullRequest pr state
   _ -> pure state
 
 -- | Pushes the given integrated PR to be the new master if the build succeeded
-proceedCandidate :: PullRequestId -> ProjectState -> Action ProjectState
+proceedCandidate :: BaseAction :> es
+  => RetrieveEnvironment :> es
+  => PullRequestId
+  -> ProjectState
+  -> Eff es ProjectState
 proceedCandidate pullRequestId state =
   case Pr.lookupPullRequest pullRequestId state of
   Nothing -> pure state -- should not be reachable when called from 'proceed'
@@ -841,7 +844,7 @@ getPullRequestRef (PullRequestId n) = Branch $ format "refs/pull/{}/head" [n]
 
 -- Integrates proposed changes from the pull request into the target branch.
 -- The pull request must exist in the project.
-tryIntegratePullRequest :: PullRequestId -> ProjectState -> Action ProjectState
+tryIntegratePullRequest :: BaseAction :> es => PullRequestId -> ProjectState -> Eff es ProjectState
 tryIntegratePullRequest pr state =
   let
     PullRequestId prNumber = pr
@@ -894,7 +897,13 @@ tryIntegratePullRequest pr state =
 -- target branch. If the push fails, restarts the integration cycle for the
 -- candidate.
 -- TODO: Get rid of the tuple; just pass the ID and do the lookup with fromJust.
-pushCandidate :: (PullRequestId, PullRequest) -> Sha -> ProjectState -> Action ProjectState
+pushCandidate
+  :: BaseAction :> es
+  => RetrieveEnvironment :> es
+  => (PullRequestId, PullRequest)
+  -> Sha
+  -> ProjectState
+  -> Eff es ProjectState
 pushCandidate (pullRequestId, pullRequest) newHead@(Sha sha) state =
   -- Look up the sha that will be pushed to the target branch. Also assert that
   -- the pull request has really been approved. If it was
@@ -986,7 +995,11 @@ unspeculateFailuresAfter promotedPullRequest pr
 -- | Keep doing a 'proceed' step until the state doesn't change any more.
 -- For this to work properly, it is essential that 'proceed' does not have any
 -- side effects if it does not change the state.
-proceedUntilFixedPoint :: ProjectState -> Action ProjectState
+proceedUntilFixedPoint
+  :: BaseAction :> es
+  => RetrieveEnvironment :> es
+  => ProjectState
+  -> Eff es ProjectState
 proceedUntilFixedPoint state = do
   newState <- proceed state
   if newState == state
@@ -1055,14 +1068,23 @@ describeStatus (BaseBranch projectBaseBranchName) prId pr state = case Pr.classi
 
 -- Leave a comment with the feedback from 'describeStatus' and set the
 -- 'needsFeedback' flag to 'False'.
-leaveFeedback :: (PullRequestId, PullRequest) -> ProjectState -> Action ProjectState
+leaveFeedback
+  :: BaseAction :> es
+  => RetrieveEnvironment :> es
+  => (PullRequestId, PullRequest)
+  -> ProjectState
+  -> Eff es ProjectState
 leaveFeedback (prId, pr) state = do
   projectBaseBranch <- getBaseBranch
   () <- leaveComment prId $ describeStatus projectBaseBranch prId pr state
   pure $ Pr.setNeedsFeedback prId False state
 
 -- Run 'leaveFeedback' on all pull requests that need feedback.
-provideFeedback :: ProjectState -> Action ProjectState
+provideFeedback
+  :: BaseAction :> es
+  => RetrieveEnvironment :> es
+  => ProjectState
+  -> Eff es ProjectState
 provideFeedback state
   = foldM (flip leaveFeedback) state
   $ filter (Pr.needsFeedback . snd)
@@ -1070,11 +1092,13 @@ provideFeedback state
   $ IntMap.toList $ Pr.pullRequests state
 
 handleEvent
-  :: TriggerConfiguration
+  :: BaseAction :> es
+  => RetrieveEnvironment :> es
+  => TriggerConfiguration
   -> MergeWindowExemptionConfiguration
   -> Event
   -> ProjectState
-  -> Action ProjectState
+  -> Eff es ProjectState
 handleEvent triggerConfig mergeWindowExemption event state = do
   projectState <- handleEventInternal triggerConfig mergeWindowExemption event state >>= proceedUntilFixedPoint
   triggerTrainSizeUpdate projectState

@@ -30,7 +30,7 @@ library
                  , Server
                  , Metrics.Server
                  , Metrics.Metrics
-                 , Sum
+                 , MonadLoggerEffect
                  , Time
                  , Types
                  , WebInterface
