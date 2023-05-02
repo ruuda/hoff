@@ -5,16 +5,17 @@
 -- you may not use this file except in compliance with the License.
 -- A copy of the License has been included in the root of the repository.
 
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- This module defines high-level Github API operations, plus an interpreter to
 -- run those operations against the real API.
 module GithubApi
 (
-  GithubOperationFree (..),
-  GithubOperation,
+  GithubOperation (..),
   PullRequest (..),
   getOpenPullRequests,
   getPullRequest,
@@ -25,9 +26,10 @@ module GithubApi
 )
 where
 
-import Control.Monad.Free (Free, liftF)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN, logWarnN, logErrorN)
+import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, (:>))
+import Effectful.Dispatch.Dynamic (interpret, send, interpose)
 import Data.IntSet (IntSet)
 import Data.Text (Text)
 
@@ -59,26 +61,25 @@ data PullRequest = PullRequest
   , author :: Username
   }
 
-data GithubOperationFree a
-  = LeaveComment PullRequestId Text a
-  | HasPushAccess Username (Bool -> a)
-  | GetPullRequest PullRequestId (Maybe PullRequest -> a)
-  | GetOpenPullRequests (Maybe IntSet -> a)
-  deriving (Functor)
+data GithubOperation :: Effect where
+  LeaveComment :: PullRequestId -> Text -> GithubOperation m ()
+  HasPushAccess :: Username -> GithubOperation m Bool
+  GetPullRequest :: PullRequestId -> GithubOperation m (Maybe PullRequest)
+  GetOpenPullRequests :: GithubOperation m (Maybe IntSet)
 
-type GithubOperation = Free GithubOperationFree
+type instance DispatchOf GithubOperation = 'Dynamic
 
-leaveComment :: PullRequestId -> Text -> GithubOperation ()
-leaveComment pr remoteBranch = liftF $ LeaveComment pr remoteBranch ()
+leaveComment :: GithubOperation :> es => PullRequestId -> Text -> Eff es ()
+leaveComment pr remoteBranch = send $ LeaveComment pr remoteBranch
 
-hasPushAccess :: Username -> GithubOperation Bool
-hasPushAccess username = liftF $ HasPushAccess username id
+hasPushAccess :: GithubOperation :> es => Username -> Eff es Bool
+hasPushAccess username = send $ HasPushAccess username
 
-getPullRequest :: PullRequestId -> GithubOperation (Maybe PullRequest)
-getPullRequest pr = liftF $ GetPullRequest pr id
+getPullRequest :: GithubOperation :> es => PullRequestId -> Eff es (Maybe PullRequest)
+getPullRequest pr = send $ GetPullRequest pr
 
-getOpenPullRequests :: GithubOperation (Maybe IntSet)
-getOpenPullRequests = liftF $ GetOpenPullRequests id
+getOpenPullRequests :: GithubOperation :> es => Eff es (Maybe IntSet)
+getOpenPullRequests = send GetOpenPullRequests
 
 isPermissionToPush :: Github3.CollaboratorPermission -> Bool
 isPermissionToPush perm = case perm of
@@ -99,15 +100,15 @@ is404NotFound err = case err of
   _ -> False
 
 runGithub
-  :: MonadIO m
-  => MonadLogger m
+  :: IOE :> es
+  => MonadLogger (Eff es)
   => Github3.Auth
   -> ProjectInfo
-  -> GithubOperationFree a
-  -> m a
-runGithub auth projectInfo operation =
-  case operation of
-    LeaveComment (PullRequestId pr) body cont -> do
+  -> Eff (GithubOperation : es) a
+  -> Eff es a
+runGithub auth projectInfo =
+  interpret $ \_ -> \case
+    LeaveComment (PullRequestId pr) body -> do
       result <- liftIO $ Github3.github auth $ Github3.createCommentR
         (Github3.N $ Project.owner projectInfo)
         (Github3.N $ Project.repository projectInfo)
@@ -117,9 +118,8 @@ runGithub auth projectInfo operation =
         Left err -> logWarnN $ format "Failed to comment: {}" [show err]
         Right _ -> logInfoN $ format "Posted comment on {}#{}: {}"
                                      (Project.repository projectInfo, pr, body)
-      pure cont
 
-    HasPushAccess (Username username) cont -> do
+    HasPushAccess (Username username) -> do
       result <- liftIO $ Github3.github auth $ Github3.collaboratorPermissionOnR
         (Github3.N $ Project.owner projectInfo)
         (Github3.N $ Project.repository projectInfo)
@@ -130,13 +130,13 @@ runGithub auth projectInfo operation =
           logErrorN $ format "Failed to retrive collaborator status: {}" [show err]
           -- To err on the safe side, if the API call fails, we pretend nobody
           -- has push access.
-          pure $ cont False
+          pure False
 
         Right (Github3.CollaboratorWithPermission _user perm) -> do
           logDebugN $ format "User {} has permission {} on {}." (username, show perm, projectInfo)
-          pure $ cont $ isPermissionToPush perm
+          pure $ isPermissionToPush perm
 
-    GetPullRequest (PullRequestId pr) cont -> do
+    GetPullRequest (PullRequestId pr) -> do
       logDebugN $ format "Getting pull request {} in {}." (pr, projectInfo)
       result <- liftIO $ Github3.github auth $ Github3.pullRequestR
         (Github3.N $ Project.owner projectInfo)
@@ -145,11 +145,11 @@ runGithub auth projectInfo operation =
       case result of
         Left err | is404NotFound err -> do
           logWarnN $ format "Pull request {} does not exist in {}." (pr, projectInfo)
-          pure $ cont Nothing
+          pure Nothing
         Left err -> do
           logWarnN $ format "Failed to retrieve pull request {} in {}: {}" (pr, projectInfo, show err)
-          pure $ cont Nothing
-        Right details -> pure $ cont $ Just $ PullRequest
+          pure Nothing
+        Right details -> pure $ Just $ PullRequest
           { sha    = Sha $ Github3.pullRequestCommitSha $ Github3.pullRequestHead details
           , branch = Branch $ Github3.pullRequestCommitRef $ Github3.pullRequestHead details
           , baseBranch = BaseBranch $ Github3.pullRequestCommitRef $ Github3.pullRequestBase details
@@ -157,7 +157,7 @@ runGithub auth projectInfo operation =
           , author = Username $ Github3.untagName $ Github3.simpleUserLogin $ Github3.pullRequestUser details
           }
 
-    GetOpenPullRequests cont -> do
+    GetOpenPullRequests -> do
       logDebugN $ format "Getting open pull request in {}." [projectInfo]
       result <- liftIO $ Github3.github auth $ Github3.pullRequestsForR
         (Github3.N $ Project.owner projectInfo)
@@ -167,10 +167,10 @@ runGithub auth projectInfo operation =
       case result of
         Left err -> do
           logWarnN $ format "Failed to retrieve pull requests in {}: {}" (projectInfo, show err)
-          pure $ cont Nothing
+          pure Nothing
         Right prs -> do
           logDebugN $ format "Got {} open pull requests in {}." (Vector.length prs, projectInfo)
-          pure $ cont $ Just
+          pure $ Just
             -- Note: we want to extract the *issue number*, not the *id*,
             -- which is a different integer part of the payload.
             $ foldMap (IntSet.singleton . Github3.unIssueNumber . Github3.simplePullRequestNumber)
@@ -180,23 +180,21 @@ runGithub auth projectInfo operation =
 -- the sense of being observable by Github users. We will still make requests
 -- against the read-only endpoints of the API. This is useful for local testing.
 runGithubReadOnly
-  :: MonadIO m
-  => MonadLogger m
+  :: IOE :> es
+  => MonadLogger (Eff es)
+  => MonadLogger (Eff (GithubOperation : es))
   => Github3.Auth
   -> ProjectInfo
-  -> GithubOperationFree a
-  -> m a
-runGithubReadOnly auth projectInfo operation =
-  let
-    unsafeResult = runGithub auth projectInfo operation
-  in
-    case operation of
+  -> Eff (GithubOperation : es) a
+  -> Eff es a
+runGithubReadOnly auth projectInfo = runGithub auth projectInfo . augmentedGithubOperation
+  where
+    augmentedGithubOperation = interpose $ \_ operation -> case operation of
       -- These operations are read-only, we can run them for real.
-      HasPushAccess {} -> unsafeResult
-      GetPullRequest {} -> unsafeResult
-      GetOpenPullRequests {} -> unsafeResult
+      HasPushAccess username -> send $ HasPushAccess username
+      GetPullRequest pullRequestId -> send $ GetPullRequest pullRequestId
+      GetOpenPullRequests -> send GetOpenPullRequests
 
       -- These operations have side effects, we fake them.
-      LeaveComment pr body cont -> do
+      LeaveComment pr body ->
         logInfoN $ format "Would have posted comment on {}: {}" (show pr, body)
-        pure cont
