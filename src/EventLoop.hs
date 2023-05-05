@@ -32,7 +32,7 @@ import Data.Either (fromRight)
 import Data.Foldable (traverse_)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8')
-import Effectful (Eff, (:>))
+import Effectful (Eff, (:>), IOE)
 import qualified Data.Text as Text
 
 import Configuration (ProjectConfiguration, TriggerConfiguration, MergeWindowExemptionConfiguration)
@@ -124,27 +124,26 @@ runGithubEventLoop ghQueue enqueueEvent = runLoop
       runLoop
 
 runLogicEventLoop
-  :: forall es
-  .  MonadLoggerEffect :> es
+  ::  forall es
+  .  IOE :> es
+  => Metrics.MetricsOperation :> es
+  => Time.TimeOperation :> es
+  => Git.GitOperation :> es
+  => GithubApi.GithubOperation :> es
+  => MonadLoggerEffect :> es
   => TriggerConfiguration
   -> ProjectConfiguration
   -> MergeWindowExemptionConfiguration
-  -- Interpreters for Git and GitHub actions.
-  -> (forall a es1. Eff (Metrics.MetricsOperation : es1) a -> Eff es1 a)
-  -> (forall a es1. Eff (Time.TimeOperation : es1) a -> Eff es1 a)
-  -> (forall a es1. Eff (Git.GitOperation : es1) a -> Eff es1 a)
-  -> (forall a es1. Eff (GithubApi.GithubOperation : es1) a -> Eff es1 a)
   -- Action that gets the next event from the queue.
-  -> (forall es1 . Eff es1 (Maybe Logic.Event))
+  -> IO (Maybe Logic.Event)
   -- Action to perform after the state has changed, such as
   -- persisting the new state, and making it available to the
   -- webinterface.
-  -> (forall es1 . ProjectState -> Eff es1 ())
+  -> (ProjectState -> IO ())
   -> ProjectState
   -> Eff es ProjectState
 runLogicEventLoop
   triggerConfig projectConfig mergeWindowExemptionConfig
-  runMetrics runTime runGit runGithub
   getNextEvent publish initialState =
   let
     repo             = Config.repository projectConfig
@@ -157,7 +156,7 @@ runLogicEventLoop
       logDebugN $ "state before (" <> repo <> "): " <> showState state0
       state1 <-
         Logic.handleEvent triggerConfig mergeWindowExemptionConfig event state0
-      publish state1
+      liftIO $ publish state1
       logDebugN $ "state after (" <> repo <> "): " <> showState state1
       runLoop state1
 
@@ -165,19 +164,15 @@ runLogicEventLoop
       -- Before anything, clone the repository if there is no clone.
       Logic.ensureCloned projectConfig
       -- Take one event off the queue, block if there is none.
-      eventOrStopSignal <- getNextEvent
+      eventOrStopSignal <- liftIO getNextEvent
       -- Queue items are of type 'Maybe Event'; 'Nothing' signals loop
       -- termination. If there was an event, run one iteration and recurse.
       case eventOrStopSignal of
         Just event -> handleAndContinue state event
         Nothing    -> return state
 
-  in
-    runMetrics $
-      runGit $
-      runGithub $
-      runTime $
-      Logic.runBaseAction projectConfig $
+  in do
+    Logic.runBaseAction projectConfig $
       Logic.runRetrieveEnvironment projectConfig $
       runLoop initialState
 

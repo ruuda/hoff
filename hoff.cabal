@@ -81,6 +81,7 @@ executable hoff
                , base
                , containers
                , directory
+               , effectful
                , github
                , hoff
                , monad-logger
