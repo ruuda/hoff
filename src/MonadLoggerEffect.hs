@@ -7,7 +7,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module MonadLoggerEffect where
+module MonadLoggerEffect (MonadLoggerEffect (..), runLoggerStdout) where
 
 import Control.Monad.Logger (Loc, LogLevel, LogSource, MonadLogger (..), ToLogStr (toLogStr),
                              defaultOutput)

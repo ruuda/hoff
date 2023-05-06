@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -9,7 +8,7 @@
 
 module Metrics.Metrics
 (
-  MetricsOperation,
+  MetricsOperation (..),
   ProjectMetrics (..),
   runMetrics,
   increaseMergedPRTotal,

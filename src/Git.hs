@@ -25,7 +25,7 @@ module Git
   BaseBranch (..),
   CloneResult (..),
   Context (..),
-  GitOperation,
+  GitOperation (..),
   GitIntegrationFailure (..),
   PushResult (..),
   RefSpec(..),

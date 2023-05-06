@@ -105,8 +105,8 @@ test-suite spec
                -- TODO: Use the new function that really deletes directories,
                -- instead of rolling my own.
                , directory
+               , effectful
                , filepath
-               , free
                , generic-arbitrary
                , hoff
                , hspec
@@ -135,6 +135,7 @@ test-suite end-to-end
                -- TODO: Use the new function that really deletes directories,
                -- instead of rolling my own.
                , directory
+               , effectful
                , hoff
                , http-conduit
                , hspec
