@@ -210,12 +210,12 @@ takeResultGetDateTime =
     resultGetDateTime
     (\v res -> res { resultGetDateTime = v })
 
-runRetrieveInfoRws
-  :: (State Results :> es, Writer [ActionFlat] :> es)
+runRetrieveInfo
+  :: State Results :> es
   => Config.ProjectConfiguration
   -> Eff (RetrieveEnvironment : es) a
   -> Eff es a
-runRetrieveInfoRws projectConfig = interpret $ \_ -> \case
+runRetrieveInfo projectConfig = interpret $ \_ -> \case
   GetProjectConfig -> pure projectConfig
   GetDateTime -> takeResultGetDateTime
   GetBaseBranch -> pure $ BaseBranch $ Config.branch testProjectConfig
@@ -226,11 +226,11 @@ type ActionResults = [BaseAction, RetrieveEnvironment, State Results, Writer [Ac
 -- together with a list of all actions that would have been performed. Some
 -- actions require input from the outside world. Simulating these actions will
 -- consume one entry from the `Results` in the state.
-runBaseActionRws
+runBaseActionResults
   :: (State Results :> es, Writer [ActionFlat] :> es)
   => Eff (BaseAction : es) a
   -> Eff es a
-runBaseActionRws =
+runBaseActionResults =
   let
     -- In the tests, only "deckard" is a reviewer.
     isReviewer username = elem username ["deckard", "bot"]
@@ -273,7 +273,7 @@ runActionEff
   => Config.ProjectConfiguration
   -> Eff (BaseAction : RetrieveEnvironment : es) a
   -> Eff es a
-runActionEff config eff = runRetrieveInfoRws config $ runBaseActionRws eff
+runActionEff config eff = runRetrieveInfo config $ runBaseActionResults eff
 
 -- Simulates running the action. Use the provided results as result for various
 -- operations. Results are consumed one by one.
