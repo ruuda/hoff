@@ -57,7 +57,7 @@ import Control.Monad (mzero, when, void)
 import Control.Monad.IO.Class (liftIO)
 import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, (:>))
 import Effectful.Dispatch.Dynamic (interpret, send, interpose)
-import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
+import Control.Monad.Logger (logInfoN, logWarnN)
 import Data.Aeson
 import Data.Either (isLeft)
 import Data.List (intersperse)
@@ -76,6 +76,7 @@ import qualified System.Process as Process
 
 import Configuration (UserConfiguration)
 import Format (format)
+import MonadLoggerEffect (MonadLoggerEffect)
 
 import qualified Configuration as Config
 
@@ -288,7 +289,7 @@ checkOrphanFixups sha branch = send $ CheckOrphanFixups sha branch
 -- exit code and stderr on error.
 callGit
   :: IOE :> es
-  => MonadLogger (Eff es)
+  => MonadLoggerEffect :> es
   => UserConfiguration
   -> [String]
   -> Eff es (Either (ExitCode, Text) Text)
@@ -325,7 +326,7 @@ callGit userConfig args = do
 runGit
   :: forall es a
   .  IOE :> es
-  => MonadLogger (Eff es)
+  => MonadLoggerEffect :> es
   => UserConfiguration
   -> FilePath
   -> Eff (GitOperation : es) a
@@ -530,8 +531,7 @@ runGit userConfig repoDir  =
 runGitReadOnly
   :: forall es a
   .  IOE :> es
-  => MonadLogger (Eff es)
-  => MonadLogger (Eff (GitOperation : es))
+  => MonadLoggerEffect :> es
   => UserConfiguration
   -> FilePath
   -> Eff (GitOperation : es) a

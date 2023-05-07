@@ -27,7 +27,7 @@ module GithubApi
 where
 
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN, logWarnN, logErrorN)
+import Control.Monad.Logger (logDebugN, logInfoN, logWarnN, logErrorN)
 import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, (:>))
 import Effectful.Dispatch.Dynamic (interpret, send, interpose)
 import Data.IntSet (IntSet)
@@ -46,6 +46,7 @@ import qualified Network.HTTP.Types.Status as Http
 
 import Format (format)
 import Git (BaseBranch (..), Branch (..), Sha (..))
+import MonadLoggerEffect (MonadLoggerEffect)
 import Project (ProjectInfo)
 import Types (PullRequestId (..), Username (..))
 
@@ -101,7 +102,7 @@ is404NotFound err = case err of
 
 runGithub
   :: IOE :> es
-  => MonadLogger (Eff es)
+  => MonadLoggerEffect :> es
   => Github3.Auth
   -> ProjectInfo
   -> Eff (GithubOperation : es) a
@@ -181,8 +182,7 @@ runGithub auth projectInfo =
 -- against the read-only endpoints of the API. This is useful for local testing.
 runGithubReadOnly
   :: IOE :> es
-  => MonadLogger (Eff es)
-  => MonadLogger (Eff (GithubOperation : es))
+  => MonadLoggerEffect :> es
   => Github3.Auth
   -> ProjectInfo
   -> Eff (GithubOperation : es) a
