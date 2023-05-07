@@ -101,8 +101,7 @@ is404NotFound err = case err of
   _ -> False
 
 runGithub
-  :: IOE :> es
-  => MonadLoggerEffect :> es
+  :: (IOE :> es, MonadLoggerEffect :> es)
   => Github3.Auth
   -> ProjectInfo
   -> Eff (GithubOperation : es) a
@@ -181,8 +180,7 @@ runGithub auth projectInfo =
 -- the sense of being observable by Github users. We will still make requests
 -- against the read-only endpoints of the API. This is useful for local testing.
 runGithubReadOnly
-  :: IOE :> es
-  => MonadLoggerEffect :> es
+  :: (IOE :> es, MonadLoggerEffect :> es)
   => Github3.Auth
   -> ProjectInfo
   -> Eff (GithubOperation : es) a

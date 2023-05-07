@@ -211,8 +211,7 @@ takeResultGetDateTime =
     (\v res -> res { resultGetDateTime = v })
 
 runRetrieveInfoRws
-  :: State Results :> es
-  => Writer [ActionFlat] :> es
+  :: (State Results :> es, Writer [ActionFlat] :> es)
   => Config.ProjectConfiguration
   -> Eff (RetrieveEnvironment : es) a
   -> Eff es a
@@ -227,8 +226,8 @@ type ActionResults = [BaseAction, RetrieveEnvironment, State Results, Writer [Ac
 -- together with a list of all actions that would have been performed. Some
 -- actions require input from the outside world. Simulating these actions will
 -- consume one entry from the `Results` in the state.
-runBaseActionRws :: State Results :> es
-  => Writer [ActionFlat] :> es
+runBaseActionRws
+  :: (State Results :> es, Writer [ActionFlat] :> es)
   => Eff (BaseAction : es) a
   -> Eff es a
 runBaseActionRws =
@@ -269,8 +268,8 @@ runBaseActionRws =
         State.put $ results { resultTrainSizeUpdates = n : resultTrainSizeUpdates results }
         pure ()
 
-runActionEff :: State Results :> es
-  => Writer [ActionFlat] :> es
+runActionEff
+  :: (State Results :> es, Writer [ActionFlat] :> es)
   => Config.ProjectConfiguration
   -> Eff (BaseAction : RetrieveEnvironment : es) a
   -> Eff es a

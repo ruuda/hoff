@@ -288,8 +288,7 @@ checkOrphanFixups sha branch = send $ CheckOrphanFixups sha branch
 -- Invokes Git with the given arguments. Returns its output on success, or the
 -- exit code and stderr on error.
 callGit
-  :: IOE :> es
-  => MonadLoggerEffect :> es
+  :: (IOE :> es, MonadLoggerEffect :> es)
   => UserConfiguration
   -> [String]
   -> Eff es (Either (ExitCode, Text) Text)
@@ -325,8 +324,7 @@ callGit userConfig args = do
 -- parses its output.
 runGit
   :: forall es a
-  .  IOE :> es
-  => MonadLoggerEffect :> es
+  .  (IOE :> es, MonadLoggerEffect :> es)
   => UserConfiguration
   -> FilePath
   -> Eff (GitOperation : es) a
@@ -530,8 +528,7 @@ runGit userConfig repoDir  =
 -- remote; it does not push.
 runGitReadOnly
   :: forall es a
-  .  IOE :> es
-  => MonadLoggerEffect :> es
+  .  (IOE :> es, MonadLoggerEffect :> es)
   => UserConfiguration
   -> FilePath
   -> Eff (GitOperation : es) a

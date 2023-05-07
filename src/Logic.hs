@@ -191,10 +191,7 @@ triggerTrainSizeUpdate projectState = do
 
 -- | Interpreter that translates high-level actions into more low-level ones.
 runBaseAction
-  :: MetricsOperation :> es
-  => GitOperation :> es
-  => GithubOperation :> es
-  => TimeOperation :> es
+  :: (MetricsOperation :> es, GitOperation :> es, GithubOperation :> es, TimeOperation :> es)
   => ProjectConfiguration
   -> Eff (BaseAction : es) a
   -> Eff es a
@@ -375,8 +372,7 @@ clearPullRequest prId pr state =
 -- of the event, we must also call `proceed` on the state until we reach a fixed
 -- point. This is handled by `handleEvent`.
 handleEventInternal
-  :: BaseAction :> es
-  => RetrieveEnvironment :> es
+  :: (BaseAction :> es, RetrieveEnvironment :> es)
   => TriggerConfiguration
   -> MergeWindowExemptionConfiguration
   -> Event
@@ -562,8 +558,7 @@ approvePullRequest pr approval = pure . Pr.updatePullRequest pr
       })
 
 handleCommentAdded
-  :: RetrieveEnvironment :> es
-  => BaseAction :> es
+  :: (BaseAction :> es, RetrieveEnvironment :> es)
   => TriggerConfiguration
   -> MergeWindowExemptionConfiguration
   -> PullRequestId
@@ -789,8 +784,8 @@ synchronizeState stateInitial =
 -- pass the failure will be reported to the user.  Since this function is
 -- always called from 'proceedUntilFixedPoint', this happens as a single
 -- action.
-proceed :: BaseAction :> es
-  => RetrieveEnvironment :> es
+proceed
+  :: (BaseAction :> es, RetrieveEnvironment :> es)
   => ProjectState
   -> Eff es ProjectState
 proceed = provideFeedback
@@ -800,8 +795,8 @@ proceed = provideFeedback
 -- | Proceeds with the candidate that was approved first
 -- by pushing it to be the new master if the build succeeded.
 -- (cf. 'proceedCandidate')
-proceedFirstCandidate :: BaseAction :> es
-  => RetrieveEnvironment :> es
+proceedFirstCandidate
+  :: (BaseAction :> es, RetrieveEnvironment :> es)
   => ProjectState
   -> Eff es ProjectState
 proceedFirstCandidate state = case Pr.unfailedIntegratedPullRequests state of
@@ -817,8 +812,8 @@ tryIntegrateFirstPullRequest state = case Pr.candidatePullRequests state of
   _ -> pure state
 
 -- | Pushes the given integrated PR to be the new master if the build succeeded
-proceedCandidate :: BaseAction :> es
-  => RetrieveEnvironment :> es
+proceedCandidate
+  :: (BaseAction :> es, RetrieveEnvironment :> es)
   => PullRequestId
   -> ProjectState
   -> Eff es ProjectState
@@ -895,8 +890,7 @@ tryIntegratePullRequest pr state =
 -- candidate.
 -- TODO: Get rid of the tuple; just pass the ID and do the lookup with fromJust.
 pushCandidate
-  :: BaseAction :> es
-  => RetrieveEnvironment :> es
+  :: (BaseAction :> es, RetrieveEnvironment :> es)
   => (PullRequestId, PullRequest)
   -> Sha
   -> ProjectState
@@ -993,8 +987,7 @@ unspeculateFailuresAfter promotedPullRequest pr
 -- For this to work properly, it is essential that 'proceed' does not have any
 -- side effects if it does not change the state.
 proceedUntilFixedPoint
-  :: BaseAction :> es
-  => RetrieveEnvironment :> es
+  :: (BaseAction :> es, RetrieveEnvironment :> es)
   => ProjectState
   -> Eff es ProjectState
 proceedUntilFixedPoint state = do
@@ -1066,8 +1059,7 @@ describeStatus (BaseBranch projectBaseBranchName) prId pr state = case Pr.classi
 -- Leave a comment with the feedback from 'describeStatus' and set the
 -- 'needsFeedback' flag to 'False'.
 leaveFeedback
-  :: BaseAction :> es
-  => RetrieveEnvironment :> es
+  :: (BaseAction :> es, RetrieveEnvironment :> es)
   => (PullRequestId, PullRequest)
   -> ProjectState
   -> Eff es ProjectState
@@ -1078,8 +1070,7 @@ leaveFeedback (prId, pr) state = do
 
 -- Run 'leaveFeedback' on all pull requests that need feedback.
 provideFeedback
-  :: BaseAction :> es
-  => RetrieveEnvironment :> es
+  :: (BaseAction :> es, RetrieveEnvironment :> es)
   => ProjectState
   -> Eff es ProjectState
 provideFeedback state
@@ -1089,8 +1080,7 @@ provideFeedback state
   $ IntMap.toList $ Pr.pullRequests state
 
 handleEvent
-  :: BaseAction :> es
-  => RetrieveEnvironment :> es
+  :: (BaseAction :> es, RetrieveEnvironment :> es)
   => TriggerConfiguration
   -> MergeWindowExemptionConfiguration
   -> Event
