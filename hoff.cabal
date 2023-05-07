@@ -115,7 +115,6 @@ test-suite spec
                , quickcheck-instances
                , text
                , time
-               , transformers
                , uuid
 
 test-suite end-to-end
