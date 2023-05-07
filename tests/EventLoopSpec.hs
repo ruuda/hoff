@@ -10,6 +10,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeOperators #-}
 
 -- This file contains sort-of end-to-end tests for the event loop. Incoming
 -- messages are faked (supplied by the test code, as oppsed to received via the

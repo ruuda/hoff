@@ -8,13 +8,15 @@
 -- A copy of the License has been included in the root of the repository.
 
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeOperators #-}
 
-import Control.Monad.Free (foldFree)
-import Control.Monad.Trans.RWS.Strict (RWS)
 import Data.Aeson (decode, encode)
 import Data.ByteString.Lazy (readFile)
 import Data.Foldable (foldlM)
@@ -22,26 +24,30 @@ import Data.IntSet (IntSet)
 import Data.List (group)
 import Data.Maybe (fromJust, isJust, isNothing)
 import Data.Text (Text, pack)
+import Effectful (Eff, (:>), runPureEff)
+import Effectful.Dispatch.Dynamic (interpret)
+import Effectful.State.Static.Local ( State )
+import Effectful.Writer.Static.Local ( Writer )
 import Prelude hiding (readFile)
 import System.Directory (getTemporaryDirectory, removeFile)
 import System.FilePath ((</>))
 import Test.Hspec
 
-import qualified Control.Monad.Trans.RWS.Strict as Rws
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.UUID.V4 as Uuid
 import qualified Data.Text as Text
+import qualified Effectful.State.Static.Local as State
+import qualified Effectful.Writer.Static.Local as Writer
 
 import EventLoop (convertGithubEvent)
 import Format (format, Only (..))
 import Git (BaseBranch (..), Branch (..), PushResult (..), Sha (..), TagMessage (..), TagName (..),
             GitIntegrationFailure (..), Context (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
-import Logic (Action, BaseActionFree (..), Event (..), IntegrationFailure (..), RetrieveEnvironmentFree (..))
+import Logic (BaseAction, BaseAction (..), Event (..), IntegrationFailure (..), RetrieveEnvironment (..))
 import Project (Approval (..), DeployEnvironment (..), ProjectState (ProjectState), PullRequest (PullRequest))
 import Types (PullRequestId (..), Username (..))
-import Sum (runSum)
 import ProjectSpec (projectSpec)
 
 import qualified Configuration as Config
@@ -145,142 +151,161 @@ defaultResults = Results
 -- Consume the head of the field with given getter and setter in the Results.
 takeFromList
   :: HasCallStack
-  => Monoid w
+  => State Results :> es
   => String
   -> (Results -> [a])
   -> ([a] -> Results -> Results)
-  -> RWS r w Results a
+  -> Eff es a
 takeFromList name getField setField = do
-  values <- Rws.gets getField
-  Rws.modify $ setField $ tail values
+  values <- State.gets getField
+  State.modify $ setField $ tail values
   case values of
     []  -> error $ "Not enough results supplied for " <> name <> "."
     v:_ -> pure v
 
-takeResultIntegrate :: (HasCallStack, Monoid w) => RWS r w Results (Either IntegrationFailure Sha)
+takeResultIntegrate :: (HasCallStack, State Results :> es) => Eff es (Either IntegrationFailure Sha)
 takeResultIntegrate =
   takeFromList
     "resultIntegrate"
     resultIntegrate
     (\v res -> res { resultIntegrate = v })
 
-takeResultPush :: (HasCallStack, Monoid w) => RWS r w Results PushResult
+takeResultPush :: (HasCallStack, State Results :> es) => Eff es PushResult
 takeResultPush =
   takeFromList
     "resultPush"
     resultPush
     (\v res -> res { resultPush = v })
 
-takeResultGetPullRequest :: (HasCallStack, Monoid w) => RWS r w Results (Maybe GithubApi.PullRequest)
+takeResultGetPullRequest :: (HasCallStack, State Results :> es) => Eff es (Maybe GithubApi.PullRequest)
 takeResultGetPullRequest =
   takeFromList
     "resultGetPullRequest"
     resultGetPullRequest
     (\v res -> res { resultGetPullRequest = v })
 
-takeResultGetOpenPullRequests :: (HasCallStack, Monoid w) => RWS r w Results (Maybe IntSet)
+takeResultGetOpenPullRequests :: (HasCallStack, State Results :> es) => Eff es (Maybe IntSet)
 takeResultGetOpenPullRequests =
   takeFromList
     "resultGetOpenPullRequests"
     resultGetOpenPullRequests
     (\v res -> res { resultGetOpenPullRequests = v })
 
-takeResultGetLatestVersion :: (HasCallStack, Monoid w) => RWS r w Results (Either TagName Integer)
+takeResultGetLatestVersion :: (HasCallStack, State Results :> es) => Eff es (Either TagName Integer)
 takeResultGetLatestVersion =
   takeFromList
     "resultGetLatestVersion"
     resultGetLatestVersion
     (\v res -> res { resultGetLatestVersion = v })
 
-takeResultGetChangelog :: (HasCallStack, Monoid w) => RWS r w Results (Maybe Text)
+takeResultGetChangelog :: (HasCallStack, State Results :> es) => Eff es (Maybe Text)
 takeResultGetChangelog =
   takeFromList
     "resultGetChangeLog"
     resultGetChangelog
     (\v res -> res { resultGetChangelog = v })
 
-takeResultGetDateTime :: (HasCallStack, Monoid w) => RWS r w Results (T.UTCTime )
+takeResultGetDateTime :: (HasCallStack, State Results :> es) => Eff es T.UTCTime
 takeResultGetDateTime =
   takeFromList
     "resultGetDateTime"
     resultGetDateTime
     (\v res -> res { resultGetDateTime = v })
 
-runRetrieveInfoRws :: HasCallStack => Config.ProjectConfiguration -> RetrieveEnvironmentFree a -> RWS () [ActionFlat] Results a
-runRetrieveInfoRws projectConfig = \case
-  GetProjectConfig cont -> pure $ cont projectConfig
-  GetDateTime cont -> cont <$> takeResultGetDateTime
-  GetBaseBranch cont -> pure $ cont $ BaseBranch $ Config.branch testProjectConfig
+runRetrieveInfoRws
+  :: State Results :> es
+  => Writer [ActionFlat] :> es
+  => Config.ProjectConfiguration
+  -> Eff (RetrieveEnvironment : es) a
+  -> Eff es a
+runRetrieveInfoRws projectConfig = interpret $ \_ -> \case
+  GetProjectConfig -> pure projectConfig
+  GetDateTime -> takeResultGetDateTime
+  GetBaseBranch -> pure $ BaseBranch $ Config.branch testProjectConfig
+
+type ActionResults = [BaseAction, RetrieveEnvironment, State Results, Writer [ActionFlat]]
 
 -- This function simulates running the actions, and returns the final state,
 -- together with a list of all actions that would have been performed. Some
 -- actions require input from the outside world. Simulating these actions will
 -- consume one entry from the `Results` in the state.
-runBaseActionRws :: HasCallStack => BaseActionFree a -> RWS () [ActionFlat] Results a
+runBaseActionRws :: State Results :> es
+  => Writer [ActionFlat] :> es
+  => Eff (BaseAction : es) a
+  -> Eff es a
 runBaseActionRws =
   let
     -- In the tests, only "deckard" is a reviewer.
     isReviewer username = elem username ["deckard", "bot"]
   in
-    \case
-      TryIntegrate msg candidate train alwaysAddMergeCommit' cont -> do
-        Rws.tell [ATryIntegrate msg candidate train alwaysAddMergeCommit']
-        cont <$> takeResultIntegrate
-      TryPromote prBranch headSha cont -> do
-        Rws.tell [ATryPromote prBranch headSha]
-        cont <$> takeResultPush
-      TryPromoteWithTag prBranch headSha newTag tagMessage cont -> do
-        Rws.tell [ATryPromoteWithTag prBranch headSha newTag tagMessage]
-        cont . (Right newTag, ) <$> takeResultPush
-      CleanupTestBranch pr cont -> do
-        Rws.tell [ACleanupTestBranch pr]
-        pure cont
-      LeaveComment pr body cont -> do
-        Rws.tell [ALeaveComment pr body]
-        pure cont
-      IsReviewer username cont -> do
-        Rws.tell [AIsReviewer username]
-        pure $ cont $ isReviewer username
-      GetPullRequest pr cont -> do
-        Rws.tell [AGetPullRequest pr]
-        cont <$> takeResultGetPullRequest
-      GetOpenPullRequests cont -> do
-        Rws.tell [AGetOpenPullRequests]
-        cont <$> takeResultGetOpenPullRequests
-      GetLatestVersion _ cont -> cont <$> takeResultGetLatestVersion
-      GetChangelog _ _ cont -> cont <$> takeResultGetChangelog
-      IncreaseMergeMetric cont -> pure cont
-      UpdateTrainSizeMetric n cont -> do
-        results <- Rws.get
-        Rws.put $ results { resultTrainSizeUpdates = n : resultTrainSizeUpdates results }
-        pure cont
+    interpret $ \_ -> \case
+      TryIntegrate msg candidate train alwaysAddMergeCommit' -> do
+        Writer.tell [ATryIntegrate msg candidate train alwaysAddMergeCommit']
+        takeResultIntegrate
+      TryPromote prBranch headSha -> do
+        Writer.tell [ATryPromote prBranch headSha]
+        takeResultPush
+      TryPromoteWithTag prBranch headSha newTag tagMessage -> do
+        Writer.tell [ATryPromoteWithTag prBranch headSha newTag tagMessage]
+        (Right newTag, ) <$> takeResultPush
+      CleanupTestBranch pr -> do
+        Writer.tell [ACleanupTestBranch pr]
+        pure ()
+      LeaveComment pr body  -> do
+        Writer.tell [ALeaveComment pr body]
+        pure ()
+      IsReviewer username -> do
+        Writer.tell [AIsReviewer username]
+        pure $ isReviewer username
+      GetPullRequest pr -> do
+        Writer.tell [AGetPullRequest pr]
+        takeResultGetPullRequest
+      GetOpenPullRequests -> do
+        Writer.tell [AGetOpenPullRequests]
+        takeResultGetOpenPullRequests
+      GetLatestVersion _ -> takeResultGetLatestVersion
+      GetChangelog _ _ -> takeResultGetChangelog
+      IncreaseMergeMetric -> pure ()
+      UpdateTrainSizeMetric n -> do
+        results <- State.get
+        State.put $ results { resultTrainSizeUpdates = n : resultTrainSizeUpdates results }
+        pure ()
 
-runActionRws :: HasCallStack => Config.ProjectConfiguration -> Action a -> RWS () [ActionFlat] Results a
-runActionRws config = foldFree $ runSum runBaseActionRws $ runRetrieveInfoRws config
+runActionEff :: State Results :> es
+  => Writer [ActionFlat] :> es
+  => Config.ProjectConfiguration
+  -> Eff (BaseAction : RetrieveEnvironment : es) a
+  -> Eff es a
+runActionEff config eff = runRetrieveInfoRws config $ runBaseActionRws eff
 
 -- Simulates running the action. Use the provided results as result for various
 -- operations. Results are consumed one by one.
-runActionCustom :: HasCallStack => Results -> Action a -> (a, [ActionFlat])
-runActionCustom results action = Rws.evalRWS (runActionRws testProjectConfig action) () results
 
-runActionCustomResults :: HasCallStack => Results -> Action a -> (a, Results, [ActionFlat])
-runActionCustomResults results action = Rws.runRWS (runActionRws testProjectConfig action) () results
+runActionCustom :: Results -> Eff ActionResults a -> (a, [ActionFlat])
+runActionCustom results action = runPureEff $ Writer.runWriter $ State.evalState results $ runActionEff testProjectConfig action
 
-runActionCustomConfig :: HasCallStack => Config.ProjectConfiguration -> Results -> Action a -> (a, [ActionFlat])
-runActionCustomConfig projectConfig results action = Rws.evalRWS (runActionRws projectConfig action) () results
+runActionCustomResults :: Results -> Eff ActionResults a -> (a, Results, [ActionFlat])
+runActionCustomResults results action =
+    flatten $ runPureEff $ Writer.runWriter $ State.runState results $ runActionEff testProjectConfig action
+  where
+    flatten ((a, b), c) = (a, b, c)
+
+runActionCustomConfig :: Config.ProjectConfiguration -> Results -> Eff ActionResults a -> (a, [ActionFlat])
+runActionCustomConfig projectConfig results action =
+  runPureEff $ Writer.runWriter $ State.evalState results $ runActionEff projectConfig action
 
 -- Simulates running the action with default results.
-runAction :: Action a -> (a, [ActionFlat])
+runAction :: Eff ActionResults a -> (a, [ActionFlat])
 runAction = runActionCustom defaultResults
 
 -- Handle an event, then advance the state until a fixed point,
 -- and simulate its side effects.
-handleEventTest :: Event -> ProjectState -> Action ProjectState
+handleEventTest :: (BaseAction :> es, RetrieveEnvironment :> es) => Event -> ProjectState -> Eff es ProjectState
 handleEventTest = Logic.handleEvent testTriggerConfig testmergeWindowExemptionConfig
 
 -- Handle events (advancing the state until a fixed point in between) and
 -- simulate their side effects.
-handleEventsTest :: [Event] -> ProjectState -> Action ProjectState
+handleEventsTest :: (BaseAction :> es, RetrieveEnvironment :> es) => [Event] -> ProjectState -> Eff es ProjectState
 handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig testmergeWindowExemptionConfig) state events
 
 -- | Like 'classifiedPullRequests' but just with ids.

@@ -20,12 +20,12 @@
 module Logic
 (
   -- Action,
-  BaseAction,
+  BaseAction (..),
   Event (..),
   EventQueue,
   IntegrationFailure (..),
   StateVar,
-  RetrieveEnvironment,
+  RetrieveEnvironment (..),
   dequeueEvent,
   enqueueEvent,
   enqueueStopSignal,
