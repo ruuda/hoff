@@ -1,10 +1,8 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE UndecidableInstances #-} -- Needed for 'MonadLogger (Eff es)'
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module MonadLoggerEffect (MonadLoggerEffect (..), runLoggerStdout) where
@@ -20,6 +18,11 @@ data MonadLoggerEffect :: Effect where
 
 type instance DispatchOf MonadLoggerEffect = 'Dynamic
 
+-- This orphan instance allows using monad-logger functions in Eff. UndecidableInstances is needed
+-- here because the 'MonadLoggerEffect :> es' constraint actually makes the instance head bigger,
+-- rather than smaller. The actual reducing of the es variable happens in the interpretation of the
+-- MonadLoggerEffect. See e.g. the runLoggerStdout, which removes the MonadLoggerEffect from the
+-- effects list.
 instance MonadLoggerEffect :> es => MonadLogger (Eff es) where
   monadLoggerLog loc logSource logLevel msg = send $ MonadLoggerLog loc logSource logLevel msg
 

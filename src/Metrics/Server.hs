@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Metrics.Server
 (
   MetricsServerConfig (..),
