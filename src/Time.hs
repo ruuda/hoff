@@ -1,26 +1,29 @@
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-
-module Time (getDateTime, sleepMicros, runTime, TimeOperationFree (..), TimeOperation) where
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GHC2021 #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeFamilies #-}
+module Time (getDateTime, sleepMicros, runTime, TimeOperation (..)) where
 
 import Control.Concurrent (threadDelay)
-import Control.Monad.Free (Free, liftF)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad (void)
+import Control.Monad.IO.Class (liftIO)
 import Data.Time (UTCTime, getCurrentTime)
+import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, (:>))
+import Effectful.Dispatch.Dynamic (interpret, send)
 
-data TimeOperationFree a
-  = GetDateTime (UTCTime -> a)
-  | SleepMicros Int a
-  deriving (Functor)
+data TimeOperation :: Effect where
+  GetDateTime :: TimeOperation m UTCTime
+  SleepMicros :: Int -> TimeOperation m ()
 
-type TimeOperation = Free TimeOperationFree
+type instance DispatchOf TimeOperation = 'Dynamic
 
-getDateTime :: TimeOperation UTCTime
-getDateTime = liftF $ GetDateTime id
+getDateTime :: TimeOperation :> es => Eff es UTCTime
+getDateTime = send GetDateTime
 
-sleepMicros :: Int -> TimeOperation ()
-sleepMicros micros = liftF $ SleepMicros micros ()
+sleepMicros :: TimeOperation :> es => Int -> Eff es ()
+sleepMicros micros = send $ SleepMicros micros
 
-runTime :: MonadIO m => TimeOperationFree a -> m a
-runTime (GetDateTime cont) = cont <$> liftIO getCurrentTime
-runTime (SleepMicros micros cont) = cont <$ liftIO (threadDelay micros)
+runTime :: IOE :> es => Eff (TimeOperation : es) a -> Eff es a
+runTime = interpret $ \_ -> \case
+  GetDateTime -> liftIO getCurrentTime
+  SleepMicros micros -> void $ liftIO (threadDelay micros)

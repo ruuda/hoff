@@ -16,6 +16,7 @@ import Control.Monad.Logger (runStdoutLoggingT)
 import Data.Maybe (maybeToList)
 import Data.String (fromString)
 import Data.Version (showVersion)
+import Effectful (runEff)
 import System.Exit (die)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 
@@ -28,6 +29,7 @@ import qualified Options.Applicative as Opts
 
 import Configuration (Configuration, MetricsConfiguration (metricsPort, metricsHost))
 import EventLoop (runGithubEventLoop, runLogicEventLoop)
+import MonadLoggerEffect (runLoggerStdout)
 import Project (ProjectInfo (ProjectInfo), Owner, ProjectState, emptyProjectState,
                 loadProjectState, saveProjectState, subMapByOwner)
 import Server (buildServer)
@@ -223,16 +225,16 @@ projectThread config options metrics projectThreadData = do
     -- Start a worker thread to run the main event loop for the project.
     Async.async
       $ void
-      $ runStdoutLoggingT
-      $ Metrics.runLoggingMonitorT
+      $ runEff
+      $ runMetrics
+      $ runTime
+      $ runLoggerStdout
+      $ runGit
+      $ runGithub
       $ runLogicEventLoop
           (Config.trigger config)
           projectConfig
           (Config.mergeWindowExemption config)
-          runMetrics
-          runTime
-          runGit
-          runGithub
           getNextEvent
           publish
           projectThreadState

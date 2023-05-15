@@ -6,6 +6,10 @@
 -- you may not use this file except in compliance with the License.
 -- A copy of the License has been included in the root of the repository.
 
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GHC2021 #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- This file contains sort-of end-to-end tests for the event loop. Incoming
@@ -20,10 +24,10 @@ module EventLoopSpec (eventLoopSpec) where
 import Control.Concurrent.Async (async, wait)
 import Control.Monad (forM_, void, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (runNoLoggingT)
 import Data.Map (Map)
 import Data.Set (Set)
 import Data.Text (Text)
+import Effectful (Eff, runEff)
 import Prelude hiding (appendFile, writeFile)
 import System.FilePath ((</>))
 import Test.Hspec
@@ -37,8 +41,7 @@ import qualified Data.Time.Calendar.OrdinalDate as T
 
 import Configuration (ProjectConfiguration, TriggerConfiguration, UserConfiguration, MergeWindowExemptionConfiguration (..))
 import Git (BaseBranch (..), Branch (..), RefSpec (refSpec), Sha (..))
-import GithubApi (GithubOperationFree)
-import Metrics.Metrics (MetricsOperationFree (..), runNoMonitorT)
+import Metrics.Metrics (MetricsOperation (..))
 import Project (BuildStatus (..), IntegrationStatus (..), ProjectState, PullRequestId (..))
 
 import qualified Configuration as Config
@@ -50,6 +53,8 @@ import qualified Logic
 import qualified Prelude
 import qualified Project
 import qualified Time
+import Effectful.Dispatch.Dynamic (interpret)
+import MonadLoggerEffect (MonadLoggerEffect (..))
 
 masterBranch :: BaseBranch
 masterBranch = BaseBranch "master"
@@ -57,7 +62,7 @@ masterBranch = BaseBranch "master"
 -- Invokes Git with the given arguments, returns its stdout. Crashes if invoking
 -- Git failed. Discards all logging.
 callGit :: [String] -> IO Text
-callGit args = fmap (either undefined id) $ runNoLoggingT $ Git.callGit userConfig args
+callGit args = fmap (either undefined id) $ runEff $ fakeRunLogger $ Git.callGit userConfig args
 
 -- | Populates the repository with the following history:
 --
@@ -217,22 +222,27 @@ mergeWindowExemptionConfig = MergeWindowExemptionConfiguration ["bot"]
 -- provides fake inputs. We don't want to require a Github repository and API
 -- token to be able to run the tests, and that we send the right operations is
 -- checked by the unit tests.
-fakeRunGithub :: Monad m => GithubOperationFree a -> m a
-fakeRunGithub action = case action of
-  GithubApi.LeaveComment _pr _body cont -> pure cont
-  GithubApi.HasPushAccess username cont -> pure $ cont (username `elem` ["rachael", "deckard"])
+fakeRunGithub :: Eff (GithubApi.GithubOperation : es) a -> Eff es a
+fakeRunGithub = interpret $ \_ -> \case
+  GithubApi.LeaveComment _pr _body -> pure ()
+  GithubApi.HasPushAccess username -> pure $ username `elem` ["rachael", "deckard"]
   -- Pretend that these two GitHub API calls always fail in these tests.
-  GithubApi.GetPullRequest _pr cont -> pure $ cont Nothing
-  GithubApi.GetOpenPullRequests cont -> pure $ cont Nothing
+  GithubApi.GetPullRequest _pr -> pure Nothing
+  GithubApi.GetOpenPullRequests -> pure Nothing
 
-fakeRunTime :: Monad m => Time.TimeOperationFree a -> m a
-fakeRunTime (Time.GetDateTime cont) = pure (cont (T.UTCTime (T.fromMondayStartWeek 2021 2 1) (T.secondsToDiffTime 0)))
-fakeRunTime (Time.SleepMicros _ cont) = pure cont
+fakeRunTime :: Eff (Time.TimeOperation : es) a -> Eff es a
+fakeRunTime = interpret $ \_ -> \case
+  Time.GetDateTime -> pure $ T.UTCTime (T.fromMondayStartWeek 2021 2 1) (T.secondsToDiffTime 0)
+  Time.SleepMicros _ -> pure ()
 
-fakeRunMetrics :: Monad m => MetricsOperationFree a -> m a
-fakeRunMetrics action = case action of
-  MergeBranch cont -> pure cont
-  UpdateTrainSize _ cont -> pure cont
+fakeRunMetrics :: Eff (MetricsOperation : es) a -> Eff es a
+fakeRunMetrics = interpret $ \_ -> \case
+  MergeBranch -> pure ()
+  UpdateTrainSize _ -> pure ()
+
+fakeRunLogger :: Eff (MonadLoggerEffect : es) a -> Eff es a
+fakeRunLogger = interpret $ \_ -> \case
+  MonadLoggerLog _loc _logSource _logLevel _msg -> pure ()
 
 -- Runs the main loop in a separate thread, and feeds it the given events.
 runMainEventLoop
@@ -246,8 +256,8 @@ runMainEventLoop projectConfig initialState events = do
   -- thread to stop later. Discard log messages from the event loop, to avoid
   -- polluting the test output.
   --
-  -- To aid debugging when a test fails, you can replace 'runNoLoggingT' with
-  -- 'runStdoutLoggingT'. You should also remove 'parallel' from main then.
+  -- To aid debugging when a test fails, you can replace 'fakeRunLogger' with
+  -- 'runLoggerStdout'. You should also remove 'parallel' from main then.
   queue <- Logic.newEventQueue 10
   let
     publish _    = return () -- Do nothing when a new state is published.
@@ -257,16 +267,16 @@ runMainEventLoop projectConfig initialState events = do
     runGithub    = fakeRunGithub
     runTime      = fakeRunTime
   finalStateAsync <- async
-    $ runNoLoggingT
-    $ runNoMonitorT
+    $ runEff
+    $ fakeRunLogger
+    $ runMetrics
+    $ runTime
+    $ runGit
+    $ runGithub
     $ EventLoop.runLogicEventLoop
         triggerConfig
         projectConfig
         mergeWindowExemptionConfig
-        runMetrics
-        runTime
-        runGit
-        runGithub
         getNextEvent
         publish
         initialState

@@ -30,7 +30,7 @@ library
                  , Server
                  , Metrics.Server
                  , Metrics.Metrics
-                 , Sum
+                 , MonadLoggerEffect
                  , Time
                  , Types
                  , WebInterface
@@ -45,10 +45,10 @@ library
                , containers
                , cryptonite
                , directory
+               , effectful
                , extra
                , file-embed
                , filepath
-               , free
                , github
                , http-client
                , http-types
@@ -81,6 +81,7 @@ executable hoff
                , base
                , containers
                , directory
+               , effectful
                , github
                , hoff
                , monad-logger
@@ -104,8 +105,8 @@ test-suite spec
                -- TODO: Use the new function that really deletes directories,
                -- instead of rolling my own.
                , directory
+               , effectful
                , filepath
-               , free
                , generic-arbitrary
                , hoff
                , hspec
@@ -114,7 +115,6 @@ test-suite spec
                , quickcheck-instances
                , text
                , time
-               , transformers
                , uuid
 
 test-suite end-to-end
@@ -134,6 +134,7 @@ test-suite end-to-end
                -- TODO: Use the new function that really deletes directories,
                -- instead of rolling my own.
                , directory
+               , effectful
                , hoff
                , http-conduit
                , hspec

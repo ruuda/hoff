@@ -5,15 +5,12 @@
 -- you may not use this file except in compliance with the License.
 -- A copy of the License has been included in the root of the repository.
 
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Git
 (
@@ -21,8 +18,7 @@ module Git
   BaseBranch (..),
   CloneResult (..),
   Context (..),
-  GitOperation,
-  GitOperationFree,
+  GitOperation (..),
   GitIntegrationFailure (..),
   PushResult (..),
   RefSpec(..),
@@ -57,10 +53,11 @@ module Git
 )
 where
 
-import Control.Monad (mzero, when)
-import Control.Monad.Free (Free, liftF)
-import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
+import Control.Monad (mzero, when, void)
+import Control.Monad.IO.Class (liftIO)
+import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, (:>))
+import Effectful.Dispatch.Dynamic (interpret, send, interpose)
+import Control.Monad.Logger (logInfoN, logWarnN)
 import Data.Aeson
 import Data.Either (isLeft)
 import Data.List (intersperse)
@@ -79,6 +76,7 @@ import qualified System.Process as Process
 
 import Configuration (UserConfiguration)
 import Format (format)
+import MonadLoggerEffect (MonadLoggerEffect)
 
 import qualified Configuration as Config
 
@@ -201,100 +199,99 @@ instance FromJSON GitIntegrationFailure
 
 instance ToJSON GitIntegrationFailure where toEncoding = Aeson.genericToEncoding Aeson.defaultOptions
 
-data GitOperationFree a
-  = FetchBranch Branch FetchWithTags a
-  | ForcePush Sha Branch (PushResult -> a)
-  | Push Sha Branch (PushResult -> a)
-  | PushAtomic [SomeRefSpec] (PushResult -> a)
-  | Rebase Sha RemoteBranch (Maybe Sha -> a)
-  | Merge Sha Text (Maybe Sha -> a)
-  | Checkout RemoteBranch (Maybe Sha -> a)
-  | Clone RemoteUrl (CloneResult -> a)
-  | GetParent Sha (Maybe Sha -> a)
-  | RevParse SomeRefSpec (Maybe Sha -> a)
-  | DoesGitDirectoryExist (Bool -> a)
-  | LastTag Sha (Maybe Text -> a)
-  | ShortLog SomeRefSpec SomeRefSpec (Maybe Text -> a)
-  | Tag Sha TagName TagMessage (TagResult -> a)
-  | DeleteTag TagName a
-  | DeleteBranch Branch a
-  | DeleteRemoteBranch Branch (PushResult -> a)
-  | CheckOrphanFixups Sha RemoteBranch (Bool -> a)
-  deriving (Functor)
+data GitOperation :: Effect where
+  FetchBranch :: Branch -> FetchWithTags -> GitOperation m ()
+  ForcePush :: Sha -> Branch -> GitOperation m PushResult
+  Push :: Sha -> Branch -> GitOperation m PushResult
+  PushAtomic :: [SomeRefSpec] -> GitOperation m PushResult
+  Rebase :: Sha -> RemoteBranch -> GitOperation m (Maybe Sha)
+  Merge :: Sha -> Text -> GitOperation m (Maybe Sha)
+  Checkout :: RemoteBranch -> GitOperation m (Maybe Sha)
+  Clone :: RemoteUrl -> GitOperation m CloneResult
+  GetParent :: Sha -> GitOperation m (Maybe Sha)
+  RevParse :: SomeRefSpec -> GitOperation m (Maybe Sha)
+  DoesGitDirectoryExist :: GitOperation m Bool
+  LastTag :: Sha -> GitOperation m (Maybe Text)
+  ShortLog :: SomeRefSpec -> SomeRefSpec -> GitOperation m (Maybe Text)
+  Tag :: Sha -> TagName -> TagMessage -> GitOperation m TagResult
+  DeleteTag :: TagName -> GitOperation m ()
+  DeleteBranch :: Branch -> GitOperation m ()
+  DeleteRemoteBranch :: Branch -> GitOperation m PushResult
+  CheckOrphanFixups :: Sha -> RemoteBranch -> GitOperation m Bool
 
-type GitOperation = Free GitOperationFree
+type instance DispatchOf GitOperation = 'Dynamic
 
-fetchBranch :: Branch -> GitOperation ()
-fetchBranch remoteBranch = liftF $ FetchBranch remoteBranch NoTags ()
+fetchBranch :: GitOperation :> es => Branch -> Eff es ()
+fetchBranch remoteBranch = send $ FetchBranch remoteBranch NoTags
 
-fetchBranchWithTags :: Branch -> GitOperation ()
-fetchBranchWithTags remoteBranch = liftF $ FetchBranch remoteBranch WithTags ()
+fetchBranchWithTags :: GitOperation :> es => Branch -> Eff es ()
+fetchBranchWithTags remoteBranch = send $ FetchBranch remoteBranch WithTags
 
-forcePush :: Sha -> Branch -> GitOperation PushResult
-forcePush sha remoteBranch = liftF $ ForcePush sha remoteBranch id
+forcePush :: GitOperation :> es => Sha -> Branch -> Eff es PushResult
+forcePush sha remoteBranch = send $ ForcePush sha remoteBranch
 
-push :: Sha -> Branch -> GitOperation PushResult
-push sha remoteBranch = liftF $ Push sha remoteBranch id
+push :: GitOperation :> es => Sha -> Branch -> Eff es PushResult
+push sha remoteBranch = send $ Push sha remoteBranch
 
-pushAtomic :: [SomeRefSpec] -> GitOperation PushResult
-pushAtomic refs = liftF $ PushAtomic refs id
+pushAtomic :: GitOperation :> es => [SomeRefSpec] -> Eff es PushResult
+pushAtomic refs = send $ PushAtomic refs
 
-rebase :: Sha -> RemoteBranch -> GitOperation (Maybe Sha)
-rebase sha ontoBranch = liftF $ Rebase sha ontoBranch id
+rebase :: GitOperation :> es => Sha -> RemoteBranch -> Eff es (Maybe Sha)
+rebase sha ontoBranch = send $ Rebase sha ontoBranch
 
-merge :: Sha -> Text -> GitOperation (Maybe Sha)
-merge sha message = liftF $ Merge sha message id
+merge :: GitOperation :> es => Sha -> Text -> Eff es (Maybe Sha)
+merge sha message = send $ Merge sha message
 
 -- Check out the commit that origin/<branch> points to. So we end up in a
 -- detached HEAD state. Returns the sha of the checked out commit.
-checkout :: RemoteBranch -> GitOperation (Maybe Sha)
-checkout branch = liftF $ Checkout branch id
+checkout :: GitOperation :> es => RemoteBranch -> Eff es (Maybe Sha)
+checkout branch = send $ Checkout branch
 
 -- Return the parent of the given commit.
-getParent :: Sha -> GitOperation (Maybe Sha)
-getParent sha = liftF $ GetParent sha id
+getParent :: GitOperation :> es => Sha -> Eff es (Maybe Sha)
+getParent sha = send $ GetParent sha
 
 -- | Returns the sha of the given ref.
-revParse :: SomeRefSpec -> GitOperation (Maybe Sha)
-revParse ref = liftF $ RevParse ref id
+revParse :: GitOperation :> es => SomeRefSpec -> Eff es (Maybe Sha)
+revParse ref = send $ RevParse ref
 
-clone :: RemoteUrl -> GitOperation CloneResult
-clone url = liftF $ Clone url id
+clone :: GitOperation :> es => RemoteUrl -> Eff es CloneResult
+clone url = send $ Clone url
 
-doesGitDirectoryExist :: GitOperation Bool
-doesGitDirectoryExist = liftF $ DoesGitDirectoryExist id
+doesGitDirectoryExist :: GitOperation :> es => Eff es Bool
+doesGitDirectoryExist = send DoesGitDirectoryExist
 
-lastTag :: Sha -> GitOperation (Maybe TagName)
-lastTag sha = liftF $ LastTag sha (TagName . Text.strip <$>)
+lastTag :: GitOperation :> es => Sha -> Eff es (Maybe TagName)
+lastTag sha = fmap (TagName . Text.strip) <$> send (LastTag sha)
 
-shortlog :: SomeRefSpec -> SomeRefSpec -> GitOperation (Maybe Text)
-shortlog refStart refEnd = liftF $ ShortLog refStart refEnd id
+shortlog :: GitOperation :> es => SomeRefSpec -> SomeRefSpec -> Eff es (Maybe Text)
+shortlog refStart refEnd = send $ ShortLog refStart refEnd
 
-tag :: Sha -> TagName -> TagMessage -> GitOperation TagResult
-tag sha name message = liftF $ Tag sha name message id
+tag :: GitOperation :> es => Sha -> TagName -> TagMessage -> Eff es TagResult
+tag sha name message = send $ Tag sha name message
 
-tag' :: Sha -> TagName -> GitOperation TagResult
+tag' :: GitOperation :> es => Sha -> TagName -> Eff es TagResult
 tag' sha t@(TagName name) = tag sha t (TagMessage name)
 
-deleteTag :: TagName -> GitOperation ()
-deleteTag t = liftF $ DeleteTag t ()
+deleteTag :: GitOperation :> es => TagName -> Eff es ()
+deleteTag t = send $ DeleteTag t
 
-deleteBranch :: Branch -> GitOperation ()
-deleteBranch t = liftF $ DeleteBranch t ()
+deleteBranch :: GitOperation :> es => Branch -> Eff es ()
+deleteBranch t = send $ DeleteBranch t
 
-deleteRemoteBranch :: Branch -> GitOperation PushResult
-deleteRemoteBranch branch = liftF $ DeleteRemoteBranch branch id
+deleteRemoteBranch :: GitOperation :> es => Branch -> Eff es PushResult
+deleteRemoteBranch branch = send $ DeleteRemoteBranch branch
 
-checkOrphanFixups :: Sha -> RemoteBranch -> GitOperation Bool
-checkOrphanFixups sha branch = liftF $ CheckOrphanFixups sha branch id
+checkOrphanFixups :: GitOperation :> es => Sha -> RemoteBranch -> Eff es Bool
+checkOrphanFixups sha branch = send $ CheckOrphanFixups sha branch
 
 -- Invokes Git with the given arguments. Returns its output on success, or the
 -- exit code and stderr on error.
 callGit
-  :: (MonadIO m, MonadLogger m)
+  :: (IOE :> es, MonadLoggerEffect :> es)
   => UserConfiguration
   -> [String]
-  -> m (Either (ExitCode, Text) Text)
+  -> Eff es (Either (ExitCode, Text) Text)
 callGit userConfig args = do
   currentEnv <- liftIO getEnvironment
   let
@@ -326,20 +323,19 @@ callGit userConfig args = do
 -- Interpreter for the GitOperation free monad that starts Git processes and
 -- parses its output.
 runGit
-  :: forall m a
-   . MonadIO m
-  => MonadLogger m
+  :: forall es a
+  .  (IOE :> es, MonadLoggerEffect :> es)
   => UserConfiguration
   -> FilePath
-  -> GitOperationFree a
-  -> m a
-runGit userConfig repoDir operation =
+  -> Eff (GitOperation : es) a
+  -> Eff es a
+runGit userConfig repoDir  =
   let
     -- Pass the -C /path/to/checkout option to Git, to run operations in the
     -- repository without having to change the working directory.
     callGitInRepo args = callGit userConfig $ ["-C", repoDir] ++ args
 
-    getHead :: m (Maybe Sha)
+    getHead :: Eff es (Maybe Sha)
     getHead = do
       revResult <- callGitInRepo ["rev-parse", "@"]
       case revResult of
@@ -349,17 +345,17 @@ runGit userConfig repoDir operation =
         Right newSha ->
           pure $ Just $ Sha $ Text.stripEnd newSha
 
-  in case operation of
-    FetchBranch branch withTags cont -> do
+  in interpret $ \_ -> \case
+    FetchBranch branch withTags -> do
       result <- callGitInRepo $ case withTags of
         WithTags -> ["fetch", "--tags", "origin", refSpec branch]
         NoTags   -> ["fetch", "origin", refSpec branch]
       case result of
         Left (_, message) -> logWarnN $ "warning: git fetch failed. Reason: " <> message
         Right _ -> return ()
-      pure cont
 
-    ForcePush sha branch cont -> do
+
+    ForcePush sha branch -> do
       -- TODO: Make Sha and Branch constructors sanitize data, otherwise this
       -- could run unintended Git commands.
       -- Note: the remote branch is prefixed with 'refs/heads/' to specify the
@@ -367,28 +363,28 @@ runGit userConfig repoDir operation =
       -- not exist.
       gitResult <- callGitInRepo ["push", "--force", "origin", refSpec (sha, branch)]
       case gitResult of
-        Right _ -> pure $ cont PushOk
+        Right _ -> pure PushOk
         Left (_, message) -> do
           logWarnN $ "error: git push --force failed. Reason: " <> message
-          pure $ cont $ PushRejected message
+          pure $ PushRejected message
 
-    Push sha branch cont -> do
+    Push sha branch -> do
       result <- callGitInRepo ["push", "origin", refSpec (sha, branch)]
       case result of
         Left  (_, message) -> do
           logInfoN $ "warning: git push failed. Reason: " <> message
-          pure . cont $ PushRejected message
-        Right _ -> pure $ cont PushOk
+          pure $ PushRejected message
+        Right _ -> pure PushOk
 
-    DeleteRemoteBranch branch cont -> do
+    DeleteRemoteBranch branch -> do
       gitResult <- callGitInRepo ["push", "origin", "-d", refSpec branch]
       case gitResult of
-        Right _ -> pure $ cont PushOk
+        Right _ -> pure PushOk
         Left (_, message) -> do
           logWarnN $ "error: git push -d failed. Reason: " <> message
-          pure $ cont $ PushRejected message
+          pure $ PushRejected message
 
-    Rebase sha remoteBranch cont -> do
+    Rebase sha remoteBranch -> do
       -- Do an interactive rebase with editor set to /usr/bin/true, so we just
       -- accept the default action, which is effectively a non-interactive rebase.
       -- The interactive rebase is required for --autosquash, which automatically
@@ -405,10 +401,10 @@ runGit userConfig repoDir operation =
           logInfoN $ "git rebase failed. Reason: " <> message
           abortResult <- callGitInRepo ["rebase", "--abort"]
           when (isLeft abortResult) $ logWarnN "warning: git rebase --abort failed"
-          pure $ cont Nothing
-        Right _ -> cont <$> getHead
+          pure Nothing
+        Right _ -> getHead
 
-    Merge sha message cont -> do
+    Merge sha message -> do
       result <- callGitInRepo
         [ "merge"
         , "--no-ff"
@@ -423,40 +419,40 @@ runGit userConfig repoDir operation =
           logInfoN $ "git merge failed. Reason: " <> output
           abortResult <- callGitInRepo ["merge", "--abort"]
           when (isLeft abortResult) $ logWarnN "git merge --abort failed"
-          pure $ cont Nothing
-        Right _ -> cont <$> getHead
+          pure Nothing
+        Right _ -> getHead
 
-    Checkout remoteBranch cont -> do
+    Checkout remoteBranch -> do
       branchRev <- callGitInRepo ["rev-parse", refSpec remoteBranch]
       case branchRev of
         Left _ -> do
           logWarnN "git rev-parse failed"
-          pure $ cont Nothing
+          pure Nothing
         Right parsed -> do
           let sha = Sha $ Text.stripEnd parsed
           result <- callGitInRepo ["checkout", refSpec sha]
           when (isLeft result) $ logWarnN "git checkout failed"
-          pure $ cont $ Just sha
+          pure $ Just sha
 
-    GetParent sha cont -> do
+    GetParent sha -> do
       parentRev <- callGitInRepo ["rev-parse", refSpec sha ++ "^"]
       case parentRev of
         Left _ -> do
           logWarnN "git rev-parse to get parent failed"
-          pure $ cont Nothing
+          pure Nothing
         Right parentSha ->
-          pure $ cont $ Just $ Sha $ Text.stripEnd parentSha
+          pure $ Just $ Sha $ Text.stripEnd parentSha
 
-    RevParse branch cont -> do
+    RevParse branch -> do
       parentRev <- callGitInRepo ["rev-parse", refSpec branch]
       case parentRev of
         Left _ -> do
           logWarnN "git rev-parse failed"
-          pure $ cont Nothing
+          pure Nothing
         Right sha ->
-          pure $ cont $ Just $ Sha $ Text.stripEnd sha
+          pure $ Just $ Sha $ Text.stripEnd sha
 
-    Clone (RemoteUrl url) cont -> do
+    Clone (RemoteUrl url) -> do
       result <- callGit userConfig
         -- Pass some config flags, that get applied as the repository is
         -- initialized, before the clone. This means we can enable fsckObjects
@@ -472,120 +468,115 @@ runGit userConfig repoDir operation =
       case result of
         Left (_, message) -> do
           logWarnN $ "git clone failed. Reason: " <> message
-          pure $ cont CloneFailed
+          pure CloneFailed
         Right _ -> do
           logInfoN $ format "cloned {} successfully" [url]
-          pure $ cont CloneOk
+          pure CloneOk
 
-    DoesGitDirectoryExist cont -> do
-      exists <- liftIO $ doesDirectoryExist (repoDir </> ".git")
-      pure $ cont exists
+    DoesGitDirectoryExist ->
+      liftIO $ doesDirectoryExist (repoDir </> ".git")
 
-    PushAtomic refs cont -> do
+    PushAtomic refs -> do
       result <- callGitInRepo $ ["push", "--atomic", "origin"] ++ map refSpec refs
       case result of
         Left  (_, message) -> do
           logInfoN ("warning: atomic push was rejected. Reason: " <> message)
-          pure . cont $ PushRejected message
-        Right _ -> pure $ cont PushOk
+          pure $ PushRejected message
+        Right _ -> pure PushOk
 
-    LastTag sha cont -> do
+    LastTag sha -> do
       result <- callGitInRepo ["describe", "--abbrev=0", "--tags", refSpec sha]
-      pure $ cont $ either (const Nothing) Just result
+      pure $ either (const Nothing) Just result
 
-    ShortLog shaStart shaEnd cont -> do
+    ShortLog shaStart shaEnd -> do
       result <- callGitInRepo ["shortlog", refSpec shaStart <> ".." <> refSpec shaEnd]
       case result of
         Left (_, message) -> do
           logWarnN $ "git shortlog failed. Reason: " <> message
-          pure $ cont Nothing
-        Right changelog -> do
-          pure $ cont $ Just changelog
+          pure Nothing
+        Right changelog -> pure $ Just changelog
 
-    Tag sha t (TagMessage m) cont -> do
+    Tag sha t (TagMessage m) -> do
       result <- callGitInRepo ["tag", "-a", refSpec t, "-m", Text.unpack m, refSpec sha]
       case result of
         Left (_, message) -> do
           logWarnN $ "git tag failed. Reason: " <> message
-          pure $ cont $ TagFailed message
+          pure $ TagFailed message
         Right _ -> do
           logInfoN $ format "tagged {} with {}" [show sha, show t]
-          pure $ cont $ TagOk t
+          pure $ TagOk t
 
-    DeleteBranch branch cont -> cont <$ callGitInRepo ["branch", "-d", refSpec branch]
+    DeleteBranch branch -> void $ callGitInRepo ["branch", "-d", refSpec branch]
 
-    DeleteTag t cont -> cont <$ callGitInRepo ["tag", "-d", refSpec t]
+    DeleteTag t -> void $ callGitInRepo ["tag", "-d", refSpec t]
 
-    CheckOrphanFixups sha branch cont -> do
+    CheckOrphanFixups sha branch -> do
       result <- let branch' = refSpec branch
                     sha' = refSpec sha
                 in callGitInRepo ["log", Text.unpack $ format "{}..{}" [branch',sha'], "--format=%s"]
       case result of
         Left (_, message) -> do
           logWarnN $ "git log failed. Reason: {}" <> message
-          pure $ cont False
+          pure False
         Right logResponse -> do
           let anyOrphanFixups = any (\x -> "fixup!" `Text.isPrefixOf` x) $ Text.lines logResponse
           when anyOrphanFixups $
             logWarnN "there is one ore more fixup commits not belonging to any other commit"
-          pure $ cont anyOrphanFixups
+          pure anyOrphanFixups
 
 -- Interpreter that runs only Git operations that have no side effects on the
 -- remote; it does not push.
 runGitReadOnly
-  :: forall m a
-   . MonadIO m
-  => MonadLogger m
+  :: forall es a
+  .  (IOE :> es, MonadLoggerEffect :> es)
   => UserConfiguration
   -> FilePath
-  -> GitOperationFree a
-  -> m a
-runGitReadOnly userConfig repoDir operation =
-  let
-    unsafeResult = runGit userConfig repoDir operation
-  in
-    case operation of
+  -> Eff (GitOperation : es) a
+  -> Eff es a
+runGitReadOnly userConfig repoDir = runGit userConfig repoDir . augmentedGitOperation
+  where
+    augmentedGitOperation = interpose $ \_ operation -> case operation of
       -- These operations only operate locally, or only perform reads from the
       -- remote, so they are safe to execute.
-      FetchBranch {} -> unsafeResult
-      Rebase {} -> unsafeResult
-      Merge {} -> unsafeResult
-      Checkout {} -> unsafeResult
-      Clone {} -> unsafeResult
-      GetParent {} -> unsafeResult
-      RevParse {} -> unsafeResult
-      DoesGitDirectoryExist {} -> unsafeResult
-      LastTag {} -> unsafeResult
-      ShortLog {} -> unsafeResult
-      Tag {} -> unsafeResult
-      DeleteTag {} -> unsafeResult
-      DeleteBranch {} -> unsafeResult
-      CheckOrphanFixups {} -> unsafeResult
+      FetchBranch branch withTags -> send $ FetchBranch branch withTags
+      Rebase sha branch -> send $ Rebase sha branch
+      Merge sha branch -> send $ Merge sha branch
+      Checkout branch -> send $ Checkout branch
+      Clone url -> send $ Clone url
+      GetParent sha -> send $ GetParent sha
+      RevParse rev -> send $ RevParse rev
+      DoesGitDirectoryExist -> send DoesGitDirectoryExist
+      LastTag sha -> send $ LastTag sha
+      ShortLog shaStart shaEnd -> send $ ShortLog shaStart shaEnd
+      Tag sha name message -> send $ Tag sha name message
+      DeleteTag t -> send $ DeleteTag t
+      DeleteBranch branch -> send $ DeleteBranch branch
+      CheckOrphanFixups sha branch -> send $ CheckOrphanFixups sha branch
 
       -- These operations mutate the remote, so we don't execute them in
       -- read-only mode.
-      ForcePush (Sha sha) (Branch branch) cont -> do
+      ForcePush (Sha sha) (Branch branch) -> do
         logInfoN $ Text.concat ["Would have force-pushed ", sha, " to ", branch]
-        pure $ cont PushOk
-      Push (Sha sha) (Branch branch) cont -> do
+        pure PushOk
+      Push (Sha sha) (Branch branch) -> do
         let errorMsg = Text.concat ["Would have pushed ", sha, " to ", branch]
         logInfoN errorMsg
-        pure . cont $ PushRejected errorMsg
-      DeleteRemoteBranch (Branch branch) cont -> do
+        pure $ PushRejected errorMsg
+      DeleteRemoteBranch (Branch branch) -> do
         let errorMsg = Text.concat ["Would have deleted remote branch ", branch]
         logInfoN errorMsg
-        pure . cont $ PushRejected errorMsg
-      PushAtomic refs cont -> do
+        pure $ PushRejected errorMsg
+      PushAtomic refs -> do
         let errorMsg = "Would have pushed atomically the following refs: "
                     <> Text.intercalate "," (map (Text.pack . refSpec) refs)
         logInfoN errorMsg
-        pure . cont $ PushRejected errorMsg
+        pure $ PushRejected errorMsg
 
 
 -- Fetches the target branch, rebases the candidate on top of the target branch,
 -- and if that was successful, force-pushes the resulting commits to the test
 -- branch.
-tryIntegrate :: Text -> Branch -> Sha -> RemoteBranch -> Branch -> Bool -> GitOperation (Either GitIntegrationFailure Sha)
+tryIntegrate :: GitOperation :> es => Text -> Branch -> Sha -> RemoteBranch -> Branch -> Bool -> Eff es (Either GitIntegrationFailure Sha)
 tryIntegrate message candidateRef candidateSha targetBranch testBranch alwaysAddMergeCommit = do
   -- Fetch the ref for the target commit that needs to be rebased, we might not
   -- have it yet. Although Git supports fetching single commits, GitHub does

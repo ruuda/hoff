@@ -1,15 +1,15 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GHC2021 #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Metrics.Metrics
 (
-  MetricsOperation,
-  MetricsOperationFree (..),
+  MetricsOperation (..),
   ProjectMetrics (..),
   runMetrics,
-  runLoggingMonitorT,
-  runNoMonitorT,
   increaseMergedPRTotal,
   updateTrainSizeGauge,
   registerGHCMetrics,
@@ -20,11 +20,10 @@ where
 import Data.Text
 import Prometheus
 import Prometheus.Metric.GHC (ghcMetrics)
-import Control.Monad.IO.Class (MonadIO (liftIO))
-import Control.Monad.Free (Free)
-import Control.Monad.Logger (LoggingT, MonadLogger, NoLoggingT)
-import Control.Monad.Free.Ap (liftF)
+import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, (:>))
+import Effectful.Dispatch.Dynamic (interpret, send)
 import Control.Monad (void)
+import Control.Monad.IO.Class (liftIO)
 
 type ProjectLabel = Text
 
@@ -33,44 +32,29 @@ data ProjectMetrics = ProjectMetrics
   , projectMetricsMergeTrainSize :: Vector ProjectLabel Gauge
   }
 
-data MetricsOperationFree a
-  = MergeBranch a
-  | UpdateTrainSize Int a
-  deriving (Functor)
+data MetricsOperation :: Effect where
+  MergeBranch :: MetricsOperation m ()
+  UpdateTrainSize :: Int -> MetricsOperation m ()
 
-type MetricsOperation = Free MetricsOperationFree
+type instance DispatchOf MetricsOperation = 'Dynamic
 
-newtype LoggingMonitorT m a = LoggingMonitorT { runLoggingMonitorT :: LoggingT m a }
-                              deriving (Functor, Applicative, Monad, MonadIO, MonadLogger)
+increaseMergedPRTotal :: MetricsOperation :> es => Eff es ()
+increaseMergedPRTotal = send MergeBranch
 
-newtype NoMonitorT m a = NoMonitorT { runNoMonitorT :: NoLoggingT m a }
-                       deriving (Functor, Applicative, Monad, MonadIO, MonadLogger)
-
-instance MonadIO m => MonadMonitor (LoggingMonitorT m) where
-  doIO = liftIO
-
-
-instance MonadIO m => MonadMonitor (NoMonitorT m) where
-  doIO _ = return ()
-
-increaseMergedPRTotal :: MetricsOperation ()
-increaseMergedPRTotal = liftF $ MergeBranch ()
-
-updateTrainSizeGauge :: Int -> MetricsOperation ()
-updateTrainSizeGauge n = liftF $ UpdateTrainSize n ()
+updateTrainSizeGauge :: MetricsOperation :> es => Int -> Eff es ()
+updateTrainSizeGauge n = send $ UpdateTrainSize n
 
 runMetrics
-  :: (MonadMonitor m, MonadIO m)
+  :: IOE :> es
   => ProjectMetrics
   -> ProjectLabel
-  -> MetricsOperationFree a
-  -> m a
-runMetrics metrics label operation =
-  case operation of
-    UpdateTrainSize n cont -> cont <$
-      setProjectMetricMergeTrainSize metrics label n
-    MergeBranch cont -> cont <$
-      incProjectMergedPR metrics label
+  -> Eff (MetricsOperation : es) a
+  -> Eff es a
+runMetrics metrics label = interpret $ \_ -> \case
+  UpdateTrainSize n -> void $
+    liftIO $ setProjectMetricMergeTrainSize metrics label n
+  MergeBranch -> void $
+    liftIO $ incProjectMergedPR metrics label
 
 registerGHCMetrics :: IO ()
 registerGHCMetrics = void $ register ghcMetrics
@@ -82,10 +66,10 @@ registerProjectMetrics = ProjectMetrics
   <*> register (vector "project" (gauge (Info "hoff_project_merge_train_size"
                                                 "Number of pull requests currently in the queue (merge train)")))
 
-incProjectMergedPR :: (MonadMonitor m, MonadIO m) => ProjectMetrics -> ProjectLabel -> m ()
+incProjectMergedPR :: ProjectMetrics -> ProjectLabel -> IO ()
 incProjectMergedPR metrics project =
   withLabel (projectMetricsMergedPR metrics) project incCounter
 
-setProjectMetricMergeTrainSize :: (MonadMonitor m, MonadIO m) => ProjectMetrics -> ProjectLabel -> Int -> m ()
+setProjectMetricMergeTrainSize :: ProjectMetrics -> ProjectLabel -> Int -> IO ()
 setProjectMetricMergeTrainSize metrics project n =
   withLabel (projectMetricsMergeTrainSize metrics) project (\g -> setGauge g (fromIntegral n))
