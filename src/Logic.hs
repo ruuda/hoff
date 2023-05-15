@@ -17,7 +17,7 @@
 module Logic
 (
   -- Action,
-  BaseAction (..),
+  Action (..),
   Event (..),
   EventQueue,
   IntegrationFailure (..),
@@ -84,32 +84,30 @@ import qualified GithubApi
 import qualified Project as Pr
 import qualified Time
 
--- | There are two categories of actions, semantically distinct. BaseActionFree will
--- actually be translated into actions, whereas RetrieveEnvironment is more focused
--- on getting values from the context we're in. Some things could still be moved around
--- though.
-data BaseAction :: Effect where
+-- | Represents the high level manipulations of a pull request
+data Action :: Effect where
     -- This is a record type, but the names are currently only used for documentation.
   TryIntegrate ::
     { _mergeCommitMessage   :: Text
     , _integrationCandidate :: (PullRequestId, Branch, Sha)
     , _train                :: [PullRequestId]
     , _alwaysAddMergeCommit :: Bool
-    } -> BaseAction m (Either IntegrationFailure Sha)
-  TryPromote :: Branch -> Sha -> BaseAction m PushResult
-  TryPromoteWithTag :: Branch -> Sha -> TagName -> TagMessage -> BaseAction m PushWithTagResult
-  CleanupTestBranch :: PullRequestId -> BaseAction m ()
-  LeaveComment :: PullRequestId -> Text -> BaseAction m ()
-  IsReviewer :: Username -> BaseAction m Bool
-  GetPullRequest :: PullRequestId -> BaseAction m (Maybe GithubApi.PullRequest)
-  GetOpenPullRequests :: BaseAction m (Maybe IntSet)
-  GetLatestVersion :: Sha -> BaseAction m (Either TagName Integer)
-  GetChangelog :: TagName -> Sha -> BaseAction m (Maybe Text)
-  IncreaseMergeMetric :: BaseAction m ()
-  UpdateTrainSizeMetric :: Int -> BaseAction m ()
+    } -> Action m (Either IntegrationFailure Sha)
+  TryPromote :: Branch -> Sha -> Action m PushResult
+  TryPromoteWithTag :: Branch -> Sha -> TagName -> TagMessage -> Action m PushWithTagResult
+  CleanupTestBranch :: PullRequestId -> Action m ()
+  LeaveComment :: PullRequestId -> Text -> Action m ()
+  IsReviewer :: Username -> Action m Bool
+  GetPullRequest :: PullRequestId -> Action m (Maybe GithubApi.PullRequest)
+  GetOpenPullRequests :: Action m (Maybe IntSet)
+  GetLatestVersion :: Sha -> Action m (Either TagName Integer)
+  GetChangelog :: TagName -> Sha -> Action m (Maybe Text)
+  IncreaseMergeMetric :: Action m ()
+  UpdateTrainSizeMetric :: Int -> Action m ()
 
-type instance DispatchOf BaseAction = 'Dynamic
+type instance DispatchOf Action = 'Dynamic
 
+-- | Get values from the context we're in
 data RetrieveEnvironment :: Effect where
   GetProjectConfig :: RetrieveEnvironment m ProjectConfiguration
   GetDateTime :: RetrieveEnvironment m UTCTime
@@ -129,7 +127,7 @@ type PushWithTagResult = (Either Text TagName, PushResult)
 data IntegrationFailure = IntegrationFailure BaseBranch GitIntegrationFailure
 
 tryIntegrate
-  :: BaseAction :> es
+  :: Action :> es
   => Text
   -> (PullRequestId, Branch, Sha)
   -> [PullRequestId]
@@ -142,34 +140,34 @@ tryIntegrate mergeMessage candidate train alwaysAddMergeCommit =
 -- Before doing so, force-push that SHA to the pull request branch, and after
 -- success, delete the pull request branch. These steps ensure that Github marks
 -- the pull request as merged, rather than closed.
-tryPromote :: BaseAction :> es => Branch -> Sha -> Eff es PushResult
+tryPromote :: Action :> es => Branch -> Sha -> Eff es PushResult
 tryPromote prBranch newHead = send $ TryPromote prBranch newHead
 
-tryPromoteWithTag :: BaseAction :> es => Branch -> Sha -> TagName -> TagMessage -> Eff es PushWithTagResult
+tryPromoteWithTag :: Action :> es => Branch -> Sha -> TagName -> TagMessage -> Eff es PushWithTagResult
 tryPromoteWithTag prBranch newHead tagName tagMessage =
   send $ TryPromoteWithTag prBranch newHead tagName tagMessage
 
-cleanupTestBranch :: BaseAction :> es => PullRequestId -> Eff es ()
+cleanupTestBranch :: Action :> es => PullRequestId -> Eff es ()
 cleanupTestBranch pullRequestId = send $ CleanupTestBranch pullRequestId
 
 -- | Leave a comment on the given pull request.
-leaveComment :: BaseAction :> es => PullRequestId -> Text -> Eff es ()
+leaveComment :: Action :> es => PullRequestId -> Text -> Eff es ()
 leaveComment pr body = send $ LeaveComment pr body
 
 -- | Check if this user is allowed to issue merge commands.
-isReviewer :: BaseAction :> es => Username -> Eff es Bool
+isReviewer :: Action :> es => Username -> Eff es Bool
 isReviewer username = send $ IsReviewer username
 
-getPullRequest :: BaseAction :> es => PullRequestId -> Eff es (Maybe GithubApi.PullRequest)
+getPullRequest :: Action :> es => PullRequestId -> Eff es (Maybe GithubApi.PullRequest)
 getPullRequest pr = send $ GetPullRequest pr
 
-getOpenPullRequests :: BaseAction :> es => Eff es (Maybe IntSet)
+getOpenPullRequests :: Action :> es => Eff es (Maybe IntSet)
 getOpenPullRequests = send GetOpenPullRequests
 
-getLatestVersion :: BaseAction :> es => Sha -> Eff es (Either TagName Integer)
+getLatestVersion :: Action :> es => Sha -> Eff es (Either TagName Integer)
 getLatestVersion sha = send $ GetLatestVersion sha
 
-getChangelog :: BaseAction :> es => TagName -> Sha -> Eff es (Maybe Text)
+getChangelog :: Action :> es => TagName -> Sha -> Eff es (Maybe Text)
 getChangelog prevTag curHead = send $ GetChangelog prevTag curHead
 
 getDateTime :: RetrieveEnvironment :> es => Eff es UTCTime
@@ -181,10 +179,10 @@ getBaseBranch = send GetBaseBranch
 getProjectConfig :: RetrieveEnvironment :> es => Eff es ProjectConfiguration
 getProjectConfig = send GetProjectConfig
 
-registerMergedPR :: BaseAction :> es => Eff es ()
+registerMergedPR :: Action :> es => Eff es ()
 registerMergedPR = send IncreaseMergeMetric
 
-triggerTrainSizeUpdate :: BaseAction :> es => ProjectState -> Eff es ()
+triggerTrainSizeUpdate :: Action :> es => ProjectState -> Eff es ()
 triggerTrainSizeUpdate projectState = do
   let n = IntMap.size $ IntMap.filter Pr.isInProgress (Pr.pullRequests projectState)
   send $ UpdateTrainSizeMetric n
@@ -193,7 +191,7 @@ triggerTrainSizeUpdate projectState = do
 runBaseAction
   :: (MetricsOperation :> es, GitOperation :> es, GithubOperation :> es, TimeOperation :> es)
   => ProjectConfiguration
-  -> Eff (BaseAction : es) a
+  -> Eff (Action : es) a
   -> Eff es a
 runBaseAction config =
   let pushDelayMicroseconds :: Int = 2 * 1_000_000
@@ -356,7 +354,7 @@ readStateVar :: StateVar -> IO ProjectState
 readStateVar var = atomically $ readTMVar var
 
 -- | Closes and opens a new PR with the same id. Useful for clearing approval and build status safely.
-clearPullRequest :: BaseAction :> es => PullRequestId -> PullRequest -> ProjectState -> Eff es ProjectState
+clearPullRequest :: Action :> es => PullRequestId -> PullRequest -> ProjectState -> Eff es ProjectState
 clearPullRequest prId pr state =
   let
     branch = Pr.branch pr
@@ -372,7 +370,7 @@ clearPullRequest prId pr state =
 -- of the event, we must also call `proceed` on the state until we reach a fixed
 -- point. This is handled by `handleEvent`.
 handleEventInternal
-  :: (BaseAction :> es, RetrieveEnvironment :> es)
+  :: (Action :> es, RetrieveEnvironment :> es)
   => TriggerConfiguration
   -> MergeWindowExemptionConfiguration
   -> Event
@@ -402,7 +400,7 @@ handlePullRequestOpened pr branch baseBranch sha title author =
   return . Pr.insertPullRequest pr branch baseBranch sha title author
 
 handlePullRequestCommitChanged
-  :: BaseAction :> es
+  :: Action :> es
   => PullRequestId
   -> Sha
   -> ProjectState
@@ -430,14 +428,14 @@ prClosingMessage StopIntegration = "Stopping integration because the PR changed 
 
 -- | Handle PR close when a user actually closes a PR.
 handlePullRequestClosedByUser
-  :: BaseAction :> es
+  :: Action :> es
   => PullRequestId
   -> ProjectState
   -> Eff es ProjectState
 handlePullRequestClosedByUser = handlePullRequestClosed User
 
 handlePullRequestClosed
-  :: BaseAction :> es
+  :: Action :> es
   => PRCloseCause
   -> PullRequestId
   -> ProjectState
@@ -460,7 +458,7 @@ handlePullRequestClosed closingReason pid state =
       else state
 
 handlePullRequestEdited
-  :: BaseAction :> es
+  :: Action :> es
   => PullRequestId
   -> Text
   -> BaseBranch
@@ -558,7 +556,7 @@ approvePullRequest pr approval = pure . Pr.updatePullRequest pr
       })
 
 handleCommentAdded
-  :: (BaseAction :> es, RetrieveEnvironment :> es)
+  :: (Action :> es, RetrieveEnvironment :> es)
   => TriggerConfiguration
   -> MergeWindowExemptionConfiguration
   -> PullRequestId
@@ -722,7 +720,7 @@ contextSatisfiesChecks (Pr.MandatoryChecks checks) (Git.Context context) =
   in  go (Set.toList checks)
 
 -- Query the GitHub API to resolve inconsistencies between our state and GitHub.
-synchronizeState :: BaseAction :> es => ProjectState -> Eff es ProjectState
+synchronizeState :: Action :> es => ProjectState -> Eff es ProjectState
 synchronizeState stateInitial =
   getOpenPullRequests >>= \case
     -- If we fail to obtain the currently open pull requests from GitHub, then
@@ -785,7 +783,7 @@ synchronizeState stateInitial =
 -- always called from 'proceedUntilFixedPoint', this happens as a single
 -- action.
 proceed
-  :: (BaseAction :> es, RetrieveEnvironment :> es)
+  :: (Action :> es, RetrieveEnvironment :> es)
   => ProjectState
   -> Eff es ProjectState
 proceed = provideFeedback
@@ -796,7 +794,7 @@ proceed = provideFeedback
 -- by pushing it to be the new master if the build succeeded.
 -- (cf. 'proceedCandidate')
 proceedFirstCandidate
-  :: (BaseAction :> es, RetrieveEnvironment :> es)
+  :: (Action :> es, RetrieveEnvironment :> es)
   => ProjectState
   -> Eff es ProjectState
 proceedFirstCandidate state = case Pr.unfailedIntegratedPullRequests state of
@@ -806,14 +804,14 @@ proceedFirstCandidate state = case Pr.unfailedIntegratedPullRequests state of
 -- | Try to integrate the pull request that was approved first
 -- if there's one.
 -- (cf. 'tryIntegratePullRequest')
-tryIntegrateFirstPullRequest :: BaseAction :> es => ProjectState -> Eff es ProjectState
+tryIntegrateFirstPullRequest :: Action :> es => ProjectState -> Eff es ProjectState
 tryIntegrateFirstPullRequest state = case Pr.candidatePullRequests state of
   (pr:_) -> tryIntegratePullRequest pr state
   _ -> pure state
 
 -- | Pushes the given integrated PR to be the new master if the build succeeded
 proceedCandidate
-  :: (BaseAction :> es, RetrieveEnvironment :> es)
+  :: (Action :> es, RetrieveEnvironment :> es)
   => PullRequestId
   -> ProjectState
   -> Eff es ProjectState
@@ -836,7 +834,7 @@ getPullRequestRef (PullRequestId n) = Branch $ format "refs/pull/{}/head" [n]
 
 -- Integrates proposed changes from the pull request into the target branch.
 -- The pull request must exist in the project.
-tryIntegratePullRequest :: BaseAction :> es => PullRequestId -> ProjectState -> Eff es ProjectState
+tryIntegratePullRequest :: Action :> es => PullRequestId -> ProjectState -> Eff es ProjectState
 tryIntegratePullRequest pr state =
   let
     PullRequestId prNumber = pr
@@ -890,7 +888,7 @@ tryIntegratePullRequest pr state =
 -- candidate.
 -- TODO: Get rid of the tuple; just pass the ID and do the lookup with fromJust.
 pushCandidate
-  :: (BaseAction :> es, RetrieveEnvironment :> es)
+  :: (Action :> es, RetrieveEnvironment :> es)
   => (PullRequestId, PullRequest)
   -> Sha
   -> ProjectState
@@ -987,7 +985,7 @@ unspeculateFailuresAfter promotedPullRequest pr
 -- For this to work properly, it is essential that 'proceed' does not have any
 -- side effects if it does not change the state.
 proceedUntilFixedPoint
-  :: (BaseAction :> es, RetrieveEnvironment :> es)
+  :: (Action :> es, RetrieveEnvironment :> es)
   => ProjectState
   -> Eff es ProjectState
 proceedUntilFixedPoint state = do
@@ -1059,7 +1057,7 @@ describeStatus (BaseBranch projectBaseBranchName) prId pr state = case Pr.classi
 -- Leave a comment with the feedback from 'describeStatus' and set the
 -- 'needsFeedback' flag to 'False'.
 leaveFeedback
-  :: (BaseAction :> es, RetrieveEnvironment :> es)
+  :: (Action :> es, RetrieveEnvironment :> es)
   => (PullRequestId, PullRequest)
   -> ProjectState
   -> Eff es ProjectState
@@ -1070,7 +1068,7 @@ leaveFeedback (prId, pr) state = do
 
 -- Run 'leaveFeedback' on all pull requests that need feedback.
 provideFeedback
-  :: (BaseAction :> es, RetrieveEnvironment :> es)
+  :: (Action :> es, RetrieveEnvironment :> es)
   => ProjectState
   -> Eff es ProjectState
 provideFeedback state
@@ -1080,7 +1078,7 @@ provideFeedback state
   $ IntMap.toList $ Pr.pullRequests state
 
 handleEvent
-  :: (BaseAction :> es, RetrieveEnvironment :> es)
+  :: (Action :> es, RetrieveEnvironment :> es)
   => TriggerConfiguration
   -> MergeWindowExemptionConfiguration
   -> Event

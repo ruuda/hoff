@@ -43,7 +43,7 @@ import Format (format, Only (..))
 import Git (BaseBranch (..), Branch (..), PushResult (..), Sha (..), TagMessage (..), TagName (..),
             GitIntegrationFailure (..), Context (..))
 import Github (CommentPayload, CommitStatusPayload, PullRequestPayload)
-import Logic (BaseAction, BaseAction (..), Event (..), IntegrationFailure (..), RetrieveEnvironment (..))
+import Logic (Action, Action (..), Event (..), IntegrationFailure (..), RetrieveEnvironment (..))
 import Project (Approval (..), DeployEnvironment (..), ProjectState (ProjectState), PullRequest (PullRequest))
 import Types (PullRequestId (..), Username (..))
 import ProjectSpec (projectSpec)
@@ -220,7 +220,7 @@ runRetrieveInfo projectConfig = interpret $ \_ -> \case
   GetDateTime -> takeResultGetDateTime
   GetBaseBranch -> pure $ BaseBranch $ Config.branch testProjectConfig
 
-type ActionResults = [BaseAction, RetrieveEnvironment, State Results, Writer [ActionFlat]]
+type ActionResults = [Action, RetrieveEnvironment, State Results, Writer [ActionFlat]]
 
 -- This function simulates running the actions, and returns the final state,
 -- together with a list of all actions that would have been performed. Some
@@ -228,7 +228,7 @@ type ActionResults = [BaseAction, RetrieveEnvironment, State Results, Writer [Ac
 -- consume one entry from the `Results` in the state.
 runBaseActionResults
   :: (State Results :> es, Writer [ActionFlat] :> es)
-  => Eff (BaseAction : es) a
+  => Eff (Action : es) a
   -> Eff es a
 runBaseActionResults =
   let
@@ -271,7 +271,7 @@ runBaseActionResults =
 runActionEff
   :: (State Results :> es, Writer [ActionFlat] :> es)
   => Config.ProjectConfiguration
-  -> Eff (BaseAction : RetrieveEnvironment : es) a
+  -> Eff (Action : RetrieveEnvironment : es) a
   -> Eff es a
 runActionEff config eff = runRetrieveInfo config $ runBaseActionResults eff
 
@@ -297,12 +297,12 @@ runAction = runActionCustom defaultResults
 
 -- Handle an event, then advance the state until a fixed point,
 -- and simulate its side effects.
-handleEventTest :: (BaseAction :> es, RetrieveEnvironment :> es) => Event -> ProjectState -> Eff es ProjectState
+handleEventTest :: (Action :> es, RetrieveEnvironment :> es) => Event -> ProjectState -> Eff es ProjectState
 handleEventTest = Logic.handleEvent testTriggerConfig testmergeWindowExemptionConfig
 
 -- Handle events (advancing the state until a fixed point in between) and
 -- simulate their side effects.
-handleEventsTest :: (BaseAction :> es, RetrieveEnvironment :> es) => [Event] -> ProjectState -> Eff es ProjectState
+handleEventsTest :: (Action :> es, RetrieveEnvironment :> es) => [Event] -> ProjectState -> Eff es ProjectState
 handleEventsTest events state = foldlM (flip $ Logic.handleEvent testTriggerConfig testmergeWindowExemptionConfig) state events
 
 -- | Like 'classifiedPullRequests' but just with ids.
