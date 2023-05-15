@@ -25,6 +25,7 @@ haskellPackages: with haskellPackages; [
   http-client
   http-conduit
   http-types
+  megaparsec
   memory
   monad-logger
   optparse-applicative

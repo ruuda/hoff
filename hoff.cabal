@@ -52,6 +52,7 @@ library
                , github
                , http-client
                , http-types
+               , megaparsec
                , memory
                , monad-logger
                , process
