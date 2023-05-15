@@ -32,7 +32,7 @@ module Logic
   newStateVar,
   proceedUntilFixedPoint,
   readStateVar,
-  runBaseAction,
+  runAction,
   runRetrieveEnvironment,
   tryIntegratePullRequest,
   updateStateVar,
@@ -188,12 +188,12 @@ triggerTrainSizeUpdate projectState = do
   send $ UpdateTrainSizeMetric n
 
 -- | Interpreter that translates high-level actions into more low-level ones.
-runBaseAction
+runAction
   :: (MetricsOperation :> es, GitOperation :> es, GithubOperation :> es, TimeOperation :> es)
   => ProjectConfiguration
   -> Eff (Action : es) a
   -> Eff es a
-runBaseAction config =
+runAction config =
   let pushDelayMicroseconds :: Int = 2 * 1_000_000
    in interpret $ \_ -> \case
     TryIntegrate message (pr, ref, sha) train alwaysAddMergeCommit -> do

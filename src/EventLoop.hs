@@ -170,7 +170,7 @@ runLogicEventLoop
         Nothing    -> return state
 
   in do
-    Logic.runBaseAction projectConfig $
+    Logic.runAction projectConfig $
       Logic.runRetrieveEnvironment projectConfig $
       runLoop initialState
 

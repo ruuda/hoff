@@ -226,11 +226,11 @@ type ActionResults = [Action, RetrieveEnvironment, State Results, Writer [Action
 -- together with a list of all actions that would have been performed. Some
 -- actions require input from the outside world. Simulating these actions will
 -- consume one entry from the `Results` in the state.
-runBaseActionResults
+runActionResults
   :: (State Results :> es, Writer [ActionFlat] :> es)
   => Eff (Action : es) a
   -> Eff es a
-runBaseActionResults =
+runActionResults =
   let
     -- In the tests, only "deckard" is a reviewer.
     isReviewer username = elem username ["deckard", "bot"]
@@ -273,7 +273,7 @@ runActionEff
   => Config.ProjectConfiguration
   -> Eff (Action : RetrieveEnvironment : es) a
   -> Eff es a
-runActionEff config eff = runRetrieveInfo config $ runBaseActionResults eff
+runActionEff config eff = runRetrieveInfo config $ runActionResults eff
 
 -- Simulates running the action. Use the provided results as result for various
 -- operations. Results are consumed one by one.
