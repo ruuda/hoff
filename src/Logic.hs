@@ -47,10 +47,13 @@ import Control.Monad.STM (atomically)
 import Data.Bifunctor (first)
 import Data.Either.Extra (maybeToEither)
 import Data.IntSet (IntSet)
-import Data.Maybe (fromJust, isJust, listToMaybe, fromMaybe)
+import Data.List (intercalate, intersperse)
+import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text.Lazy (toStrict)
+import Data.Void (Void)
 import GHC.Natural (Natural)
+import Text.Megaparsec (ParseErrorBundle, Parsec, (<|>))
 
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
@@ -61,6 +64,8 @@ import qualified Data.Text.Lazy.Builder as B
 import qualified Data.Text.Lazy.Builder.Int as B
 import qualified Data.Text.Read as Text
 import Data.Time (UTCTime, DayOfWeek (Friday), dayOfWeek, utctDay)
+import qualified Text.Megaparsec as P
+import qualified Text.Megaparsec.Char as P
 
 import Configuration (ProjectConfiguration (owner, repository, deployEnvironments), TriggerConfiguration, MergeWindowExemptionConfiguration)
 import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, (:>))
@@ -494,62 +499,155 @@ isSuccess :: ParseResult a -> Bool
 isSuccess (Success _) = True
 isSuccess _ = False
 
--- Returns the approval type contained in the given text, if the message is a
--- command that instructs us to merge the PR.
+type Parser = Parsec Void Text
+
+-- | Parse a PR comment for a merge command (approval). The parsing is done
+-- case-insensitively and duplicate whitespace is ignored. The 'ParseResult'
+-- indicates whether:
+--
+--   1) The comment contains a properly parsed merge command.  To reduce
+--      ambiguity, the command should be either on its own line or at the end of
+--      a sentence (which may end with a period, comma, exclamation mark, or
+--      question mark). If the line contains other text that cannot be parsed
+--      then this is treated as an error.
+--   2) The comment did contain the merge command's prefix but the text folowing
+--      it was not a valid merge command according to the rules mentioned above.
+--   3) The comment did not contain the command prefix at all and should be
+--      ignored.
+--
 -- If the trigger prefix is "@hoffbot", a command "@hoffbot merge" would
 -- indicate the `Merge` approval type.
--- Returns `Ignored` if the bot was not mentioned, `Success` if it was mentioned
--- in the same message as a valid command, and `Unknown` if it was mentioned but
--- no valid command was found.
 parseMergeCommand :: ProjectConfiguration -> TriggerConfiguration -> Text -> ParseResult (ApprovedFor, MergeWindow)
-parseMergeCommand projectConfig triggerConfig message =
-  let
-    normalise :: Text -> Text
-    normalise msg =
-      -- Normalise commands with extra spaces between them (`@Bot  merge  and tag` | `merge and  tag`)
-      let multiWhitespaceStripped = Text.unwords $ filter (not . Text.null) $ Text.words msg
-      -- Standardise the casing in order to match commands with different casing (@Bot Merge)
-      in Text.toCaseFold multiWhitespaceStripped
+parseMergeCommand projectConfig triggerConfig = cvtParseResult . P.parse pComment "comment"
+  where
+    cvtParseResult :: Either (ParseErrorBundle Text Void) (Maybe (ApprovedFor, MergeWindow)) -> ParseResult (ApprovedFor, MergeWindow)
+    cvtParseResult (Right (Just result)) = Success result
+    cvtParseResult (Right Nothing) = Ignored
+    cvtParseResult (Left err) = ParseError (Text.pack $ P.errorBundlePretty err)
 
-    messageNormalised = normalise message
-    prefixNormalised = normalise $ Config.commentPrefix triggerConfig
-    mentioned = prefixNormalised `Text.isPrefixOf` messageNormalised
-    -- Determines if any individual mention matches the given command message
-    matchWith :: Text -> Bool
-    matchWith msg = any (Text.isPrefixOf msg) mentions
-      where mentions = Text.splitOn prefixNormalised messageNormalised
+    -- This parser maintains a lot of the odd parser's behavior in that in folds
+    -- repeated whitespace into one, matches case insensitively, and strips the
+    -- prefix (but not the environment names) before matching.
+    commandPrefix :: Text
+    commandPrefix = Text.strip $ Config.commentPrefix triggerConfig
 
-    deployCommands :: [(Text, ApprovedFor)]
-    deployCommands = case deployEnvironments projectConfig of
-      Nothing     -> []
-      Just []     -> []
-      Just (e:es) -> map (\y -> (format " merge and deploy to {}" [y], MergeAndDeploy (DeployEnvironment y))) (e:es)
-                       ++ [(" merge and deploy", MergeAndDeploy $ DeployEnvironment e)]
+    -- No whitespace stripping or case folding is performed here since they are
+    -- also matched verbatim elsewhere in Hoff.
+    environments :: [Text]
+    environments = fromMaybe [] (deployEnvironments projectConfig)
 
-    defaultCommands :: [(Text, ApprovedFor)]
-    defaultCommands = [(" merge and tag", MergeAndTag),(" merge", Merge)]
+    -- The punctuation characters that are allowed at the end of a merge
+    -- command. This doesn't use the included punctuation predicate because that
+    -- includes many more classes of punctuation, like quotes.
+    allowedPunctuation :: [Char]
+    allowedPunctuation = ".,!?:;"
 
-    -- Check if the prefix followed by ` merge [and {deploy,tag} [to
-    -- <environment>]] [on friday]` occurs within the message. We opt to include
-    -- the space here, instead of making it part of the prefix, because having
-    -- the trailing space in config is something that is easy to get wrong. Note
-    -- that because "merge" is an infix of "merge and xxx" we need to check for
-    -- the "merge and xxx" commands first: if this order were reversed all
-    -- "merge and xxx" commands would be detected as a Merge command. This
-    -- strict order requirement also holds for the `to <environment>` and `on
-    -- Friday` options
-    commands :: [(Text, (ApprovedFor, MergeWindow))]
-    commands = (\(cmd, af) (cont, mw) -> (Text.append cmd cont, (af, mw))) <$>
-      deployCommands ++ defaultCommands <*> [(" on friday", OnFriday), ("", NotFriday)]
+    -- The error message printed when a comand is not terminated correctly.
+    commentSuffixError :: String
+    commentSuffixError = "Merge commands may not be followed by anything other than a punctuation character ("
+      <> intercalate ", " (map show allowedPunctuation)
+      <> ")."
 
-   in case listToMaybe [ cmd | (msg, cmd) <- commands, matchWith msg ] of
-     Just command -> Success command
-     Nothing
-       | mentioned -> ParseError $
-         case Text.strip <$> Text.stripPrefix prefixNormalised messageNormalised of
-           Just str -> "`" <> str <> "` was not recognized as a valid command."
-           Nothing  -> "That was not a valid command."
-       | otherwise -> Ignored
+    -- The error message printed when using 'merge and deploy' with no
+    -- configured deployment environments.
+    noDeployEnvironmentsError :: String
+    noDeployEnvironmentsError = "No deployment environments have been configured."
+
+    -- Helper to parse a string, case insensitively, and ignoring excess spaces
+    -- between words.
+    pString :: Text -> Parser ()
+    pString = sequence_ . intersperse P.hspace1 . map (void . P.string') . Text.words
+
+    -- This parser succeeds if it either successfully parses the comment for a
+    -- merge command, in which case it returns @Just (approval, mergeWindow)@,
+    -- or when the comment doesn't contain any merge command, in which case the
+    -- parser returns @Nothing@. The prefix is matched greedily in 'pCommand',
+    -- so if the comment contains an invaild command followed by a valid command
+    -- an error will be returned based on that earlier invalid command.
+    pComment :: Parser (Maybe (ApprovedFor, MergeWindow))
+    pComment = (Just <$> pCommand)
+      <|> (P.anySingle *> pComment)
+      <|> pure Nothing
+
+    -- Parse a full merge command. Does not consume any input if the prefix
+    -- could not be matched fully.
+    pCommand :: Parser (ApprovedFor, MergeWindow)
+    pCommand = P.try pCommandPrefix *> P.hspace1 *> pMergeCommand <* P.hspace <* pCommandSuffix
+
+    -- Parse the (normalized) command prefix. Matched non-greedily in 'pCommand'
+    -- using 'P.try'.
+    pCommandPrefix :: Parser ()
+    pCommandPrefix = void $ P.string' commandPrefix
+
+    -- Commands may be terminated by one or more (common) punctuation
+    -- characters, one or more whitespace characters, and either the end of a
+    -- line or the end of the input.
+    pCommandSuffix :: Parser ()
+    pCommandSuffix =
+      P.many (P.oneOf allowedPunctuation)
+      *> P.hspace
+      *> (void P.eol <|> P.eof <|> fail commentSuffixError)
+
+    -- Parse the actual merge command following the command prefix. The merge
+    -- window is either @ on friday@ or empty.
+    --
+    -- NOTE: Since @ on friday@ starts with a space, additional whitespace at
+    --       the end of 'pMergeApproval' should not already have been consumed.
+    --       This is a bit tricky, and using 'P.hspace' instead of 'P.hspace1'
+    --       in 'pMergeWindow' would allow @mergeon friday@ which is also not
+    --       desirable.
+    pMergeCommand :: Parser (ApprovedFor, MergeWindow)
+    pMergeCommand = (,) <$> pMergeApproval <*> pMergeWindow
+
+    -- We'll avoid unnecessary backtracking here by parsing the common prefixes.
+    -- Note that 'P.try' is used sparingly here. It's mostly used when parsing
+    -- whitespace plus another word. Backtracking should be limited to trying
+    -- difference branches since it will otherwise destroy the nice error
+    -- messages megaparsec gives us, and the parser will instead error out in
+    -- 'pCommandSuffix' which would be confusing.
+    --
+    -- When the comment isn't folowed by @ and @ this is treated as a plain
+    -- merge command.
+    pMergeApproval :: Parser ApprovedFor
+    pMergeApproval = pString "merge" *> (pMergeAnd <|> pure Merge)
+
+    -- NOTE: As mentioned above, only the @ and @ part will backtrack. This is
+    --       needed so a) the custom error message in pDeploy works and b) so
+    --       'merge on friday' can be parsed correctly.
+    pMergeAnd :: Parser ApprovedFor
+    pMergeAnd = P.try (P.hspace1 *> pString "and" *> P.hspace1) *> (pTag <|> pDeploy)
+
+    -- Parses @merge and tag@ commands.
+    pTag :: Parser ApprovedFor
+    pTag = MergeAndTag <$ pString "tag"
+
+    -- Parses @merge and deploy[ to <environment>]@ commands.
+    pDeploy :: Parser ApprovedFor
+    pDeploy = MergeAndDeploy <$> (pString "deploy" *> pDeployToEnvironment)
+
+    -- This parser is run directly after parsing "deploy", so it may need to
+    -- parse a space character first since specifying a deployment environment
+    -- is optional. The reason for splitting this up from 'pDeploy' like this is
+    -- so we can have a nicer error message when no environments have been
+    -- configured.
+    pDeployToEnvironment :: Parser DeployEnvironment
+    pDeployToEnvironment
+      | (defaultEnvironment : _) <- environments
+      -- Without the try this could consume the space and break 'merge and deploy on friday'
+      = P.try (P.hspace1 *> pString "to" *> P.hspace1) *> P.choice pDeployEnvironments
+      <|> pure (DeployEnvironment defaultEnvironment)
+      | otherwise
+      = fail noDeployEnvironmentsError
+
+    -- NOTE: This uses 'P.string' instead of 'P.string'' to avoid case folding,
+    --       since environment names are also matched case sensitively elsewhere
+    pDeployEnvironments :: [Parser DeployEnvironment]
+    pDeployEnvironments = map (fmap DeployEnvironment . P.string) environments
+
+    -- Parses the optional @ on friday@ command suffix. Since this starts with a
+    -- space, it's important that the last run parser has not yet consumed it.
+    pMergeWindow :: Parser MergeWindow
+    pMergeWindow = (OnFriday <$ P.try (P.hspace1 *> pString "on friday")) <|> pure NotFriday
 
 
 -- Mark the pull request as approved, and leave a comment to acknowledge that.
