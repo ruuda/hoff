@@ -24,12 +24,8 @@ import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN)
 import Control.Monad.STM (atomically)
-import Data.Aeson (encode)
-import Data.ByteString.Lazy (toStrict)
-import Data.Either (fromRight)
 import Data.Foldable (traverse_)
 import Data.Text (Text)
-import Data.Text.Encoding (decodeUtf8')
 import Effectful (Eff, (:>), IOE)
 import qualified Data.Text as Text
 
@@ -145,17 +141,14 @@ runLogicEventLoop
   getNextEvent publish initialState =
   let
     repo             = Config.repository projectConfig
-    showState state' = fromRight (showText state') $ decodeUtf8' $ toStrict $ encode state'
     handleAndContinue state0 event = do
       -- Handle the event and then perform any additional required actions until
       -- the state reaches a fixed point (when there are no further actions to
       -- perform).
       logInfoN  $ "logic loop received event (" <> repo <> "): " <> showText event
-      logDebugN $ "state before (" <> repo <> "): " <> showState state0
       state1 <-
         Logic.handleEvent triggerConfig mergeWindowExemptionConfig event state0
       liftIO $ publish state1
-      logDebugN $ "state after (" <> repo <> "): " <> showState state1
       runLoop state1
 
     runLoop state = do
