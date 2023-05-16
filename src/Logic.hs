@@ -481,8 +481,9 @@ handlePullRequestEdited prId newTitle newBaseBranch state =
 data ParseResult a
   -- | The parser found a valid prefix and a valid command.
   = Success a
-  -- | The parser found a valid prefix, but no valid command.
-  | Unknown Text
+  -- | The parser found a valid prefix, but no valid command. This contains a
+  -- (multiline) error message describing the problem with the command.
+  | ParseError Text
   -- | The parser decided to ignore the message because it did
   -- not contain a valid prefix.
   | Ignored
@@ -543,8 +544,12 @@ parseMergeCommand projectConfig triggerConfig message =
 
    in case listToMaybe [ cmd | (msg, cmd) <- commands, matchWith msg ] of
      Just command -> Success command
-     Nothing | mentioned -> Unknown message
-             | otherwise -> Ignored
+     Nothing
+       | mentioned -> ParseError $
+         case Text.strip <$> Text.stripPrefix prefixNormalised messageNormalised of
+           Just str -> "`" <> str <> "` was not recognized as a valid command."
+           Nothing  -> "That was not a valid command."
+       | otherwise -> Ignored
 
 
 -- Mark the pull request as approved, and leave a comment to acknowledge that.
@@ -592,13 +597,8 @@ handleCommentAdded triggerConfig mergeWindowExemption prId author body state =
         Ignored -> pure state
         -- The bot was mentioned but encountered an invalid command, report error and
         -- take no further action
-        Unknown command -> do
-          let prefix  = Text.toCaseFold $ Config.commentPrefix triggerConfig
-              cmdstr  = Text.strip <$> Text.stripPrefix prefix command
-              comment = case cmdstr of
-                Just str -> "`" <> str <> "` was not recognized as a valid command."
-                Nothing  -> "That was not a valid command."
-          () <- leaveComment prId comment
+        ParseError message -> do
+          () <- leaveComment prId message
           pure state
         -- Cases where the parse was successful
         Success command
