@@ -487,7 +487,10 @@ data ParseResult a
   -- | The parser found a valid prefix and a valid command.
   = Success a
   -- | The parser found a valid prefix, but no valid command. This contains a
-  -- (multiline) error message describing the problem with the command.
+  -- (multiline) error message describing the problem with the command. When
+  -- displaying the error in a GitHub comment, it should be shown as monospace
+  -- text as it may use whitespace for alignment and it may also contain
+  -- markdown from the original comment.
   | ParseError Text
   -- | The parser decided to ignore the message because it did
   -- not contain a valid prefix.
@@ -696,7 +699,14 @@ handleCommentAdded triggerConfig mergeWindowExemption prId author body state =
         -- The bot was mentioned but encountered an invalid command, report error and
         -- take no further action
         ParseError message -> do
-          () <- leaveComment prId message
+          -- The parser error message may use whitespace for alignment and it
+          -- may also contain markdown from the original comment. It should thus
+          -- be formatted as monospace text so it displays correctly. This uses
+          -- the oldschool four space markdown code blocks instead of fenced
+          -- code blocks since it's less ambiguous.
+          let monospaceMessage = Text.unlines . map ("    " <>) . Text.lines $ message
+              fullComment = "Unknown or invalid command found:\n\n" <> monospaceMessage
+          () <- leaveComment prId fullComment
           pure state
         -- Cases where the parse was successful
         Success command
