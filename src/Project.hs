@@ -17,6 +17,7 @@ module Project
 (
   Approval (..),
   ApprovedFor (..),
+  MergeCommand (..),
   BuildStatus (..),
   DeployEnvironment(..),
   MandatoryChecks (..),
@@ -161,6 +162,11 @@ data ApprovedFor
   | MergeAndDeploy DeployEnvironment
   | MergeAndTag
   deriving (Eq, Show, Generic)
+
+-- | A command parsed from a comment in @Logic.parseMergeCommand@.
+data MergeCommand
+  = -- | The PR should be approved for merging and optionally deploying.
+    Approve ApprovedFor
 
 -- | For a PR to be approved a specific user must give a specific approval
 --   command, i.e. either just "merge" or "merge and deploy".

@@ -77,7 +77,7 @@ import Git (Branch (..), BaseBranch (..), GitOperation, PushResult (..),
 
 import GithubApi (GithubOperation)
 import Metrics.Metrics (MetricsOperation, increaseMergedPRTotal, updateTrainSizeGauge)
-import Project (Approval (..), ApprovedFor (..), BuildStatus (..), Check (..), DeployEnvironment (..), IntegrationStatus (..),
+import Project (Approval (..), ApprovedFor (..), MergeCommand (..), BuildStatus (..), Check (..), DeployEnvironment (..), IntegrationStatus (..),
                 MergeWindow(..), ProjectState, PullRequest, PullRequestStatus (..),
                 summarize, supersedes)
 import Time (TimeOperation)
@@ -504,7 +504,7 @@ isSuccess _ = False
 
 type Parser = Parsec Void Text
 
--- | Parse a PR comment for a merge command (approval). The parsing is done
+-- | Parse a PR comment for a merge command. The parsing is done
 -- case-insensitively and duplicate whitespace is ignored. The 'ParseResult'
 -- indicates whether:
 --
@@ -520,10 +520,10 @@ type Parser = Parsec Void Text
 --
 -- If the trigger prefix is "@hoffbot", a command "@hoffbot merge" would
 -- indicate the `Merge` approval type.
-parseMergeCommand :: ProjectConfiguration -> TriggerConfiguration -> Text -> ParseResult (ApprovedFor, MergeWindow)
+parseMergeCommand :: ProjectConfiguration -> TriggerConfiguration -> Text -> ParseResult (MergeCommand, MergeWindow)
 parseMergeCommand projectConfig triggerConfig = cvtParseResult . P.parse pComment "comment"
   where
-    cvtParseResult :: Either (ParseErrorBundle Text Void) (Maybe (ApprovedFor, MergeWindow)) -> ParseResult (ApprovedFor, MergeWindow)
+    cvtParseResult :: Either (ParseErrorBundle Text Void) (Maybe a) -> ParseResult a
     cvtParseResult (Right (Just result)) = Success result
     cvtParseResult (Right Nothing) = Ignored
     cvtParseResult (Left err) = ParseError (Text.pack $ P.errorBundlePretty err)
@@ -567,15 +567,15 @@ parseMergeCommand projectConfig triggerConfig = cvtParseResult . P.parse pCommen
     -- parser returns @Nothing@. The prefix is matched greedily in 'pCommand',
     -- so if the comment contains an invaild command followed by a valid command
     -- an error will be returned based on that earlier invalid command.
-    pComment :: Parser (Maybe (ApprovedFor, MergeWindow))
+    pComment :: Parser (Maybe (MergeCommand, MergeWindow))
     pComment = (Just <$> pCommand)
       <|> (P.anySingle *> pComment)
       <|> pure Nothing
 
     -- Parse a full merge command. Does not consume any input if the prefix
     -- could not be matched fully.
-    pCommand :: Parser (ApprovedFor, MergeWindow)
-    pCommand = P.try pCommandPrefix *> P.hspace1 *> pMergeCommand <* P.hspace <* pCommandSuffix
+    pCommand :: Parser (MergeCommand, MergeWindow)
+    pCommand = P.try pCommandPrefix *> P.hspace1 *> pApprovalCommand <* P.hspace <* pCommandSuffix
 
     -- Parse the (normalized) command prefix. Matched non-greedily in 'pCommand'
     -- using 'P.try'.
@@ -591,16 +591,16 @@ parseMergeCommand projectConfig triggerConfig = cvtParseResult . P.parse pCommen
       *> P.hspace
       *> (void P.eol <|> P.eof <|> fail commentSuffixError)
 
-    -- Parse the actual merge command following the command prefix. The merge
-    -- window is either @ on friday@ or empty.
+    -- Parse the actual merge approval command following the command prefix. The
+    -- merge window is either @ on friday@ or empty.
     --
     -- NOTE: Since @ on friday@ starts with a space, additional whitespace at
     --       the end of 'pMergeApproval' should not already have been consumed.
     --       This is a bit tricky, and using 'P.hspace' instead of 'P.hspace1'
     --       in 'pMergeWindow' would allow @mergeon friday@ which is also not
     --       desirable.
-    pMergeCommand :: Parser (ApprovedFor, MergeWindow)
-    pMergeCommand = (,) <$> pMergeApproval <*> pMergeWindow
+    pApprovalCommand :: Parser (MergeCommand, MergeWindow)
+    pApprovalCommand = (,) . Approve <$> pMergeApproval <*> pMergeWindow
 
     -- We'll avoid unnecessary backtracking here by parsing the common prefixes.
     -- Note that 'P.try' is used sparingly here. It's mostly used when parsing
@@ -715,16 +715,16 @@ handleCommentAdded triggerConfig mergeWindowExemption prId author body state =
             -- To guard against accidental merges we make use of a merge window.
             -- Merging inside this window is discouraged but can be overruled with a special command or by adding the
             -- user to the merge window exemption list.
-            (approval, _) | exempted author -> handleMergeRequested projectConfig prId author state pr approval
-            (approval, OnFriday) | day == Friday -> handleMergeRequested projectConfig prId author state pr approval
-            (approval, NotFriday)| day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
-            (other, NotFriday) -> do
+            (Approve approval, _) | exempted author -> handleMergeRequested projectConfig prId author state pr approval
+            (Approve approval, OnFriday)  | day == Friday -> handleMergeRequested projectConfig prId author state pr approval
+            (Approve approval, NotFriday) | day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
+            (Approve other, NotFriday) -> do
               () <- leaveComment prId ("Your merge request has been denied, because \
                                         \merging on Fridays is not recommended. \
                                         \To override this behaviour use the command `"
                                         <> Pr.displayApproval other <> " on Friday`.")
               pure state
-            (other, OnFriday) -> do
+            (Approve other, OnFriday) -> do
               () <- leaveComment prId ("Your merge request has been denied because \
                                         \it is not Friday. Run " <>
                                         Pr.displayApproval other <> " instead")
