@@ -45,7 +45,7 @@ import qualified Data.Text as Text
 
 import Format (format)
 import Git (Sha(..))
-import Project (Approval (..), BuildStatus (..), IntegrationStatus (..), Owner, ProjectInfo,
+import Project (Approval (..), MergeCommand (..), BuildStatus (..), IntegrationStatus (..), Owner, ProjectInfo,
                 ProjectState, PullRequest (integrationStatus), speculativelyFailedPullRequests,
                 summarize)
 import Types (PullRequestId (..), Username (..))
@@ -259,12 +259,17 @@ viewPullRequestWithApproval :: ProjectInfo -> PullRequestId -> PullRequest -> Ht
 viewPullRequestWithApproval info prId pullRequest = do
   viewPullRequest info prId pullRequest
   case Project.approval pullRequest of
-    Just Approval { approver = Username username, approvedFor = approvalType } -> do
+    Just Approval { approver = Username username, approvedFor = approvalType, approvalRetriedBy = retriedBy } -> do
       span ! class_ "review" $ do
         -- Show approver
         toHtml $ format "Approved for {} by " [approvedAction]
         -- TODO: Link to approval comment, not just username.
-        a ! href (toValue approverProfileUrl) $ toHtml username
+        a ! href (toValue $ profileUrl username) $ toHtml username
+        -- If the merge was retried, also show who triggered the retry
+        forM_ retriedBy $ \(Username retrierUsername) -> do
+          toHtml (" (retried by " :: Text)
+          a ! href (toValue $ profileUrl retrierUsername) $ toHtml retrierUsername
+          toHtml (")" :: Text)
         -- Show build info
         case integrationStatus pullRequest of
           Integrated sha buildStatus -> do
@@ -292,8 +297,8 @@ viewPullRequestWithApproval info prId pullRequest = do
           Promoted            -> span "  | " >> span "🔷 Promoted"
           NotIntegrated       -> pure ()
         where
-          approvedAction = Project.displayApproval approvalType
-          approverProfileUrl = Text.append "https://github.com/" username
+          approvedAction = Project.displayMergeCommand (Approve approvalType)
+          profileUrl = Text.append "https://github.com/"
           ciLink url text = do
             a ! href (toValue url) $ text
             span " "

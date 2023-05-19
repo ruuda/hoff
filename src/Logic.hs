@@ -575,7 +575,7 @@ parseMergeCommand projectConfig triggerConfig = cvtParseResult . P.parse pCommen
     -- Parse a full merge command. Does not consume any input if the prefix
     -- could not be matched fully.
     pCommand :: Parser (MergeCommand, MergeWindow)
-    pCommand = P.try pCommandPrefix *> P.hspace1 *> pApprovalCommand <* P.hspace <* pCommandSuffix
+    pCommand = P.try pCommandPrefix *> P.hspace1 *> (pApprovalCommand <|> pRetryCommand) <* P.hspace <* pCommandSuffix
 
     -- Parse the (normalized) command prefix. Matched non-greedily in 'pCommand'
     -- using 'P.try'.
@@ -601,6 +601,9 @@ parseMergeCommand projectConfig triggerConfig = cvtParseResult . P.parse pCommen
     --       desirable.
     pApprovalCommand :: Parser (MergeCommand, MergeWindow)
     pApprovalCommand = (,) . Approve <$> pMergeApproval <*> pMergeWindow
+
+    pRetryCommand :: Parser (MergeCommand, MergeWindow)
+    pRetryCommand = (Retry,) <$> (P.string' "retry" *> pMergeWindow)
 
     -- We'll avoid unnecessary backtracking here by parsing the common prefixes.
     -- Note that 'P.try' is used sparingly here. It's mostly used when parsing
@@ -662,7 +665,7 @@ approvePullRequest pr approval = pure . Pr.updatePullRequest pr
       })
 
 handleCommentAdded
-  :: (Action :> es, RetrieveEnvironment :> es)
+  :: forall es. (Action :> es, RetrieveEnvironment :> es)
   => TriggerConfiguration
   -> MergeWindowExemptionConfiguration
   -> PullRequestId
@@ -681,18 +684,42 @@ handleCommentAdded triggerConfig mergeWindowExemption prId author body state =
       projectConfig <- getProjectConfig
 
       let commandType = parseMergeCommand projectConfig triggerConfig body
-          exempted :: Username -> Bool
-          exempted (Username user) =
-            let (Config.MergeWindowExemptionConfiguration users) = mergeWindowExemption
-            in elem user users
       -- Check whether the author is allowed to do merge commands, but only if
       -- a valid command was parsed.
       isAllowed <- if isSuccess commandType
         then isReviewer author
         else pure False
-      -- For now Friday at UTC+0 is good enough.
-      -- See https://github.com/channable/hoff/pull/95 for caveats and improvement ideas.
+
+      -- To guard against accidental merges we make use of a merge window.
+      -- Merging inside this window is discouraged but can be overruled with a
+      -- special command or by adding the user to the merge window exemption
+      -- list. For now Friday at UTC+0 is good enough. See
+      -- https://github.com/channable/hoff/pull/95 for caveats and improvement
+      -- ideas.
       day <- dayOfWeek . utctDay <$> getDateTime
+      let exempted :: Username -> Bool
+          exempted (Username user) =
+            let (Config.MergeWindowExemptionConfiguration users) = mergeWindowExemption
+            in elem user users
+
+          verifyMergeWindow :: MergeCommand -> MergeWindow -> Eff es ProjectState -> Eff es ProjectState
+          verifyMergeWindow _ _ action | exempted author = action
+          verifyMergeWindow command OnFriday action
+            | day == Friday = action
+            | otherwise = do
+                () <- leaveComment prId ("Your merge request has been denied because \
+                                          \it is not Friday. Run '" <>
+                                          Pr.displayMergeCommand command <> "' instead.")
+                pure state
+          verifyMergeWindow command NotFriday action
+            | day /= Friday = action
+            | otherwise = do
+                () <- leaveComment prId ("Your merge request has been denied, because \
+                                          \merging on Fridays is not recommended. \
+                                          \To override this behaviour use the command `"
+                                          <> Pr.displayMergeCommand command <> " on Friday`.")
+                pure state
+
       case commandType of
         -- The bot was not mentioned in the comment, ignore
         Ignored -> pure state
@@ -709,26 +736,11 @@ handleCommentAdded triggerConfig mergeWindowExemption prId author body state =
           () <- leaveComment prId fullComment
           pure state
         -- Cases where the parse was successful
-        Success command
+        Success (command, mergeWindow)
           -- Author is a reviewer
-          | isAllowed -> case command of
-            -- To guard against accidental merges we make use of a merge window.
-            -- Merging inside this window is discouraged but can be overruled with a special command or by adding the
-            -- user to the merge window exemption list.
-            (Approve approval, _) | exempted author -> handleMergeRequested projectConfig prId author state pr approval
-            (Approve approval, OnFriday)  | day == Friday -> handleMergeRequested projectConfig prId author state pr approval
-            (Approve approval, NotFriday) | day /= Friday -> handleMergeRequested projectConfig prId author state pr approval
-            (Approve other, NotFriday) -> do
-              () <- leaveComment prId ("Your merge request has been denied, because \
-                                        \merging on Fridays is not recommended. \
-                                        \To override this behaviour use the command `"
-                                        <> Pr.displayApproval other <> " on Friday`.")
-              pure state
-            (Approve other, OnFriday) -> do
-              () <- leaveComment prId ("Your merge request has been denied because \
-                                        \it is not Friday. Run " <>
-                                        Pr.displayApproval other <> " instead")
-              pure state
+          | isAllowed -> verifyMergeWindow command mergeWindow $ case command of
+            Approve approval -> handleMergeRequested projectConfig prId author state pr approval Nothing
+            Retry -> handleMergeRetry projectConfig prId author state pr
           -- Author is not a reviewer, so we ignore
           | otherwise -> pure state
     -- If the pull request is not in the state, ignore the comment.
@@ -741,14 +753,38 @@ handleMergeRequested
   -> ProjectState
   -> PullRequest
   -> ApprovedFor
+  -> Maybe Username
   -> Eff es ProjectState
-handleMergeRequested projectConfig prId author state pr approvalType = do
+handleMergeRequested projectConfig prId author state pr approvalType retriedBy = do
   let (order, state') = Pr.newApprovalOrder state
-  state'' <- approvePullRequest prId (Approval author approvalType order) state'
+  state'' <- approvePullRequest prId (Approval author approvalType order retriedBy) state'
   -- Check whether the integration branch is valid, if not, mark the integration as invalid.
   if Pr.baseBranch pr /= BaseBranch (Config.branch projectConfig)
     then pure $ Pr.setIntegrationStatus prId IncorrectBaseBranch state''
     else pure state''
+
+-- | Attempt to retry merging a PR that has previously been approved for
+-- merging.
+handleMergeRetry
+  :: (Action :> es)
+  => ProjectConfiguration
+  -> PullRequestId
+  -> Username
+  -> ProjectState
+  -> PullRequest
+  -> Eff es ProjectState
+handleMergeRetry projectConfig prId author state pr
+  -- Only approved PRs with failed builds can be retried
+  | Just approval <- Pr.approval pr,
+    Integrated _ buildStatus <- Pr.integrationStatus pr,
+    BuildFailed{} <- summarize buildStatus = do
+      state' <- clearPullRequest prId pr state
+      -- The PR is still approved by its original approver. The person who
+      -- triggered the retry is tracked separately.
+      handleMergeRequested projectConfig prId (Pr.approver approval) state' pr (Pr.approvedFor approval) (Just author)
+  | otherwise = do
+      () <- leaveComment prId "Only approved PRs with failed builds can be retried.."
+      pure state
 
 -- | Given a pull request id, mark all pull requests that follow from it
 --   in the merge train as NotIntegrated
@@ -948,7 +984,7 @@ tryIntegratePullRequest pr state =
     PullRequestId prNumber = pr
     pullRequest  = fromJust $ Pr.lookupPullRequest pr state
     title = Pr.title pullRequest
-    Approval (Username approvedBy) approvalType _prOrder = fromJust $ Pr.approval pullRequest
+    Approval (Username approvedBy) approvalType _prOrder _retriedBy = fromJust $ Pr.approval pullRequest
     candidateSha = Pr.sha pullRequest
     candidateRef = getPullRequestRef pr
     candidate = (pr, candidateRef, candidateSha)
@@ -1108,12 +1144,17 @@ describeStatus (BaseBranch projectBaseBranchName) prId pr state = case Pr.classi
   PrStatusAwaitingApproval -> "Pull request awaiting approval."
   PrStatusApproved ->
     let
-      Approval (Username approvedBy) approvalType _position = fromJust $ Pr.approval pr
-      approvalCommand = Pr.displayApproval approvalType
-    in case Pr.getQueuePosition prId state of
-      0 -> format "Pull request approved for {} by @{}, rebasing now." [approvalCommand, approvedBy]
-      1 -> format "Pull request approved for {} by @{}, waiting for rebase behind one pull request." [approvalCommand, approvedBy]
-      n -> format "Pull request approved for {} by @{}, waiting for rebase behind {} pull requests." (approvalCommand, approvedBy, n)
+      Approval (Username approvedBy) approvalType _position retriedBy = fromJust $ Pr.approval pr
+
+      approvalCommand = Pr.displayMergeCommand (Approve approvalType)
+      retriedByMsg = case retriedBy of
+        Just user -> format " (retried by @{})" [user]
+        Nothing -> mempty
+      queuePositionMsg = case Pr.getQueuePosition prId state of
+        0 -> "rebasing now"
+        1 -> "waiting for rebase behind one pull request"
+        n -> format "waiting for rebase behind {} pull requests" [n]
+    in format "Pull request approved for {} by @{}{}, {}." [approvalCommand, approvedBy, retriedByMsg, queuePositionMsg]
   PrStatusBuildPending -> let Sha sha = fromJust $ Pr.integrationSha pr
                               train   = takeWhile (/= prId) $ Pr.unfailedIntegratedPullRequests state
                               len     = length train
@@ -1152,9 +1193,11 @@ describeStatus (BaseBranch projectBaseBranchName) prId pr state = case Pr.classi
   PrStatusSpeculativeConflict -> "Failed to speculatively rebase. \
                                  \ I will retry rebasing automatically when the queue clears."
   PrStatusFailedBuild url -> case Pr.unfailedIntegratedPullRequestsBefore pr state of
+    -- On Fridays the retry command is also `retry on friday`. We currently
+    -- don't have that information here. Is that worth including?
     [] -> format "The {}.\n\n\
                  \If this is the result of a flaky test, \
-                 \close and reopen the PR, then tag me again.  \
+                 \then tag me again with the `retry` command.  \
                  \Otherwise, push a new commit and tag me again."
                  [markdownLink "build failed :x:" url]
     trainBefore -> format "Speculative {}. \
