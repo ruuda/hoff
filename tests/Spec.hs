@@ -334,6 +334,22 @@ getIntegrationCandidates state =
   , Just candidate <- [Project.lookupPullRequest pullRequestId state]
   ]
 
+-- | Boilerplate for a test case where the parser returns an error.
+expectSimpleParseFailure ::
+  HasCallStack =>
+  -- | Comment
+  Text ->
+  -- | Error message
+  Text ->
+  Expectation
+expectSimpleParseFailure commentMsg errorMsg =
+  let prId = PullRequestId 1
+      state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+      event = CommentAdded prId "deckard" commentMsg
+      (_, actions) = runActionCustom defaultResults $ handleEventTest event state
+   in actions `shouldBe` [ALeaveComment prId errorMsg]
+
+
 main :: IO ()
 main = hspec $ do
   projectSpec
@@ -476,13 +492,12 @@ main = hspec $ do
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
       Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
 
-    it "accepts command at end of other comments if tagged multiple times" $ do
-      let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "sacha"
-          -- Note: "deckard" is marked as reviewer in the test config.
-          event  = CommentAdded (PullRequestId 1) "deckard" "@bot looks good to me, @bot merge"
-          state' = fst $ runAction $ handleEventTest event state
-          pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
+    -- The first mention/prefix is parsed as a command, and since this
+    -- particular example isn't a valid command this should be treated as a
+    -- parsing failure. Before the parser was rewritten this was valid as long
+    -- as the message also contained a valid command.
+    it "rejects command at end of other comments on the same line if tagged multiple times" $
+      expectSimpleParseFailure "@bot looks good to me, @bot merge" "Unknown or invalid command found:\n\n    comment:1:6:\n      |\n    1 | @bot looks good to me, @bot merge\n      |      ^^^^^\n    unexpected \"looks\"\n    expecting \"merge\" or white space\n"
 
     it "accepts command before comments" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "sacha"
@@ -871,8 +886,10 @@ main = hspec $ do
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "production") 0))
 
-
-    it "ignores the 'deploy' in 'merge and deploy' commands when no deployEnvironments are configured " $ do
+    -- There is no default environment to deploy to when no deployment
+    -- environments have been configured. Earlier versions would silently ignore
+    -- the ' and deploy' part of the command.
+    it "rejects the 'merge and deploy' command when no deployEnvironments are configured " $ do
       let
         prId = PullRequestId 1
         state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
@@ -880,18 +897,9 @@ main = hspec $ do
         event = CommentAdded prId "deckard" "@bot merge and deploy"
 
         results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
-        (state', actions) = runActionCustomConfig (testProjectConfig{Config.deployEnvironments = Just []}) results $ handleEventTest event state
+        (_, actions) = runActionCustomConfig (testProjectConfig{Config.deployEnvironments = Just []}) results $ handleEventTest event state
 
-      actions `shouldBe`
-        [ AIsReviewer "deckard"
-        , ALeaveComment prId "Pull request approved for merge by @deckard, rebasing now."
-        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: false\n"
-                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
-        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
-        ]
-
-      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.Merge) 0))
+      actions `shouldBe` [ALeaveComment prId "Unknown or invalid command found:\n\n    comment:1:22:\n      |\n    1 | @bot merge and deploy\n      |                      ^\n    No deployment environments have been configured.\n"]
 
     it "recognizes 'merge and deploy on Friday' commands as the proper ApprovedFor value" $ do
       let
@@ -1040,18 +1048,8 @@ main = hspec $ do
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
         (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.Merge 0))
 
-    it "notifies when command not recognized" $ do
-      let
-        prId = PullRequestId 1
-        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
-
-        event = CommentAdded prId "deckard" "@bot mergre"
-
-        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
-        (_, actions) = runActionCustom results $ handleEventTest event state
-
-      actions `shouldBe`
-        [ ALeaveComment prId "`mergre` was not recognized as a valid command." ]
+    it "notifies when command not recognized"
+      $ expectSimpleParseFailure  "@bot mergre" "Unknown or invalid command found:\n\n    comment:1:6:\n      |\n    1 | @bot mergre\n      |      ^^^^^\n    unexpected \"mergr\"\n    expecting \"merge\" or white space\n"
 
     it "allow 'merge' on Friday for exempted users" $ do
       let
@@ -1238,6 +1236,107 @@ main = hspec $ do
       Project.approval pr `shouldBe` Nothing
       Project.unfailedIntegratedPullRequests state' `shouldBe` []
 
+    -- Previous versions of Hoff would still match the @merge and deploy@ part
+    -- and deploy to the default environment instead
+    it "rejects 'merge and deploy to prohno' with an error message"
+      $ expectSimpleParseFailure  "@bot merge and deploy to prohno" "Unknown or invalid command found:\n\n    comment:1:26:\n      |\n    1 | @bot merge and deploy to prohno\n      |                          ^^^^^^\n    unexpected \"prohno\"\n    expecting \"production\", \"staging\", or white space\n"
+
+    it "allows merge commands followed by a period at the end of a sentence" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "Let's do this, @bot merge and deploy."
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (state', actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge and deploy to staging by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\nDeploy-Environment: staging\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] True
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0))
+
+    -- The same as the above, but with a space preceding the punctuation and
+    -- with multiple punctuation characters.
+    it "allows merge commands followed by overly enthusiastic punctuation" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "Let's do this, @bot merge and deploy !!?!"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (state', actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge and deploy to staging by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\nDeploy-Environment: staging\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] True
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0))
+
+    -- For ergonomics' sake, the command can be part of a sentence that ends
+    -- with one or more punctuation characters, but only if the line ends after
+    -- that sentence. This avoids a class of ambiguities if at some point
+    -- commands are added take freeform strings as their arguments (e.g. tag
+    -- messages).
+    it "rejects merge commands when it is followed by another sentence before a line break"
+      $ expectSimpleParseFailure  "@bot merge and deploy. Done!" "Unknown or invalid command found:\n\n    comment:1:24:\n      |\n    1 | @bot merge and deploy. Done!\n      |                        ^\n    Merge commands may not be followed by anything other than a punctuation character ('.', ',', '!', '?', ':', ';').\n"
+
+    -- If the command prefix is '@bot' and the commend also contains '@bo', then
+    -- that should not interfere with the parsing. This requires the parser to
+    -- backtrack.
+    it "doesn't greedily match on the command prefix" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "Hi @bo. @bot merge and deploy"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (state', actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge and deploy to staging by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\nDeploy-Environment: staging\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] True
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0))
+
+    it "matches merge commands case-insensitively and ignores duplicate whitespace" $ do
+      let
+        prId = PullRequestId 1
+        state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+
+        event = CommentAdded prId "deckard" "@BOt   mErgE aND     DePloY"
+
+        results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+        (state', actions) = runActionCustom results $ handleEventTest event state
+
+      actions `shouldBe`
+        [ AIsReviewer "deckard"
+        , ALeaveComment prId "Pull request approved for merge and deploy to staging by @deckard, rebasing now."
+        , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: deckard\nAuto-deploy: true\nDeploy-Environment: staging\n"
+                        (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] True
+        , ALeaveComment prId "Rebased as def2345, waiting for CI \x2026"
+        ]
+
+      fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0))
 
   describe "Logic.proceedUntilFixedPoint" $ do
 
