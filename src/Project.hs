@@ -17,6 +17,7 @@ module Project
 (
   Approval (..),
   ApprovedFor (..),
+  MergeCommand (..),
   BuildStatus (..),
   DeployEnvironment(..),
   MandatoryChecks (..),
@@ -52,7 +53,7 @@ module Project
   needsDeploy,
   isIntegratedOrSpeculativelyConflicted,
   needsTag,
-  displayApproval,
+  displayMergeCommand,
   setApproval,
   newApprovalOrder,
   setIntegrationStatus,
@@ -162,12 +163,20 @@ data ApprovedFor
   | MergeAndTag
   deriving (Eq, Show, Generic)
 
+-- | A command parsed from a comment in @Logic.parseMergeCommand@.
+data MergeCommand
+  = -- | The PR should be approved for merging and optionally deploying.
+    Approve ApprovedFor
+  | -- | Retry the merge if it has previously failed.
+    Retry
+
 -- | For a PR to be approved a specific user must give a specific approval
 --   command, i.e. either just "merge" or "merge and deploy".
 data Approval = Approval
   { approver    :: Username
   , approvedFor :: ApprovedFor
   , approvalOrder :: Int
+  , approvalRetriedBy :: Maybe Username
   }
   deriving (Eq, Show, Generic)
 
@@ -504,10 +513,13 @@ candidatePullRequests state =
 getOwners :: [ProjectInfo] -> [Owner]
 getOwners = nub . map owner
 
-displayApproval :: ApprovedFor -> Text
-displayApproval Merge                                    = "merge"
-displayApproval (MergeAndDeploy (DeployEnvironment env)) = format "merge and deploy to {}" [env]
-displayApproval MergeAndTag                              = "merge and tag"
+-- | A string representation of a merge command, without the optional @ on
+-- friday@ merge window suffix.
+displayMergeCommand :: MergeCommand -> Text
+displayMergeCommand (Approve Merge)                                    = "merge"
+displayMergeCommand (Approve (MergeAndDeploy (DeployEnvironment env))) = format "merge and deploy to {}" [env]
+displayMergeCommand (Approve MergeAndTag)                              = "merge and tag"
+displayMergeCommand Retry                                              = "retry"
 
 alwaysAddMergeCommit :: ApprovedFor -> Bool
 alwaysAddMergeCommit Merge              = False

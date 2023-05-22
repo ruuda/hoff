@@ -96,7 +96,7 @@ candidateState
   :: PullRequestId -> Branch -> BaseBranch -> Sha -> Username -> Username -> Sha -> ProjectState
 candidateState pr prBranch baseBranch prSha prAuthor approvedBy candidateSha
   = Project.setIntegrationStatus pr (Project.Integrated candidateSha (Project.AnyCheck Project.BuildPending))
-  $ Project.setApproval pr (Just (Approval approvedBy Project.Merge 0))
+  $ Project.setApproval pr (Just (Approval approvedBy Project.Merge 0 Nothing))
   $ singlePullRequestState pr prBranch baseBranch prSha prAuthor
 
 -- Types and functions to mock running an action without actually doing anything.
@@ -396,17 +396,17 @@ main = hspec $ do
     it "loses approval after the PR commit has changed" $ do
       let event  = PullRequestCommitChanged (PullRequestId 1) (Sha "def")
           state0 = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "abc") "alice"
-          state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge 0)) state0
+          state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge 0 Nothing)) state0
           state2 = fst $ runAction $ handleEventTest event state1
           pr1    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
           pr2    = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
-      Project.approval pr1 `shouldBe` Just (Approval "hatter" Project.Merge 0)
+      Project.approval pr1 `shouldBe` Just (Approval "hatter" Project.Merge 0 Nothing)
       Project.approval pr2 `shouldBe` Nothing
 
     it "does not lose approval after the PR commit has changed due to a push we caused" $ do
       let
         state0 = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "abc") "alice"
-        state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge 0)) state0
+        state1 = Project.setApproval (PullRequestId 1) (Just (Approval "hatter" Project.Merge 0 Nothing)) state0
         state2 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc0") (Project.AnyCheck Project.BuildPending)) state1
         state3 = Project.setIntegrationStatus (PullRequestId 1) (Project.Integrated (Sha "dc1") (Project.AnyCheck Project.BuildPending)) state2
         event  = PullRequestCommitChanged (PullRequestId 1) (Sha "dc0")
@@ -426,7 +426,7 @@ main = hspec $ do
         state2  = fst $ runAction $ handleEventTest newPush state1
         prAt1   = fromJust $ Project.lookupPullRequest (PullRequestId 1) state1
         prAt2   = fromJust $ Project.lookupPullRequest (PullRequestId 1) state2
-      Project.approval          prAt1 `shouldBe` Just (Approval "deckard" Project.Merge 0)
+      Project.approval          prAt1 `shouldBe` Just (Approval "deckard" Project.Merge 0 Nothing)
       Project.integrationStatus prAt1 `shouldBe` Project.Integrated (Sha "bcd") (Project.AnyCheck Project.BuildPending)
       Project.approval          prAt2 `shouldBe` Nothing
       Project.integrationStatus prAt2 `shouldBe` Project.NotIntegrated
@@ -437,13 +437,13 @@ main = hspec $ do
         -- lose the approval status.
         event  = PullRequestCommitChanged (PullRequestId 1) (Sha "000")
         state0 = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "000") "cindy"
-        state1 = Project.setApproval (PullRequestId 1) (Just (Approval "daniel" Project.Merge 0)) state0
+        state1 = Project.setApproval (PullRequestId 1) (Just (Approval "daniel" Project.Merge 0 Nothing)) state0
         (state2, _actions) = runAction $ Logic.proceedUntilFixedPoint state1
         (state3, actions)  = runAction $ handleEventTest event state2
         prAt3 = fromJust $ Project.lookupPullRequest (PullRequestId 1) state3
       state3 `shouldBe` state2
       actions `shouldBe` []
-      Project.approval prAt3 `shouldBe` Just (Approval "daniel" Project.Merge 0)
+      Project.approval prAt3 `shouldBe` Just (Approval "daniel" Project.Merge 0 Nothing)
 
     it "sets approval after a stamp from a reviewer" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "toby"
@@ -451,7 +451,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot merge"
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
+      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0 Nothing)
 
     it "does not set approval after a stamp from a non-reviewer" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "toby"
@@ -482,7 +482,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "@BoT MeRgE"
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
+      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0 Nothing)
 
     it "accepts command at end of other comments" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "sacha"
@@ -490,14 +490,14 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "looks good to me, @bot merge"
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
+      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0 Nothing)
 
     -- The first mention/prefix is parsed as a command, and since this
     -- particular example isn't a valid command this should be treated as a
     -- parsing failure. Before the parser was rewritten this was valid as long
     -- as the message also contained a valid command.
     it "rejects command at end of other comments on the same line if tagged multiple times" $
-      expectSimpleParseFailure "@bot looks good to me, @bot merge" "Unknown or invalid command found:\n\n    comment:1:6:\n      |\n    1 | @bot looks good to me, @bot merge\n      |      ^^^^^\n    unexpected \"looks\"\n    expecting \"merge\" or white space\n"
+      expectSimpleParseFailure "@bot looks good to me, @bot merge" "Unknown or invalid command found:\n\n    comment:1:6:\n      |\n    1 | @bot looks good to me, @bot merge\n      |      ^^^^^\n    unexpected \"looks\"\n    expecting \"merge\", \"retry\", or white space\n"
 
     it "accepts command before comments" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "sacha"
@@ -505,7 +505,7 @@ main = hspec $ do
           event  = CommentAdded (PullRequestId 1) "deckard" "@bot merge\nYou did some fine work here."
           state' = fst $ runAction $ handleEventTest event state
           pr     = fromJust $ Project.lookupPullRequest (PullRequestId 1) state'
-      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0)
+      Project.approval pr `shouldBe` Just (Approval "deckard" Project.Merge 0 Nothing)
 
     it "does not accepts merge command with interleaved comments" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "sacha"
@@ -645,7 +645,7 @@ main = hspec $ do
             baseBranch = BaseBranch "master",
             title = "Add Nexus 7 experiment",
             author = Username "tyrell",
-            approval = Just (Approval (Username "deckard") Project.Merge 0),
+            approval = Just (Approval (Username "deckard") Project.Merge 0 Nothing),
             integrationStatus = Project.Integrated (Sha "b71") (Project.AnyCheck Project.BuildPending),
             integrationAttempts = [],
             needsFeedback = False
@@ -656,7 +656,7 @@ main = hspec $ do
             baseBranch = BaseBranch "master",
             title = "Some PR",
             author = Username "rachael",
-            approval = Just (Approval (Username "deckard") Project.Merge 2),
+            approval = Just (Approval (Username "deckard") Project.Merge 2 Nothing),
             integrationStatus = Project.Integrated (Sha "b73") (Project.AnyCheck Project.BuildPending),
             integrationAttempts = [],
             needsFeedback = False
@@ -667,7 +667,7 @@ main = hspec $ do
             baseBranch = BaseBranch "master",
             title = "Another PR",
             author = Username "rachael",
-            approval = Just (Approval (Username "deckard") Project.Merge 1),
+            approval = Just (Approval (Username "deckard") Project.Merge 1 Nothing),
             integrationStatus = Project.Integrated (Sha "b72") (Project.AnyCheck Project.BuildPending),
             integrationAttempts = [],
             needsFeedback = False
@@ -863,7 +863,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0))
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0 Nothing))
 
     it "recognizes 'merge and deploy to <environment>' commands as the proper ApprovedFor value" $ do
       let
@@ -884,7 +884,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "production") 0))
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "production") 0 Nothing))
 
     -- There is no default environment to deploy to when no deployment
     -- environments have been configured. Earlier versions would silently ignore
@@ -920,7 +920,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0))
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0 Nothing))
 
     it "recognizes 'merge and tag' command" $ do
       let
@@ -941,7 +941,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag 0))
+        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag 0 Nothing))
 
     it "recognizes 'merge and  tag' command" $ do
       let
@@ -962,7 +962,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag 0))
+        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag 0 Nothing))
 
     it "recognizes 'merge  and tag' command" $ do
       let
@@ -983,7 +983,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag 0))
+        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag 0 Nothing))
 
     it "recognizes 'merge and tag on friday' command" $ do
       let
@@ -1004,7 +1004,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag 0))
+        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.MergeAndTag 0 Nothing))
 
     it "recognizes 'merge' command" $ do
       let
@@ -1025,7 +1025,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.Merge 0))
+        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.Merge 0 Nothing))
 
     it "recognizes 'merge on Friday' command" $ do
       let
@@ -1046,10 +1046,10 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.Merge 0))
+        (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.Merge 0 Nothing))
 
     it "notifies when command not recognized"
-      $ expectSimpleParseFailure  "@bot mergre" "Unknown or invalid command found:\n\n    comment:1:6:\n      |\n    1 | @bot mergre\n      |      ^^^^^\n    unexpected \"mergr\"\n    expecting \"merge\" or white space\n"
+      $ expectSimpleParseFailure  "@bot mergre" "Unknown or invalid command found:\n\n    comment:1:6:\n      |\n    1 | @bot mergre\n      |      ^^^^^\n    unexpected \"mergr\"\n    expecting \"merge\", \"retry\", or white space\n"
 
     it "allow 'merge' on Friday for exempted users" $ do
       let
@@ -1260,7 +1260,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0))
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0 Nothing))
 
     -- The same as the above, but with a space preceding the punctuation and
     -- with multiple punctuation characters.
@@ -1283,7 +1283,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0))
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0 Nothing))
 
     -- For ergonomics' sake, the command can be part of a sentence that ends
     -- with one or more punctuation characters, but only if the line ends after
@@ -1315,7 +1315,7 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0))
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0 Nothing))
 
     it "matches merge commands case-insensitively and ignores duplicate whitespace" $ do
       let
@@ -1336,14 +1336,14 @@ main = hspec $ do
         ]
 
       fromJust (Project.lookupPullRequest prId state') `shouldSatisfy`
-        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0))
+        (\pr -> Project.approval pr== Just (Approval (Username "deckard") (Project.MergeAndDeploy $ DeployEnvironment "staging") 0 Nothing))
 
   describe "Logic.proceedUntilFixedPoint" $ do
 
     it "finds a new candidate" $ do
       let
         state
-          = Project.setApproval (PullRequestId 1) (Just (Approval "fred" Project.Merge 0))
+          = Project.setApproval (PullRequestId 1) (Just (Approval "fred" Project.Merge 0 Nothing))
           $ singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "f34") "sally"
         results = defaultResults
           { resultIntegrate = [Right (Sha "38c")]
@@ -1361,8 +1361,8 @@ main = hspec $ do
     it "finds a new candidate with multiple PRs" $ do
       let
         state
-          = Project.setApproval (PullRequestId 2) (Just (Approval "fred" Project.Merge 0))
-          $ Project.setApproval (PullRequestId 1) (Just (Approval "fred" Project.Merge 1))
+          = Project.setApproval (PullRequestId 2) (Just (Approval "fred" Project.Merge 0 Nothing))
+          $ Project.setApproval (PullRequestId 1) (Just (Approval "fred" Project.Merge 1 Nothing))
           $ fst $ runAction $ handleEventsTest
             [ PullRequestOpened (PullRequestId 1) (Branch "p") masterBranch (Sha "f34") "Untitled" "sally"
             , PullRequestOpened (PullRequestId 2) (Branch "s") masterBranch (Sha "g35") "Another untitled" "rachael"
@@ -1392,7 +1392,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approval            = Just (Approval "deckard" Project.Merge 0)
+          , Project.approval            = Just (Approval "deckard" Project.Merge 0 Nothing)
           , Project.integrationStatus   = Project.Integrated (Sha "38d") (Project.AnyCheck Project.BuildSucceeded)
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
@@ -1419,7 +1419,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag 0)
+          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag 0 Nothing)
           , Project.integrationStatus   = Project.Integrated (Sha sha) (Project.AnyCheck Project.BuildSucceeded)
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
@@ -1457,7 +1457,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approval            = Just (Approval "deckard" (Project.MergeAndDeploy $ DeployEnvironment "staging") 0)
+          , Project.approval            = Just (Approval "deckard" (Project.MergeAndDeploy $ DeployEnvironment "staging") 0 Nothing)
           , Project.integrationStatus   = Project.Integrated (Sha "38d") (Project.AnyCheck Project.BuildSucceeded)
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
@@ -1493,7 +1493,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag 0)
+          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag 0 Nothing)
           , Project.integrationStatus   = Project.Integrated (Sha "38d") (Project.AnyCheck Project.BuildSucceeded)
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
@@ -1525,7 +1525,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approval            = Just (Approval "deckard" Project.Merge 0)
+          , Project.approval            = Just (Approval "deckard" Project.Merge 0 Nothing)
           , Project.integrationStatus   = Project.Integrated (Sha "38d") (Project.AnyCheck Project.BuildSucceeded)
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
@@ -1563,7 +1563,7 @@ main = hspec $ do
           , Project.sha                 = Sha "f35"
           , Project.title               = "Add my test results"
           , Project.author              = "rachael"
-          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag 0)
+          , Project.approval            = Just (Approval "deckard" Project.MergeAndTag 0 Nothing)
           , Project.integrationStatus   = Project.Integrated (Sha "38d") (Project.AnyCheck Project.BuildSucceeded)
           , Project.integrationAttempts = []
           , Project.needsFeedback       = False
@@ -1650,7 +1650,7 @@ main = hspec $ do
               Project.sha                 = Sha "f35",
               Project.title               = "Add Leon test results",
               Project.author              = "rachael",
-              Project.approval            = Just (Approval "deckard" Project.Merge 1),
+              Project.approval            = Just (Approval "deckard" Project.Merge 1 Nothing),
               Project.integrationStatus   = Project.Integrated (Sha "38d") (Project.AnyCheck Project.BuildSucceeded),
               Project.integrationAttempts = [],
               Project.needsFeedback       = False
@@ -1662,7 +1662,7 @@ main = hspec $ do
               Project.sha                 = Sha "f37",
               Project.title               = "Add my test results",
               Project.author              = "rachael",
-              Project.approval            = Just (Approval "deckard" Project.Merge 0),
+              Project.approval            = Just (Approval "deckard" Project.Merge 0 Nothing),
               Project.integrationStatus   = Project.NotIntegrated,
               Project.integrationAttempts = [],
               Project.needsFeedback       = False
@@ -1710,11 +1710,11 @@ main = hspec $ do
           -- GitHub notifies Hoff of new comments sent by Hoff:
           , CommentAdded (PullRequestId 1) "bot"
               "The [build failed :x:](https://example.com/build-status).\n\n\
-              \If this is the result of a flaky test, close and reopen the PR, then tag me again.  \
+              \If this is the result of a flaky test, then tag me again with the `retry` command.  \
               \Otherwise, push a new commit and tag me again."
           , CommentAdded (PullRequestId 1) "bot"
               "The [build failed :x:](https://example.com/build-status).\n\n\
-              \If this is the result of a flaky test, close and reopen the PR, then tag me again.  \
+              \If this is the result of a flaky test, then tag me again with the `retry` command.  \
               \Otherwise, push a new commit and tag me again."
           ]
         results = defaultResults { resultIntegrate = [Right (Sha "b71")] }
@@ -1729,14 +1729,14 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 1) "[CI job :yellow_circle:](https://status.example.com/b71) started."
         , ALeaveComment (PullRequestId 1)
             "The [build failed :x:](https://example.com/build-status).\n\n\
-            \If this is the result of a flaky test, close and reopen the PR, then tag me again.  \
+            \If this is the result of a flaky test, then tag me again with the `retry` command.  \
             \Otherwise, push a new commit and tag me again."
         , AIsReviewer "deckard"
           -- Nothing has changed for the bot because b71 has already failed, so
           -- it doesn't retry, but reports the correct state.
         , ALeaveComment (PullRequestId 1)
             "The [build failed :x:](https://example.com/build-status).\n\n\
-            \If this is the result of a flaky test, close and reopen the PR, then tag me again.  \
+            \If this is the result of a flaky test, then tag me again with the `retry` command.  \
             \Otherwise, push a new commit and tag me again."
         ]
 
@@ -2056,7 +2056,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 12) "[CI job :yellow_circle:](example.com/1b2) started."
         , ALeaveComment (PullRequestId 12) "The [build failed :x:](example.com/1b2).\n\n\
                                            \If this is the result of a flaky test, \
-                                           \close and reopen the PR, then tag me again.  \
+                                           \then tag me again with the `retry` command.  \
                                            \Otherwise, push a new commit and tag me again."
         ]
 
@@ -2241,7 +2241,7 @@ main = hspec $ do
           , ALeaveComment (PullRequestId 12) "[CI job :yellow_circle:](example.com/required/1b2) started."
           , ALeaveComment (PullRequestId 12) "The build failed :x:.\n\n\
                                             \If this is the result of a flaky test, \
-                                            \close and reopen the PR, then tag me again.  \
+                                            \then tag me again with the `retry` command.  \
                                             \Otherwise, push a new commit and tag me again."
           ]
         -- test caveat, in reality, when Promote works,
@@ -2409,7 +2409,7 @@ main = hspec $ do
               , ALeaveComment (PullRequestId 12) "[CI job :yellow_circle:](example.com/required/1b2) started."
               , ALeaveComment (PullRequestId 12) "The build failed :x:.\n\n\
                                                 \If this is the result of a flaky test, \
-                                                \close and reopen the PR, then tag me again.  \
+                                                \then tag me again with the `retry` command.  \
                                                 \Otherwise, push a new commit and tag me again."
               ]
             -- test caveat, in reality, when Promote works,
@@ -2437,6 +2437,156 @@ main = hspec $ do
               ]
             (finalState, actions) = runActionCustom results $ handleEventsTest (events ++ extraEvents) state
           commonAssertions actions finalState
+
+
+    context "retrying failed merges" $ do
+      let state = Project.insertPullRequest (PullRequestId 12)
+            (Branch "tth") masterBranch (Sha "12a") "Twelfth PR" (Username "person")
+            Project.emptyProjectState
+
+          -- These are the events and action from a typical PR with a failed
+          -- build that has not yet been retried
+          commonEvents =
+            [ CommentAdded (PullRequestId 12) "deckard" "@bot merge"
+            , BuildStatusChanged (Sha "1b2") "default" Project.BuildPending
+            , BuildStatusChanged (Sha "1b2") "default" (Project.BuildStarted "url")
+            , BuildStatusChanged (Sha "1b2") "default" (Project.BuildFailed (Just "url"))
+            ]
+
+          commonActions =
+            [ AIsReviewer (Username "deckard")
+            , ALeaveComment (PullRequestId 12) "Pull request approved for merge by @deckard, rebasing now."
+            , ATryIntegrate "Merge #12: Twelfth PR\n\nApproved-by: deckard\nAuto-deploy: false\n" (PullRequestId 12, Branch "refs/pull/12/head", Sha "12a") [] False
+            , ALeaveComment (PullRequestId 12) "Rebased as 1b2, waiting for CI \8230"
+            , ALeaveComment (PullRequestId 12) "[CI job :yellow_circle:](url) started."
+            , ALeaveComment (PullRequestId 12) "The [build failed :x:](url).\n\nIf this is the result of a flaky test, then tag me again with the `retry` command.  Otherwise, push a new commit and tag me again."
+            ]
+
+          commonResults = defaultResults {resultIntegrate = [Right (Sha "1b2")]}
+
+          runRetryTest :: HasCallStack => [Event] -> [ActionFlat] -> (Results -> Results) -> Expectation
+          runRetryTest extraEvents extraActions modifyResults = do
+            let events' = commonEvents ++ extraEvents
+                actions' = commonActions ++ extraActions
+                results' = modifyResults commonResults
+                (_finalState, actions) = runActionCustom results' $ handleEventsTest events' state
+
+            actions `shouldBe` actions'
+
+          -- Treat the next couple integrations as successful rebases with
+          -- commit hashes from the list.
+          withIntegratedCommits :: [Text] -> Results -> Results
+          withIntegratedCommits xs results = results { resultIntegrate = resultIntegrate results ++ map (Right . Sha) xs }
+
+          -- Treat this test case as if the initial merge was requested on a
+          -- regular weekday, but any subsequent retries are requested on
+          -- Fridays.
+          withRetryOnFriday :: Results -> Results
+          withRetryOnFriday results =
+            results
+              { resultGetDateTime =
+                  T.UTCTime (T.fromMondayStartWeek 2021 2 1) (T.secondsToDiffTime 0)
+                    : repeat (T.UTCTime (T.fromMondayStartWeek 2021 2 5) (T.secondsToDiffTime 0))
+              }
+
+      it "allows merges with failed builds using the 'retry' command" $ do
+        runRetryTest
+          [ CommentAdded (PullRequestId 12) "deckard" "@bot retry"
+          , BuildStatusChanged (Sha "00f") "default" Project.BuildPending
+          , BuildStatusChanged (Sha "00f") "default" (Project.BuildStarted "url2")
+          , BuildStatusChanged (Sha "00f") "default" Project.BuildSucceeded
+          ]
+          [ AIsReviewer (Username "deckard")
+          , ACleanupTestBranch (PullRequestId 12)
+          , ALeaveComment (PullRequestId 12) "Pull request approved for merge by @deckard (retried by @deckard), rebasing now."
+          , ATryIntegrate "Merge #12: Twelfth PR\n\nApproved-by: deckard\nAuto-deploy: false\n"  (PullRequestId 12, Branch "refs/pull/12/head", Sha "12a") [] False
+          , ALeaveComment (PullRequestId 12) "Rebased as 00f, waiting for CI …"
+          , ALeaveComment (PullRequestId 12) "[CI job :yellow_circle:](url2) started."
+          , ATryPromote (Branch "tth") (Sha "00f")
+          , ACleanupTestBranch (PullRequestId 12)
+          ]
+          (withIntegratedCommits ["00f"])
+
+      it "rejects a plain 'retry' command on Fridays" $ do
+        runRetryTest
+          [ CommentAdded (PullRequestId 12) "deckard" "@bot retry" ]
+          [ AIsReviewer (Username "deckard")
+          , ALeaveComment (PullRequestId 12) "Your merge request has been denied, because merging on Fridays is not recommended. To override this behaviour use the command `retry on Friday`."
+          ]
+          (withRetryOnFriday . withIntegratedCommits ["00f"])
+
+      it "allows retrying merges with 'retry on friday' on Fridays" $ do
+        runRetryTest
+          [ CommentAdded (PullRequestId 12) "deckard" "@bot retry on friday"
+          , BuildStatusChanged (Sha "00f") "default" Project.BuildPending
+          , BuildStatusChanged (Sha "00f") "default" (Project.BuildStarted "url2")
+          , BuildStatusChanged (Sha "00f") "default" Project.BuildSucceeded
+          ]
+          [ AIsReviewer (Username "deckard")
+          , ACleanupTestBranch (PullRequestId 12)
+          , ALeaveComment (PullRequestId 12) "Pull request approved for merge by @deckard (retried by @deckard), rebasing now."
+          , ATryIntegrate "Merge #12: Twelfth PR\n\nApproved-by: deckard\nAuto-deploy: false\n"  (PullRequestId 12, Branch "refs/pull/12/head", Sha "12a") [] False
+          , ALeaveComment (PullRequestId 12) "Rebased as 00f, waiting for CI …"
+          , ALeaveComment (PullRequestId 12) "[CI job :yellow_circle:](url2) started."
+          , ATryPromote (Branch "tth") (Sha "00f")
+          , ACleanupTestBranch (PullRequestId 12)
+          ]
+          (withRetryOnFriday . withIntegratedCommits ["00f"])
+
+      it "rejects the 'retry on friday' commands when it's not Friday" $ do
+        runRetryTest
+          [ CommentAdded (PullRequestId 12) "deckard" "@bot retry on friday" ]
+          [ AIsReviewer (Username "deckard")
+          , ALeaveComment (PullRequestId 12) "Your merge request has been denied because it is not Friday. Run 'retry' instead."
+          ]
+          -- This shouldn't be allowed on other days, just like @merge on
+          -- friday@ isn't allowed on other weekdays
+          (withIntegratedCommits ["00f"])
+
+      it "rejects 'retry on friday' commands when it's not Friday" $ do
+        runRetryTest
+          [ CommentAdded (PullRequestId 12) "deckard" "@bot retry on friday" ]
+          [ AIsReviewer (Username "deckard")
+          , ALeaveComment (PullRequestId 12) "Your merge request has been denied because it is not Friday. Run 'retry' instead."
+          ]
+          -- This shouldn't be allowed on other days, just like @merge on
+          -- friday@ isn't allowed on other weekdays
+          (withIntegratedCommits ["00f"])
+
+      it "doesn't allow retrying pending PR" $ do
+        let events' =
+              [ CommentAdded (PullRequestId 12) "deckard" "@bot merge"
+              , BuildStatusChanged (Sha "1b2") "default" Project.BuildPending
+              , BuildStatusChanged (Sha "1b2") "default" (Project.BuildStarted "url")
+              -- The above is the same as 'commonEvents', except that the build
+              -- hasn't finished yet. Requesting a retry here should result in
+              -- an error message.
+              , CommentAdded (PullRequestId 12) "deckard" "@bot retry"
+              ]
+            actions' =
+              [ AIsReviewer (Username "deckard")
+              , ALeaveComment (PullRequestId 12) "Pull request approved for merge by @deckard, rebasing now."
+              , ATryIntegrate "Merge #12: Twelfth PR\n\nApproved-by: deckard\nAuto-deploy: false\n" (PullRequestId 12, Branch "refs/pull/12/head", Sha "12a") [] False
+              , ALeaveComment (PullRequestId 12) "Rebased as 1b2, waiting for CI \8230"
+              , ALeaveComment (PullRequestId 12) "[CI job :yellow_circle:](url) started."
+              , AIsReviewer (Username "deckard")
+              , ALeaveComment (PullRequestId 12) "Only approved PRs with failed builds can be retried.."
+              ]
+            (_finalState, actions) = runActionCustom commonResults $ handleEventsTest events' state
+
+        actions `shouldBe` actions'
+
+      it "doesn't allow retrying unapproved PRs" $ do
+        let events' = [ CommentAdded (PullRequestId 12) "deckard" "@bot retry"]
+            actions' =
+              [ AIsReviewer (Username "deckard")
+              , ALeaveComment (PullRequestId 12) "Only approved PRs with failed builds can be retried.."
+              ]
+            (_finalState, actions) = runActionCustom commonResults $ handleEventsTest events' state
+
+        actions `shouldBe` actions'
+
+
     it "does not unintegrate after failing pull request (not a train)" $ do
       -- regression test for https://github.com/channable/hoff/issues/184
       let
@@ -2472,7 +2622,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 19) "Rebased as a19, waiting for CI …"
         , ALeaveComment (PullRequestId 19) "The build failed :x:.\n\n\
                                           \If this is the result of a flaky test, \
-                                          \close and reopen the PR, then tag me again.  \
+                                          \then tag me again with the `retry` command.  \
                                           \Otherwise, push a new commit and tag me again."
         , AIsReviewer "deckard"
         , ALeaveComment (PullRequestId 36)
@@ -2486,12 +2636,12 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 36) "Rebased as b36, waiting for CI …"
         , ALeaveComment (PullRequestId 36) "The build failed :x:.\n\n\
                                           \If this is the result of a flaky test, \
-                                          \close and reopen the PR, then tag me again.  \
+                                          \then tag me again with the `retry` command.  \
                                           \Otherwise, push a new commit and tag me again."
         , AIsReviewer (Username "deckard")
         , ALeaveComment (PullRequestId 36) "Your merge request has been denied \
                                           \because it is not Friday. \
-                                          \Run merge instead"
+                                          \Run 'merge' instead."
         , ACleanupTestBranch (PullRequestId 19)
         , ACleanupTestBranch (PullRequestId 36)
         ]
@@ -2737,7 +2887,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 3) "Speculatively rebased as 3cd behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "The [build failed :x:](ci.example.com/1ab).\n\n\
                                           \If this is the result of a flaky test, \
-                                          \close and reopen the PR, then tag me again.  \
+                                          \then tag me again with the `retry` command.  \
                                           \Otherwise, push a new commit and tag me again."
         -- Since #1 failed, #2 takes over as the head of the new merge train
         , ATryIntegrate "Merge #2: Second PR\n\n\
@@ -3016,7 +3166,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\n\
                                           \If this is the result of a flaky test, \
-                                          \close and reopen the PR, then tag me again.  \
+                                          \then tag me again with the `retry` command.  \
                                           \Otherwise, push a new commit and tag me again."
         -- #2 is integrated again as its speculative base failed
         , ATryIntegrate "Merge #2: Second PR\n\n\
@@ -3028,7 +3178,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "Rebased as 22e, waiting for CI …"
         , ALeaveComment (PullRequestId 2) "The build failed :x:.\n\n\
                                           \If this is the result of a flaky test, \
-                                          \close and reopen the PR, then tag me again.  \
+                                          \then tag me again with the `retry` command.  \
                                           \Otherwise, push a new commit and tag me again."
         ]
       classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
@@ -3081,7 +3231,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "Speculative build failed :x:.  I will automatically retry after getting build results for #1."
         , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\n\
                                           \If this is the result of a flaky test, \
-                                          \close and reopen the PR, then tag me again.  \
+                                          \then tag me again with the `retry` command.  \
                                           \Otherwise, push a new commit and tag me again."
         -- #2 is integrated again as its speculative base failed
         , ATryIntegrate "Merge #2: Second PR\n\n\
@@ -3093,7 +3243,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "Rebased as 22e, waiting for CI …"
         , ALeaveComment (PullRequestId 2) "The build failed :x:.\n\n\
                                           \If this is the result of a flaky test, \
-                                          \close and reopen the PR, then tag me again.  \
+                                          \then tag me again with the `retry` command.  \
                                           \Otherwise, push a new commit and tag me again."
         ]
       classifiedPullRequestIds finalState `shouldBe` ClassifiedPullRequestIds
@@ -3145,7 +3295,7 @@ main = hspec $ do
         , ACleanupTestBranch (PullRequestId 1)
         , ALeaveComment (PullRequestId 2) "The build failed :x:.\n\n\
                                           \If this is the result of a flaky test, \
-                                          \close and reopen the PR, then tag me again.  \
+                                          \then tag me again with the `retry` command.  \
                                           \Otherwise, push a new commit and tag me again."
         ]
 
@@ -3192,7 +3342,7 @@ main = hspec $ do
         , ACleanupTestBranch (PullRequestId 1)
         , ALeaveComment (PullRequestId 2) "The build failed :x:.\n\n\
                                           \If this is the result of a flaky test, \
-                                          \close and reopen the PR, then tag me again.  \
+                                          \then tag me again with the `retry` command.  \
                                           \Otherwise, push a new commit and tag me again."
         ]
 
@@ -3238,7 +3388,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\n\
                                           \If this is the result of a flaky test, \
-                                          \close and reopen the PR, then tag me again.  \
+                                          \then tag me again with the `retry` command.  \
                                           \Otherwise, push a new commit and tag me again."
         , ATryIntegrate "Merge #2: Second PR\n\n\
                         \Approved-by: deckard\n\
@@ -3293,7 +3443,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 2) "Speculatively rebased as 2cd behind 1 other PR, waiting for CI …"
         , ALeaveComment (PullRequestId 1) "The build failed :x:.\n\n\
                                           \If this is the result of a flaky test, \
-                                          \close and reopen the PR, then tag me again.  \
+                                          \then tag me again with the `retry` command.  \
                                           \Otherwise, push a new commit and tag me again."
         , ATryIntegrate "Merge #2: Second PR\n\n\
                         \Approved-by: deckard\n\
@@ -3543,7 +3693,7 @@ main = hspec $ do
         , ALeaveComment (PullRequestId 8)
                         "The [build failed :x:](example.com/2bc).\n\n\
                         \If this is the result of a flaky test, \
-                        \close and reopen the PR, then tag me again.  \
+                        \then tag me again with the `retry` command.  \
                         \Otherwise, push a new commit and tag me again."
         -- Since #8 failed, #7 becomes the head of a new train and is rebased again
         , ATryIntegrate "Merge #7: Seventh PR\n\n\
