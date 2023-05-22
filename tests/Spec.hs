@@ -1436,7 +1436,7 @@ main = hspec $ do
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         candidates = getIntegrationCandidates state'
         sha = "38e"
-        tagMessage = format "@deckard I tagged your PR with [v2](https://github.com/{}/{}/releases/tags/v2). "
+        tagMessage = format "@deckard I tagged your PR with [v2](https://github.com/{}/{}/releases/tag/v2). "
                             (Config.owner testProjectConfig, Config.repository testProjectConfig)
         commitMessage = format "Please wait for the build of {} to pass and don't forget to deploy it!"
                                (Only { fromOnly = sha })
@@ -1473,7 +1473,7 @@ main = hspec $ do
           }
         (state', actions) = runActionCustom results $ Logic.proceedUntilFixedPoint state
         candidates = getIntegrationCandidates state'
-        tagMessage = format "@deckard I tagged your PR with [v2](https://github.com/{}/{}/releases/tags/v2). "
+        tagMessage = format "@deckard I tagged your PR with [v2](https://github.com/{}/{}/releases/tag/v2). "
                             (Config.owner testProjectConfig, Config.repository testProjectConfig)
       -- After a successful push, the candidate should be gone.
       candidates `shouldBe` []
