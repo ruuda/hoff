@@ -345,8 +345,14 @@ expectSimpleParseFailure ::
 expectSimpleParseFailure commentMsg errorMsg =
   let prId = PullRequestId 1
       state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
-      event = CommentAdded prId "deckard" commentMsg
-      (_, actions) = runActionCustom defaultResults $ handleEventTest event state
+      -- The message posted by the bot also comes in as a webhook event. This
+      -- situation likely won't come up in development or in the tests unless
+      -- you specifically add it, but it will come up in production. If the
+      -- error message contains an excerpt from @commentMsg@ and Hoff doesn't
+      -- ignore this, then it would result in a feedback loop. See
+      -- <https://github.com/channable/hoff/issues/223>.
+      event = [CommentAdded prId "deckard" commentMsg, CommentAdded prId "bot" errorMsg]
+      (_, actions) = runActionCustom defaultResults $ handleEventsTest event state
    in actions `shouldBe` [ALeaveComment prId errorMsg]
 
 
@@ -497,7 +503,7 @@ main = hspec $ do
     -- parsing failure. Before the parser was rewritten this was valid as long
     -- as the message also contained a valid command.
     it "rejects command at end of other comments on the same line if tagged multiple times" $
-      expectSimpleParseFailure "@bot looks good to me, @bot merge" "Unknown or invalid command found:\n\n    comment:1:6:\n      |\n    1 | @bot looks good to me, @bot merge\n      |      ^^^^^\n    unexpected \"looks\"\n    expecting \"merge\", \"retry\", or white space\n"
+      expectSimpleParseFailure "@bot looks good to me, @bot merge" "<!-- Hoff: ignore -->Unknown or invalid command found:\n\n    comment:1:6:\n      |\n    1 | @bot looks good to me, @bot merge\n      |      ^^^^^\n    unexpected \"looks\"\n    expecting \"merge\", \"retry\", or white space\n"
 
     it "accepts command before comments" $ do
       let state  = singlePullRequestState (PullRequestId 1) (Branch "p") masterBranch (Sha "6412ef5") "sacha"
@@ -899,7 +905,7 @@ main = hspec $ do
         results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
         (_, actions) = runActionCustomConfig (testProjectConfig{Config.deployEnvironments = Just []}) results $ handleEventTest event state
 
-      actions `shouldBe` [ALeaveComment prId "Unknown or invalid command found:\n\n    comment:1:22:\n      |\n    1 | @bot merge and deploy\n      |                      ^\n    No deployment environments have been configured.\n"]
+      actions `shouldBe` [ALeaveComment prId "<!-- Hoff: ignore -->Unknown or invalid command found:\n\n    comment:1:22:\n      |\n    1 | @bot merge and deploy\n      |                      ^\n    No deployment environments have been configured.\n"]
 
     it "recognizes 'merge and deploy on Friday' commands as the proper ApprovedFor value" $ do
       let
@@ -1049,7 +1055,7 @@ main = hspec $ do
         (\pr -> Project.approval pr == Just (Approval (Username "deckard") Project.Merge 0 Nothing))
 
     it "notifies when command not recognized"
-      $ expectSimpleParseFailure  "@bot mergre" "Unknown or invalid command found:\n\n    comment:1:6:\n      |\n    1 | @bot mergre\n      |      ^^^^^\n    unexpected \"mergr\"\n    expecting \"merge\", \"retry\", or white space\n"
+      $ expectSimpleParseFailure  "@bot mergre" "<!-- Hoff: ignore -->Unknown or invalid command found:\n\n    comment:1:6:\n      |\n    1 | @bot mergre\n      |      ^^^^^\n    unexpected \"mergr\"\n    expecting \"merge\", \"retry\", or white space\n"
 
     it "allow 'merge' on Friday for exempted users" $ do
       let
@@ -1239,7 +1245,7 @@ main = hspec $ do
     -- Previous versions of Hoff would still match the @merge and deploy@ part
     -- and deploy to the default environment instead
     it "rejects 'merge and deploy to prohno' with an error message"
-      $ expectSimpleParseFailure  "@bot merge and deploy to prohno" "Unknown or invalid command found:\n\n    comment:1:26:\n      |\n    1 | @bot merge and deploy to prohno\n      |                          ^^^^^^\n    unexpected \"prohno\"\n    expecting \"production\", \"staging\", or white space\n"
+      $ expectSimpleParseFailure  "@bot merge and deploy to prohno" "<!-- Hoff: ignore -->Unknown or invalid command found:\n\n    comment:1:26:\n      |\n    1 | @bot merge and deploy to prohno\n      |                          ^^^^^^\n    unexpected \"prohno\"\n    expecting \"production\", \"staging\", or white space\n"
 
     it "allows merge commands followed by a period at the end of a sentence" $ do
       let
@@ -1291,7 +1297,16 @@ main = hspec $ do
     -- commands are added take freeform strings as their arguments (e.g. tag
     -- messages).
     it "rejects merge commands when it is followed by another sentence before a line break"
-      $ expectSimpleParseFailure  "@bot merge and deploy. Done!" "Unknown or invalid command found:\n\n    comment:1:24:\n      |\n    1 | @bot merge and deploy. Done!\n      |                        ^\n    Merge commands may not be followed by anything other than a punctuation character ('.', ',', '!', '?', ':', ';').\n"
+      $ expectSimpleParseFailure  "@bot merge and deploy. Done!" "<!-- Hoff: ignore -->Unknown or invalid command found:\n\n    comment:1:24:\n      |\n    1 | @bot merge and deploy. Done!\n      |                        ^\n    Merge commands may not be followed by anything other than a punctuation character ('.', ',', '!', '?', ':', ';').\n"
+
+    -- This is already implicitly checked in 'expectSimpleParseFailure', you can
+    -- never be too sure
+    it "ignores comments containing a special 'Hoff: ignore' HTML comment" $
+      let prId = PullRequestId 1
+          state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+          event = [CommentAdded prId "bot"  "<!-- Hoff: ignore -->Unknown or invalid command found:\n\n    comment:1:24:\n      |\n    1 | @bot merge and deploy!\n      |                        ^\n    Merge commands may not be followed by anything other than a punctuation character ('.', ',', '!', '?', ':', ';').\n"]
+          (_, actions) = runActionCustom defaultResults $ handleEventsTest event state
+       in actions `shouldBe` []
 
     -- If the command prefix is '@bot' and the commend also contains '@bo', then
     -- that should not interfere with the parsing. This requires the parser to

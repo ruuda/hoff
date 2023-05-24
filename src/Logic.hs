@@ -504,6 +504,38 @@ isSuccess _ = False
 
 type Parser = Parsec Void Text
 
+-- | A comment that can be added to a message that will cause it to not parse
+-- the message for merge commands. This is parsed in 'shouldIgnoreComment'.
+hoffIgnoreComment :: Text
+hoffIgnoreComment = "<!-- Hoff: ignore -->"
+
+-- | Checks if a comment contains 'hoffIgnoreComment', matching case
+-- insensitively and allowing variations in whitespace. This is used to prevent
+-- feedback cycles when Hoff repeats part of a message posted by the user. This
+-- is parsed this way instead of simple string matching to be a bit more
+-- reliable if users start using this as well.
+shouldIgnoreComment :: Text -> Bool
+shouldIgnoreComment = cvtParseResult . P.parse pComment "comment"
+  where
+    cvtParseResult :: Either (ParseErrorBundle Text Void) Bool -> Bool
+    cvtParseResult (Right True) = True
+    cvtParseResult _ = False
+
+    -- Helper to parse a string, case insensitively, and ignoring excess spaces
+    -- between words. Also allows line breaks.
+    pString :: Text -> Parser ()
+    pString = sequence_ . intersperse P.hspace1 . map (void . P.string) . Text.words
+
+    pComment :: Parser Bool
+    pComment = (True <$ pHoffIgnoreComment)
+      <|> (P.anySingle *> pComment)
+      <|> pure False
+
+    -- This parses 'hoffIgnoreComment' while being as lenient in terms of
+    -- whitespace usage and casing as possible.
+    pHoffIgnoreComment :: Parser ()
+    pHoffIgnoreComment = P.string "<!--" *> P.space *> pString "Hoff: ignore" <* P.space <* P.string "-->"
+
 -- | Parse a PR comment for a merge command. The parsing is done
 -- case-insensitively and duplicate whitespace is ignored. The 'ParseResult'
 -- indicates whether:
@@ -673,7 +705,12 @@ handleCommentAdded
   -> Text
   -> ProjectState
   -> Eff es ProjectState
-handleCommentAdded triggerConfig mergeWindowExemption prId author body state =
+handleCommentAdded triggerConfig mergeWindowExemption prId author body state
+  -- Parser error messages contain an excerpt from the original's comment. To
+  -- avoid feedback loops, Hoff will insert a special comment into its own
+  -- comments with parser error messages that can be checked for here.
+  | shouldIgnoreComment body = pure state
+  | otherwise =
   let maybePR = Pr.lookupPullRequest prId state in
   case maybePR of
     -- Check if the comment is a merge command, and if it is, check if the
@@ -732,7 +769,9 @@ handleCommentAdded triggerConfig mergeWindowExemption prId author body state =
           -- the oldschool four space markdown code blocks instead of fenced
           -- code blocks since it's less ambiguous.
           let monospaceMessage = Text.unlines . map ("    " <>) . Text.lines $ message
-              fullComment = "Unknown or invalid command found:\n\n" <> monospaceMessage
+              -- NOTE: This comment is added to prevent feedback loops, see
+              --       'shouldIgnoreComment'
+              fullComment = hoffIgnoreComment <> "Unknown or invalid command found:\n\n" <> monospaceMessage
           () <- leaveComment prId fullComment
           pure state
         -- Cases where the parse was successful
