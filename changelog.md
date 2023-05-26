@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.31.2
+
+Released 2021-05-23.
+
+ * Fixed a regression from 0.31.0 where Hoff would enter a feedback loop when
+   posting a parser error message, as those error messages also contain Hoff's
+   command prefix.
+
+## 0.31.1
+
+Released 2021-05-22.
+
+ * Fixed mismatching version numbers in the Nix build.
+
+## 0.31.0
+
+Released 2021-05-22.
+
+ * Added a new, stricter parser that posts clear error messages when the comment
+   contains invalid merge commands. This avoids situations like `@hoffbot merge
+   and deploy to foobar` causing a deploy to the default environment as Hoff
+   would previously simply match the `@hoffbot merge and deploy` part. Merge
+   commands now need to be either on their own line, or at the end of a line
+   optionally followed by some punctuation.
+ * There is now a `@hoffbot retry` command to retry merges with failing test.
+   This is equivalent to closing the PR, reopening the PR, and then asking the
+   bot to initiate the merge again, but in a single step and without actually
+   closing the PR first.
+
+## 0.30.0
+
+Released 2021-05-15.
+
+ * Hoff no longer prints the internal state any time it receives an event.
+ * Hoff's internals have been rewritten using
+   [effectful](https://hackage.haskell.org/package/effectful).
+
+## 0.19.2
+
+Released 2021-05-02.
+
+ * Updated the Nix builds to use GHC 9.2.
+
+## 0.19.1
+
+Released 2021-04-12.
+
+ * Fixed URLs to tag pages on GitHub.
+
 ## 0.19.0
 
 Released 2021-02-12.
