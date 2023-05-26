@@ -1,12 +1,6 @@
 # Build output
-/.stack-work
-/dist
 /dist-newstyle
 /package/*.deb
-
-# Cabal sandbox
-/.cabal-sandbox
-/cabal.sandbox.config
 
 # Editor files
 *.swp
