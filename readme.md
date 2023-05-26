@@ -84,7 +84,7 @@ Give it a 7 days expiration and access to just "repo"s.
 
 Hoff also comes with an `.envrc` file that can be used by direnv. You have to run
 `direnv allow` once to give permission. From then on you will always be in the right
-nix shell when cd'ing to the Hoff project.
+nix develop environment when cd'ing to the Hoff project.
 
 You can then access [http://localhost:1979](http://localhost:1979)
 to see the open PRs and build queue.
@@ -109,7 +109,7 @@ The tests of Hoff are extensive, you may be able to get by just by running them
 when making changes to the code.  To run a specific test, use `--match` giving
 part of the test title:
 
-	$ nix shell --file default.nix -c cargo run spec -- --match "part of the test title"
+	$ nix develop --file default.nix -c cabal run spec -- --match "part of the test title"
 
 The implementation uses free monads and some of the tests replace lower level
 functionality with mocks.

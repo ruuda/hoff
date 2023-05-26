@@ -11,7 +11,7 @@ makes the application work well with systemd.
 
 Enter an environment with development dependencies available through [Nix][nix]:
 
-    $ nix shell --file default.nix
+    $ nix develop --file default.nix
 
 There is a script to build a Debian package:
 
