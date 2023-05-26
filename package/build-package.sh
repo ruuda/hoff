@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# This script builds a .deb package from the binaries in the .stack-work
-# directory. It is intended to be run on a Debian-like system.
+# This script builds a .deb package from the binaries built using Cabal It is
+# intended to be run on a Debian-like system.
 #
 #   Usage: VERSION=0.0.0 ./build-package.sh
 
@@ -13,7 +13,7 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
-# build the package with Stack
+# build the package with Cabal
 ./build-binary.sh
 
 # Set package filename.
@@ -24,7 +24,7 @@ mkdir -p "$PKGNAME/DEBIAN"
 mkdir -p "$PKGNAME/etc/hoff"
 mkdir -p "$PKGNAME/lib/systemd/system"
 mkdir -p "$PKGNAME/usr/bin"
-cp "$(stack path --local-install-root)/bin/hoff" "$PKGNAME/usr/bin/"
+cp "$(cabal list-bin hoff)" "$PKGNAME/usr/bin/"
 cp hoff.service        "$PKGNAME/lib/systemd/system"
 cp example-config.json "$PKGNAME/etc/hoff/config.json"
 cp github-known-hosts  "$PKGNAME/etc/hoff/github-known-hosts"

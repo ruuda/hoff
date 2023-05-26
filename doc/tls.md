@@ -4,7 +4,7 @@ Hoff has has a built-in webserver ([Warp][warp]) that can either serve http or
 https. To enable https, point `tls.keyFile` and `tls.certFile` to the right
 key and certificate file in the configuration file.
 
-[warp]: https://www.stackage.org/package/warp
+[warp]: https://hackage.haskell.org/package/warp
 
 ## Self-signed
 
