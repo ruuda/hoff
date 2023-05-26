@@ -62,11 +62,10 @@ TODO: Publish official deb packages?
 
 ## Building
 
-Hoff is written in Haskell and builds with [Stack][stack]:
+Hoff is written in Haskell and builds with [Cabal][cabal]:
 
-    $ stack setup
-    $ stack build
-    $ stack test
+    $ cabal build -j
+    $ cabal test -j
 
 ## Running as a developer
 
@@ -81,12 +80,7 @@ You can generate a personal access token in the
 Give it a 7 days expiration and access to just "repo"s.
 
     $ mkdir -p run/state
-    $ stack exec hoff config.json
-
-If using Nix, you may get a `ssh: command not found` error
--- just pass `--no-nix-pure` to `stack exec` to avoid it:
-
-    $ nix shell --file default.nix -c stack exec hoff config.json --no-nix-pure
+    $ cabal run hoff config.json
 
 Hoff also comes with an `.envrc` file that can be used by direnv. You have to run
 `direnv allow` once to give permission. From then on you will always be in the right
@@ -115,7 +109,7 @@ The tests of Hoff are extensive, you may be able to get by just by running them
 when making changes to the code.  To run a specific test, use `--match` giving
 part of the test title:
 
-	$ nix shell --file default.nix -c stack test --ta '--match "part of the test title"'
+	$ nix shell --file default.nix -c cargo run spec -- --match "part of the test title"
 
 The implementation uses free monads and some of the tests replace lower level
 functionality with mocks.
@@ -306,7 +300,7 @@ It may be used both for commercial and non-commercial use under the conditions
 given in the license.
 
 [not-rocket-science]: https://graydon2.dreamwidth.org/1597.html
-[stack]:              https://haskellstack.org
+[cabal]:              https://cabal.readthedocs.io/en/stable/
 [nix]:                https://nixos.org/nix/
 [apache2]:            https://www.apache.org/licenses/LICENSE-2.0
 [GitHub webhook for the build status]: https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
