@@ -1,4 +1,16 @@
-{ lib, haskellPackages, nix-gitignore, git, coreutils, openssh, glibcLocales, makeWrapper }:
+# Needed for git. Specifying `git` here would use the `git` library from Hackage
+# instead
+{ pkgs
+
+  # Core packages
+, coreutils
+, glibcLocales
+, haskellPackages
+, lib
+, makeWrapper
+, nix-gitignore
+, openssh
+}:
 let
   haskellLibs = import ./nix/haskell-dependencies.nix haskellPackages;
 in
@@ -8,9 +20,10 @@ in
 
     src =
       let
-        # We do not want to include all files, because that leads to a lot of things that nix
-        # has to copy to the temporary build directory that we don't want to have in there
-        # (e.g. the `.stack-work` directory, the `.git` directory, etc.)
+        # We do not want to include all files, because that leads to a lot of
+        # things that nix has to copy to the temporary build directory that we
+        # don't want to have in there (e.g. the `.dist-newstyle` directory, the
+        # `.git` directory, etc.)
         prefixWhitelist = builtins.map builtins.toString [
           ./app
           ./package
@@ -18,7 +31,6 @@ in
           ./static
           ./tests
           ./hoff.cabal
-          ./stack.yaml
           ./license
         ];
         # Compute source based on whitelist
@@ -43,15 +55,13 @@ in
     isLibrary = false;
     isExecutable = true;
 
-
     executableToolDepends = [
-      git coreutils openssh
+      pkgs.git coreutils openssh
     ];
 
     testDepends = [
-      git coreutils openssh
+      pkgs.git coreutils openssh
     ];
-
 
     libraryHaskellDepends = haskellLibs;
 
