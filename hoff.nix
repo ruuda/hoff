@@ -1,71 +1,152 @@
-# Needed for git. Specifying `git` here would use the `git` library from Hackage
-# instead
-{ pkgs
+{
+  # Needed for git. Specifying `git` here would use the `git` library from
+  # Hackage instead
+  pkgs
+, mkDerivation
 
   # Core packages
 , coreutils
 , glibcLocales
-, haskellPackages
 , lib
 , makeWrapper
 , nix-gitignore
 , openssh
+
+  # Haskell packages
+, QuickCheck
+, aeson
+, aeson-pretty
+, blaze-html
+, blaze-markup
+, bytestring
+, containers
+, cryptonite
+, directory
+, effectful
+, extra
+, file-embed
+, filepath
+, generic-arbitrary
+, github
+, hspec
+, hspec-core
+, http-client
+, http-conduit
+, http-types
+, megaparsec
+, memory
+, monad-logger
+, optparse-applicative
+, process
+, process-extras
+, prometheus
+, prometheus-metrics-ghc
+, quickcheck-instances
+, scotty
+, stm
+, text
+, text-format
+, time
+, uuid
+, vector
+, wai
+, wai-middleware-prometheus
+, warp
+, warp-tls
 }:
-let
-  haskellLibs = import ./nix/haskell-dependencies.nix haskellPackages;
-in
-  haskellPackages.mkDerivation {
-    pname = "hoff";
-    version = "0.31.2"; # please keep consistent with hoff.cabal
+mkDerivation {
+  pname = "hoff";
+  version = "0.31.2"; # please keep consistent with hoff.cabal
 
-    src =
-      let
-        # We do not want to include all files, because that leads to a lot of
-        # things that nix has to copy to the temporary build directory that we
-        # don't want to have in there (e.g. the `.dist-newstyle` directory, the
-        # `.git` directory, etc.)
-        prefixWhitelist = builtins.map builtins.toString [
-          ./app
-          ./package
-          ./src
-          ./static
-          ./tests
-          ./hoff.cabal
-          ./license
-        ];
-        # Compute source based on whitelist
-        whitelistFilter = path: _type: lib.any (prefix: lib.hasPrefix prefix path) prefixWhitelist;
-        gitignore = builtins.readFile ./.gitignore;
-        gitignoreFilter = nix-gitignore.gitignoreFilterPure whitelistFilter gitignore ./.;
-        whitelistedSrc = lib.cleanSourceWith {
-          src = lib.cleanSource ./.;
-          filter = gitignoreFilter;
-        };
-      in
-        whitelistedSrc;
+  src =
+    let
+      # We do not want to include all files, because that leads to a lot of
+      # things that nix has to copy to the temporary build directory that we
+      # don't want to have in there (e.g. the `.dist-newstyle` directory, the
+      # `.git` directory, etc.)
+      prefixWhitelist = builtins.map builtins.toString [
+        ./app
+        ./package
+        ./src
+        ./static
+        ./tests
+        ./hoff.cabal
+        ./license
+      ];
+      # Compute source based on whitelist
+      whitelistFilter = path: _type: lib.any (prefix: lib.hasPrefix prefix path) prefixWhitelist;
+      gitignore = builtins.readFile ./.gitignore;
+      gitignoreFilter = nix-gitignore.gitignoreFilterPure whitelistFilter gitignore ./.;
+      whitelistedSrc = lib.cleanSourceWith {
+        src = lib.cleanSource ./.;
+        filter = gitignoreFilter;
+      };
+    in
+      whitelistedSrc;
 
-    buildTools = [ makeWrapper ];
+  buildTools = [ makeWrapper ];
 
-    postInstall = ''
-      # Set LOCALE_ARCHIVE so that glibc can find the locales it needs when running on Ubuntu
-      # machines.
-      wrapProgram $out/bin/hoff --set LOCALE_ARCHIVE ${glibcLocales}/lib/locale/locale-archive
-    '';
+  postInstall = ''
+    # Set LOCALE_ARCHIVE so that glibc can find the locales it needs when running on Ubuntu
+    # machines.
+    wrapProgram $out/bin/hoff --set LOCALE_ARCHIVE ${glibcLocales}/lib/locale/locale-archive
+  '';
 
-    isLibrary = false;
-    isExecutable = true;
+  isLibrary = false;
+  isExecutable = true;
 
-    executableToolDepends = [
-      pkgs.git coreutils openssh
-    ];
+  executableToolDepends = [
+    pkgs.git coreutils openssh
+  ];
 
-    testDepends = [
-      pkgs.git coreutils openssh
-    ];
+  testDepends = [
+    pkgs.git coreutils openssh
+  ];
 
-    libraryHaskellDepends = haskellLibs;
+  libraryHaskellDepends = [
+    QuickCheck
+    aeson
+    aeson-pretty
+    blaze-html
+    blaze-markup
+    bytestring
+    containers
+    cryptonite
+    directory
+    effectful
+    extra
+    file-embed
+    filepath
+    generic-arbitrary
+    github
+    hspec
+    hspec-core
+    http-client
+    http-conduit
+    http-types
+    megaparsec
+    memory
+    monad-logger
+    optparse-applicative
+    process
+    process-extras
+    prometheus
+    prometheus-metrics-ghc
+    quickcheck-instances
+    scotty
+    stm
+    text
+    text-format
+    time
+    uuid
+    vector
+    wai
+    wai-middleware-prometheus
+    warp
+    warp-tls
+  ];
 
-    homepage = "https://github.com/channable/hoff";
+  homepage = "https://github.com/channable/hoff";
 
-    license = lib.licenses.asl20;
-  }
+  license = lib.licenses.asl20;
+}
