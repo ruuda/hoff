@@ -10,16 +10,11 @@ let
   sources = import ./sources.nix;
 
   nixpkgs = import sources.nixpkgs {
-    overlays = [
-      (import ./overlay.nix { inherit sources; })
-    ] ++ overlays;
+    overlays = [ (import ./overlay.nix { inherit sources; }) ] ++ overlays;
     config = {
-      imports = [
-        config
-      ];
+      imports = [ config ];
 
       allowUnfree = true;
     };
   };
-in
-nixpkgs
+in nixpkgs

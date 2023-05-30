@@ -1,11 +1,10 @@
 # Optionally put the specified nix version of the package in the environment
-{ environment ? "shell"
-}:
+{ environment ? "shell" }:
 let
-  pkgs = import ./nix/nixpkgs-pinned.nix {};
+  pkgs = import ./nix/nixpkgs-pinned.nix { };
 
   defaultEnv = pkgs.haskellPackages.shellFor {
-    packages = p: [p.hoff];
+    packages = p: [ p.hoff ];
 
     buildInputs = [
       pkgs.dia
@@ -23,8 +22,5 @@ let
     withHoogle = true;
   };
 
-  environments = {
-    shell = defaultEnv;
-  };
-in
-  environments."${environment}"
+  environments = { shell = defaultEnv; };
+in environments."${environment}"

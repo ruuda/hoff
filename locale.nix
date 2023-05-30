@@ -1,5 +1,4 @@
 let
-  pkgs = import ./nix/nixpkgs-pinned.nix {};
-in
+  pkgs = import ./nix/nixpkgs-pinned.nix { };
   # Needed for the locale-archive.
-  pkgs.glibcLocales
+in pkgs.glibcLocales
