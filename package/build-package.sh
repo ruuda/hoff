@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script builds a .deb package from the binaries built using Cabal It is
+# This script builds a .deb package from the binaries built using Cabal. It is
 # intended to be run on a Debian-like system.
 #
 #   Usage: VERSION=0.0.0 ./build-package.sh
@@ -13,8 +13,12 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
+# Make sure to run this script from this script's directory.
+cd "$(dirname "$0")"
+
 # build the package with Cabal
 ./build-binary.sh
+binary_path=$(env -C.. cabal list-bin hoff --enable-optimization=2)
 
 # Set package filename.
 PKGNAME="hoff_$VERSION-1"
@@ -24,7 +28,7 @@ mkdir -p "$PKGNAME/DEBIAN"
 mkdir -p "$PKGNAME/etc/hoff"
 mkdir -p "$PKGNAME/lib/systemd/system"
 mkdir -p "$PKGNAME/usr/bin"
-cp "$(cabal list-bin hoff)" "$PKGNAME/usr/bin/"
+cp "$binary_path"      "$PKGNAME/usr/bin/"
 cp hoff.service        "$PKGNAME/lib/systemd/system"
 cp example-config.json "$PKGNAME/etc/hoff/config.json"
 cp github-known-hosts  "$PKGNAME/etc/hoff/github-known-hosts"
