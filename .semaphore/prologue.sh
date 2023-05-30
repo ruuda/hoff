@@ -71,7 +71,7 @@ mount_nix_store
 # doesn't fail in this case, by making sure the exit code is always 0. When
 # restoring the cache fails, we delete /nix to ensure that we are not left with
 # a partially restored Nix store.
-cache restore "nix-store-$(date -u -Idate)" || {
+cache restore "nix-store-$(date -u -Idate),nix-store-$(date -u -Idate --date=yesterday),nix-store" || {
   sudo umount /nix
   sudo rm -fr /mnt/nix
   mount_nix_store
