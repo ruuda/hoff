@@ -1,61 +1,108 @@
-{ lib, haskellPackages, nix-gitignore, git, coreutils, openssh, glibcLocales, makeWrapper }:
-let
-  haskellLibs = import ./nix/haskell-dependencies.nix haskellPackages;
-in
-  haskellPackages.mkDerivation {
-    pname = "hoff";
-    version = "0.31.2"; # please keep consistent with hoff.cabal
+{
+# `pkgs` is needed for git. Specifying `git` here would use the `git` library
+# from Hackage instead
+pkgs, mkDerivation
 
-    src =
-      let
-        # We do not want to include all files, because that leads to a lot of things that nix
-        # has to copy to the temporary build directory that we don't want to have in there
-        # (e.g. the `.stack-work` directory, the `.git` directory, etc.)
-        prefixWhitelist = builtins.map builtins.toString [
-          ./app
-          ./package
-          ./src
-          ./static
-          ./tests
-          ./hoff.cabal
-          ./stack.yaml
-          ./license
-        ];
-        # Compute source based on whitelist
-        whitelistFilter = path: _type: lib.any (prefix: lib.hasPrefix prefix path) prefixWhitelist;
-        gitignore = builtins.readFile ./.gitignore;
-        gitignoreFilter = nix-gitignore.gitignoreFilterPure whitelistFilter gitignore ./.;
-        whitelistedSrc = lib.cleanSourceWith {
-          src = lib.cleanSource ./.;
-          filter = gitignoreFilter;
-        };
-      in
-        whitelistedSrc;
+# Core packages
+, coreutils, glibcLocales, lib, makeWrapper, nix-gitignore, openssh
 
-    buildTools = [ makeWrapper ];
+# Haskell packages
+, QuickCheck, aeson, aeson-pretty, blaze-html, blaze-markup, bytestring
+, containers, cryptonite, directory, effectful, extra, file-embed, filepath
+, generic-arbitrary, github, hspec, hspec-core, http-client, http-conduit
+, http-types, megaparsec, memory, monad-logger, optparse-applicative, process
+, process-extras, prometheus, prometheus-metrics-ghc, quickcheck-instances
+, scotty, stm, text, text-format, time, uuid, vector, wai
+, wai-middleware-prometheus, warp, warp-tls }:
+mkDerivation {
+  pname = "hoff";
+  version = "0.31.2"; # please keep consistent with hoff.cabal
 
-    postInstall = ''
-      # Set LOCALE_ARCHIVE so that glibc can find the locales it needs when running on Ubuntu
-      # machines.
-      wrapProgram $out/bin/hoff --set LOCALE_ARCHIVE ${glibcLocales}/lib/locale/locale-archive
-    '';
-
-    isLibrary = false;
-    isExecutable = true;
-
-
-    executableToolDepends = [
-      git coreutils openssh
+  src = let
+    # We do not want to include all files, because that leads to a lot of things
+    # that nix has to copy to the temporary build directory that we don't want
+    # to have in there (e.g. the `.dist-newstyle` directory, the `.git`
+    # directory, etc.)
+    prefixWhitelist = builtins.map builtins.toString [
+      ./app
+      ./package
+      ./src
+      ./static
+      ./tests
+      ./hoff.cabal
+      ./license
     ];
+    # Compute source based on whitelist
+    whitelistFilter = path: _type:
+      lib.any (prefix: lib.hasPrefix prefix path) prefixWhitelist;
+    gitignore = builtins.readFile ./.gitignore;
+    gitignoreFilter =
+      nix-gitignore.gitignoreFilterPure whitelistFilter gitignore ./.;
+    whitelistedSrc = lib.cleanSourceWith {
+      src = lib.cleanSource ./.;
+      filter = gitignoreFilter;
+    };
+  in whitelistedSrc;
 
-    testDepends = [
-      git coreutils openssh
-    ];
+  buildTools = [ makeWrapper ];
 
+  postInstall = ''
+    # Set LOCALE_ARCHIVE so that glibc can find the locales it needs when running on Ubuntu
+    # machines.
+    wrapProgram $out/bin/hoff --set LOCALE_ARCHIVE ${glibcLocales}/lib/locale/locale-archive
+  '';
 
-    libraryHaskellDepends = haskellLibs;
+  isLibrary = false;
+  isExecutable = true;
 
-    homepage = "https://github.com/channable/hoff";
+  executableToolDepends = [ pkgs.git coreutils openssh ];
 
-    license = lib.licenses.asl20;
-  }
+  testDepends = [ pkgs.git coreutils openssh ];
+
+  libraryHaskellDepends = [
+    QuickCheck
+    aeson
+    aeson-pretty
+    blaze-html
+    blaze-markup
+    bytestring
+    containers
+    cryptonite
+    directory
+    effectful
+    extra
+    file-embed
+    filepath
+    generic-arbitrary
+    github
+    hspec
+    hspec-core
+    http-client
+    http-conduit
+    http-types
+    megaparsec
+    memory
+    monad-logger
+    optparse-applicative
+    process
+    process-extras
+    prometheus
+    prometheus-metrics-ghc
+    quickcheck-instances
+    scotty
+    stm
+    text
+    text-format
+    time
+    uuid
+    vector
+    wai
+    wai-middleware-prometheus
+    warp
+    warp-tls
+  ];
+
+  homepage = "https://github.com/channable/hoff";
+
+  license = lib.licenses.asl20;
+}

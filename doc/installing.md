@@ -11,7 +11,7 @@ makes the application work well with systemd.
 
 Enter an environment with development dependencies available through [Nix][nix]:
 
-    $ nix shell --file default.nix
+    $ nix develop --file default.nix
 
 There is a script to build a Debian package:
 
@@ -21,8 +21,8 @@ There is a script to build a Debian package:
 
 Alternatively, you can build the binary only, and assemble your own package:
 
-    $ stack build
-    $ $(stack path --local-install-root)/bin/hoff
+    $ cabal build
+    $ cabal list-bin hoff
 
 The systemd service file is in `package/hoff.service`.
 

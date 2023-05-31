@@ -24,57 +24,24 @@ blocks:
       jobs:
         - name: "Build, test, package, ship"
           commands:
-            # For some reason, Semaphore CI sets this variable, but it causes the nix installation to fail
-            - unset LD_LIBRARY_PATH
             # Change permissions of the shipping key to avoid SSH complaining
             # about the default file permissions that Semaphore uses.
             - "chmod 0600 ~/.ssh/id_ed25519"
             - "ssh-add ~/.ssh/id_ed25519"
 
-            - "checkout"
-
-            # Free space on the disk in order to save the nix store and error on build failures.
+            # With `--use-cache` we get a full clone that is cached by semaphore so that fetching is faster.
+            - checkout --use-cache
             - .semaphore/prologue.sh
+            - source $HOME/.nix-profile/etc/profile.d/nix.sh
 
-            # Restore any stack cache that we can find.
-            - "cache restore stack-cache-"
-
-            # Install Nix and source the shell configuration immediately.
-            - "./nix/install --no-daemon"
-            - ". $HOME/.nix-profile/etc/profile.d/nix.sh"
-
-            # Install Cachix and use the Channable cache
-            - "nix-env -iA nixpkgs.cachix"
-            - "cachix use channable-public"
-
-            # Build as many derivations as cores in parallel.
-            - echo "max-jobs = auto" >> ~/.config/nix/nix.conf
-
-            # Bring all the tools from the pinned build environment into the PATH.
-            - "export PATH=$(nix-build --no-out-link default.nix)/bin:$PATH"
+            # Make the dev environment available for all subsequent commands, to
+            # prevent having to run `nix develop` every time.
+            - source "$HOME/devenv"
 
             # Binaries in the profile built above may need locales, that they
             # can't find unless we point LOCALE_ARCHIVE at the archive that
             # contains them.
             - "export LOCALE_ARCHIVE=$(nix-build --no-out-link locale.nix)/lib/locale/locale-archive"
-
-            # The stack builds are currently broken, see https://github.com/channable/hoff/issues/106
-            # - "stack setup"
-            # - "stack --no-terminal build --split-objs"
-            # - "stack --no-terminal test --split-objs"
-
-            # Match the licenses of dependencies agains a whitelist, and fail
-            # if anything is not whitelisted. Grep -v returns # 1 if nothing
-            # matches, so we invert it with a ! prefix.  The "unexceptionalio"
-            # library is tagged as "license other" on Hackage, but the license
-            # appears to be ISC, so whitelist it too. See also [1].
-            # Also, when getting the dependencies from Nixpkgs, `http-link-header` and
-            # `monad-loops` show up as `<unknown>`. According to hackgage, they
-            # are PublicDomain though. See also [2], [3].
-            # [1]: https://hackage.haskell.org/package/unexceptionalio-0.3.0/src/COPYING.
-            # [2]: https://hackage.haskell.org/package/monad-loops-0.4.3
-            # [3]: https://hackage.haskell.org/package/http-link-header-1.2.0
-            - "! stack ls dependencies --license | egrep -v 'Apache-2|BSD-?2|BSD-?3|MIT|ISC|PublicDomain|MPL-2.0|unexceptionalio|http-link-header|monad-loops|data-sketches'"
 
             # Check shell scripts for issues.
             - "shellcheck package/*.sh package/deb-postinst"
@@ -86,8 +53,6 @@ blocks:
             - "./package/check-version.sh"
 
             # Run build and tests in Nix
-            # Because this is a public repository, and not everyone is using Nix,
-            # we keep the stack setup around. The Nix build however is used in production.
             - "nix-build --no-out-link release.nix >nix-store-location"
 
             # Display Nix store location for debugging purposes
@@ -102,6 +67,3 @@ blocks:
             # Store a copy of the nix store. This will be refreshed daily, which
             # is more than sufficient for this repo.
             - "cache store nix-store-$(date -u -Idate) /nix"
-
-            # Store the dependencies that Stack compiled for us.
-            - "cache store stack-cache-$(checksum stack.yaml.lock)-$(checksum hoff.cabal) $HOME/.stack"

@@ -1,5 +1,1 @@
-let
-  pkgs = import ./nixpkgs-pinned.nix {};
-  hoff = pkgs.callPackage ./hoff.nix {};
-in
-  hoff
+let pkgs = import ./nix/nixpkgs-pinned.nix { }; in pkgs.haskellPackages.hoff

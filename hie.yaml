@@ -1,14 +1,18 @@
 cradle:
-  stack:
-    - path: "./src"
-      component: "hoff:lib"
-    - path: "./app"
+  cabal:
+    - path: "src"
+      component: "lib:hoff"
+    - path: "app/Main.hs"
       component: "hoff:exe:hoff"
-    - path: "./tests/EndToEnd.hs"
-      component: "hoff:test:end-to-end"
-    - path: "./tests/ServerSpec.hs"
-      component: "hoff:test:end-to-end"
-    - path: "./tests/EventLoopSpec.hs"
-      component: "hoff:test:end-to-end"
-    - path: "./tests"
+    - path: "tests"
       component: "hoff:test:spec"
+
+      # These need to be specified manually since they're in the same directory.
+      # These end-to-end tests should probably be moved to their own directory
+      # so this isn't needed anymore.
+    - path: "tests/EndToEnd.hs"
+      component: "hoff:test:end-to-end"
+    - path: "tests/EventLoopSpec.hs"
+      component: "hoff:test:end-to-end"
+    - path: "tests/ServerSpec.hs"
+      component: "hoff:test:end-to-end"

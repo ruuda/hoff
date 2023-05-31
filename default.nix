@@ -1,27 +1,26 @@
 # Optionally put the specified nix version of the package in the environment
-{ environment ? "default"
-}:
+{ environment ? "shell" }:
 let
-  pkgs = import ./nixpkgs-pinned.nix {};
+  pkgs = import ./nix/nixpkgs-pinned.nix { };
 
-  defaultEnv = pkgs.buildEnv {
-    name = "hoff-devenv";
-    paths = [
+  defaultEnv = pkgs.haskellPackages.shellFor {
+    packages = p: [ p.hoff ];
+
+    buildInputs = [
       pkgs.dia
       pkgs.dpkg
       pkgs.git
-      pkgs.haskellPackages.haskell-language-server
-      pkgs.haskellPackages.ghc # Needed for the language server
-      pkgs.haskellPackages.stylish-haskell
       pkgs.niv
       pkgs.shellcheck
-      pkgs.stack
+
+      pkgs.haskellPackages.cabal-install
+      pkgs.haskellPackages.haskell-language-server
+      pkgs.haskellPackages.implicit-hie
+      pkgs.haskellPackages.stylish-haskell
     ];
+
+    withHoogle = true;
   };
 
-  environments = {
-    default = defaultEnv;
-    shell = pkgs.mkShell { packages = [defaultEnv]; };
-  };
-in
-  environments."${environment}"
+  environments = { shell = defaultEnv; };
+in environments."${environment}"
