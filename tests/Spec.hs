@@ -1308,6 +1308,37 @@ main = hspec $ do
           (_, actions) = runActionCustom defaultResults $ handleEventsTest event state
        in actions `shouldBe` []
 
+    -- If external automation has the bot running Hoff to tag itself to start a
+    -- merge and the merge prefix is set to `@<bot_username>` as is typical,
+    -- then the bot shouldn't respond to its own feedback message.
+    it "ignores approval messages tagging the bot itself" $
+      let prId = PullRequestId 1
+          state = singlePullRequestState prId (Branch "p") masterBranch (Sha "abc1234") "tyrell"
+          results = defaultResults { resultIntegrate = [Right (Sha "def2345")] }
+
+          approvalMessage =  "<!-- Hoff: ignore -->Pull request approved for merge by @bot, rebasing now."
+          event =
+            -- This merge approval is posted by the bot iself
+            [ CommentAdded prId "bot" "@bot merge"
+              -- The feedback message then tags the bot, but the special ignore
+              -- comment will cause it to ignore the message
+            , CommentAdded prId "bot" approvalMessage
+            , CommentAdded prId "bot" "<!-- Hoff: ignore -->Rebased as 1b2, waiting for CI …"
+            , BuildStatusChanged (Sha "def2345") "default" (Project.BuildStarted "example.com/1b2")
+            , CommentAdded prId "bot" "<!-- Hoff: ignore -->[CI job :yellow_circle:](example.com/1b2) started."
+            , BuildStatusChanged (Sha "def2345") "default" Project.BuildSucceeded
+            ]
+          (_, actions) = runActionCustom results $ handleEventsTest event state
+       in actions `shouldBe`
+            [ AIsReviewer (Username "bot")
+            , ALeaveComment prId approvalMessage
+            , ATryIntegrate "Merge #1: Untitled\n\nApproved-by: bot\nAuto-deploy: false\n" (PullRequestId 1, Branch "refs/pull/1/head", Sha "abc1234") [] False
+            , ALeaveComment prId "<!-- Hoff: ignore -->Rebased as def2345, waiting for CI \8230"
+            , ALeaveComment prId "<!-- Hoff: ignore -->[CI job :yellow_circle:](example.com/1b2) started."
+            , ATryPromote (Branch "p") (Sha "def2345")
+            , ACleanupTestBranch prId
+            ]
+
     -- If the command prefix is '@bot' and the commend also contains '@bo', then
     -- that should not interfere with the parsing. This requires the parser to
     -- backtrack.
