@@ -1253,7 +1253,11 @@ leaveFeedback
   -> Eff es ProjectState
 leaveFeedback (prId, pr) state = do
   projectBaseBranch <- getBaseBranch
-  () <- leaveComment prId $ describeStatus projectBaseBranch prId pr state
+  let message = describeStatus projectBaseBranch prId pr state
+  -- Hoff shouldn't reply to any of its own feedback messages. This can happen
+  -- if external automation causes the bot to issue a merge command to itself.
+  -- In that case the bot may tag itself when the merge gets approved.
+  () <- leaveComment prId $ hoffIgnoreComment <> message
   pure $ Pr.setNeedsFeedback prId False state
 
 -- Run 'leaveFeedback' on all pull requests that need feedback.
