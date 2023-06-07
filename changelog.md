@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## 0.31.3
+
+Released 2021-06-07.
 
  * Changed the build system to use plain Cabal instead of Stack. Check the
    readme for more details.
