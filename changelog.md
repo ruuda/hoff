@@ -1,8 +1,8 @@
 # Changelog
 
-Released 2021-06-09.
-
 ## 0.31.4
+
+Released 2021-06-09.
 
  * Fixed a regression from 0.31.3 where links in Hoff's messages are not
    properly displayed on GitHub.
