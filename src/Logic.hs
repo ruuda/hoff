@@ -505,9 +505,13 @@ isSuccess _ = False
 type Parser = Parsec Void Text
 
 -- | A comment that can be added to a message that will cause it to not parse
--- the message for merge commands. This is parsed in 'shouldIgnoreComment'.
+-- the message for merge commands. This is parsed in 'shouldIgnoreComment'. Note
+-- the trailing line feed here. GitHub's markdown parser won't parse markdown if
+-- it's on the same line as an HTML comment:
+--
+-- https://github.com/channable/hoff/issues/227
 hoffIgnoreComment :: Text
-hoffIgnoreComment = "<!-- Hoff: ignore -->"
+hoffIgnoreComment = "<!-- Hoff: ignore -->\n"
 
 -- | Checks if a comment contains 'hoffIgnoreComment', matching case
 -- insensitively and allowing variations in whitespace. This is used to prevent
