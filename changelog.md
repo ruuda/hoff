@@ -6,6 +6,10 @@ Released 2021-06-07.
 
  * Changed the build system to use plain Cabal instead of Stack. Check the
    readme for more details.
+ * Prevent Hoff from replying to its own feedback messages. This is relevant
+   when the command prefix is set to the bot's username, and the merge command
+   was posted from that same account. Before this change Hoff would reply with a
+   harmless but annoying parser error message.
 
 ## 0.31.2
 
