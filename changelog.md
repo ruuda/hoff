@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+ * Fixed a regression from 0.31.3 where links in Hoff's messages are not
+   properly displayed on GitHub.
+
 ## 0.31.3
 
 Released 2021-06-07.
