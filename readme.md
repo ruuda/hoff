@@ -36,6 +36,9 @@ following commands:
 * `@hoffbot merge and tag`: rebase, merge then tag.
 * `@hoffbot merge and deploy`: rebase, merge, tag then deploy to the default environment;
 * `@hoffbot merge and deploy to <env>`: rebase, merge, tag then deploy to the specified environment;
+* `@hoffbot retry`: retry the last operation with the same parameters after the
+  CI build has failed. Equivalent to closing and reopening the PR and then
+  tagging the bot again with the same command.
 
 For all the commands, Hoff will wait for the builds to pass after rebasing and
 before merging.  When the PR is merged, GitHub closes the PR as merged and,
