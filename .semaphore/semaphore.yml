@@ -43,6 +43,10 @@ blocks:
             # contains them.
             - "export LOCALE_ARCHIVE=$(nix-build --no-out-link locale.nix)/lib/locale/locale-archive"
 
+            # This makes sure the version bounds from the `cabal.project.freeze`
+            # file match the versions from nixpkgs
+            - "cabal build --dry-run all"
+
             # Check shell scripts for issues.
             - "shellcheck package/*.sh package/deb-postinst"
 
