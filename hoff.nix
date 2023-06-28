@@ -42,9 +42,7 @@ mkDerivation {
       src = lib.cleanSource ./.;
       filter = gitignoreFilter;
     };
-    # Including the freeze file here will alert us if nixpkgs has been updated
-    # without also updating the freeze file for non-Nix builds
-  in whitelistedSrc // { "cabal.project.freeze" = ../cabal.project.freeze; };
+  in whitelistedSrc;
 
   buildTools = [ makeWrapper ];
 
