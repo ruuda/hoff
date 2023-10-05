@@ -70,6 +70,7 @@ module Project
   subMapByOwner,
   supersedes,
   summarize,
+  isFinalStatus,
   MergeWindow(..))
 where
 
@@ -127,6 +128,8 @@ data BuildStatus
 -- * the PR has been promoted to be the new master;
 --
 -- * and an attempt to integrate was made, but it wasn't successful.
+--
+-- * the base branch is incorrect.
 data IntegrationStatus
   = NotIntegrated
   | Integrated Sha OutstandingChecks

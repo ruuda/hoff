@@ -1,15 +1,24 @@
 # Changelog
 
+## 0.31.5
+
+Released 2023-10-05.
+
+ * Avoid corrupting the internal project state when a `merge` command is issued
+   multiple times. Now, issuing a `merge` command on a pull request that is in
+   progress of being integrated, the entire pull request's state is reset and
+   the new `merge` command is processed.
+
 ## 0.31.4
 
-Released 2021-06-09.
+Released 2023-06-09.
 
  * Fixed a regression from 0.31.3 where links in Hoff's messages are not
    properly displayed on GitHub.
 
 ## 0.31.3
 
-Released 2021-06-07.
+Released 2023-06-07.
 
  * Changed the build system to use plain Cabal instead of Stack. Check the
    readme for more details.
@@ -20,7 +29,7 @@ Released 2021-06-07.
 
 ## 0.31.2
 
-Released 2021-05-23.
+Released 2023-05-23.
 
  * Fixed a regression from 0.31.0 where Hoff would enter a feedback loop when
    posting a parser error message, as those error messages also contain Hoff's
@@ -28,13 +37,13 @@ Released 2021-05-23.
 
 ## 0.31.1
 
-Released 2021-05-22.
+Released 2023-05-22.
 
  * Fixed mismatching version numbers in the Nix build.
 
 ## 0.31.0
 
-Released 2021-05-22.
+Released 2023-05-22.
 
  * Added a new, stricter parser that posts clear error messages when the comment
    contains invalid merge commands. This avoids situations like `@hoffbot merge
@@ -49,7 +58,7 @@ Released 2021-05-22.
 
 ## 0.30.0
 
-Released 2021-05-15.
+Released 2023-05-15.
 
  * Hoff no longer prints the internal state any time it receives an event.
  * Hoff's internals have been rewritten using
