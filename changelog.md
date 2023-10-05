@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.31.6
+
+Released 2023-10-05.
+
+ * Fix fat-fingering the number version in the cabal file.
+
 ## 0.31.5
 
 Released 2023-10-05.
