@@ -789,7 +789,7 @@ handleCommentAdded triggerConfig mergeWindowExemption prId author body state
     -- If the pull request is not in the state, ignore the comment.
     Nothing -> pure state
 
-handleMergeRequested
+doMerge
   :: ProjectConfiguration
   -> PullRequestId
   -> Username
@@ -798,13 +798,41 @@ handleMergeRequested
   -> ApprovedFor
   -> Maybe Username
   -> Eff es ProjectState
-handleMergeRequested projectConfig prId author state pr approvalType retriedBy = do
+doMerge projectConfig prId author state pr approvalType retriedBy = do
   let (order, state') = Pr.newApprovalOrder state
   state'' <- approvePullRequest prId (Approval author approvalType order retriedBy) state'
   -- Check whether the integration branch is valid, if not, mark the integration as invalid.
   if Pr.baseBranch pr /= BaseBranch (Config.branch projectConfig)
     then pure $ Pr.setIntegrationStatus prId IncorrectBaseBranch state''
     else pure state''
+
+-- | Someone issued a `merge*` command on a PR. Depending on what the current
+-- integration state of that PR is, we might reset its state and retry, if it
+-- already exists.
+handleMergeRequested
+  :: (Action :> es)
+  => ProjectConfiguration
+  -> PullRequestId
+  -> Username
+  -> ProjectState
+  -> PullRequest
+  -> ApprovedFor
+  -> Maybe Username
+  -> Eff es ProjectState
+handleMergeRequested projectConfig prId author state pr approvedFor retriedBy
+  = case Pr.integrationStatus pr of
+      NotIntegrated -> doMerge projectConfig prId author state pr approvedFor retriedBy
+      Integrated _ checks | not (Pr.isFinalStatus (summarize checks)) -> do
+        state' <- clearPullRequest prId pr state
+        doMerge projectConfig prId author state' pr approvedFor retriedBy
+      Conflicted _ _ ->
+        leaveComment prId "Conflict encountered while integrating, refusing..." >> pure state
+      IncorrectBaseBranch -> do
+        leaveComment prId "Incorrect base branch, refusing..." >> pure state
+      _ ->
+        -- In any other case, we hit a final state, `Promoted`, `Integrated BuildSucceeded`
+        -- or `Integrated BuildFailed`. Report the current state.
+        pure $ Pr.setNeedsFeedback prId True state
 
 -- | Attempt to retry merging a PR that has previously been approved for
 -- merging.
@@ -824,7 +852,7 @@ handleMergeRetry projectConfig prId author state pr
       state' <- clearPullRequest prId pr state
       -- The PR is still approved by its original approver. The person who
       -- triggered the retry is tracked separately.
-      handleMergeRequested projectConfig prId (Pr.approver approval) state' pr (Pr.approvedFor approval) (Just author)
+      doMerge projectConfig prId (Pr.approver approval) state' pr (Pr.approvedFor approval) (Just author)
   | otherwise = do
       () <- leaveComment prId "Only approved PRs with failed builds can be retried.."
       pure state
