@@ -5,6 +5,8 @@
  * Increased internal event queue sizes from 10 to 128 to reduce the chance of
    Hoff dropping events when receiving dozens of webhook events at the exact
    same time.
+ * When Hoff drops a webhook event because its internal event queue is full, it
+   will now log the evenet to STDOUT>
 
 ## 0.31.6
 

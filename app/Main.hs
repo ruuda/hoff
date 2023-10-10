@@ -192,8 +192,13 @@ runMain options = do
 
   let
     -- When the webhook server receives an event, enqueue it on the webhook
-    -- event queue if it is not full.
-    ghTryEnqueue = Github.tryEnqueueEvent ghQueue
+    -- event queue if it is not full. If it is, then we'll print that to STDOUT.
+    ghTryEnqueue event = do
+      result <- Github.tryEnqueueEvent ghQueue event
+      unless result $
+        putStrLn $ "The GitHub queue is full, dropped the following webhook event: " <> show event
+
+      pure result
 
     -- Allow the webinterface to retrieve the latest project state per project.
     readProjectState = Logic.readStateVar . projectThreadStateVar
