@@ -17,6 +17,7 @@ import Data.Maybe (maybeToList)
 import Data.String (fromString)
 import Data.Version (showVersion)
 import Effectful (runEff)
+import GHC.Natural (Natural)
 import System.Exit (die)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 
@@ -52,6 +53,18 @@ import qualified Data.Set as Set
 
 version :: String
 version = showVersion Paths_hoff.version
+
+-- | The number of webhook events Hoff can handle at once. This is shared
+-- between projects.
+webhookQueueSize :: Natural
+webhookQueueSize = 128
+
+-- | The number of queued up events for a single project. This does not need to
+-- be the same size as 'webhookQueueSize', but if we run the risk of filling up
+-- the webhook queue because of a burst of webhook events then there's a decent
+-- chance they're all for the same project.
+projectQueueSize :: Natural
+projectQueueSize = 128
 
 data Options = Options
   { configFilePath :: FilePath
@@ -135,7 +148,7 @@ runMain options = do
   -- low-volume (in the range of ~once per minute) and processing events
   -- should be fast (a few milliseconds, or perhaps a few seconds for a heavy
   -- Git operation), so the queue is expected to be empty most of the time.
-  ghQueue <- Github.newEventQueue 10
+  ghQueue <- Github.newEventQueue webhookQueueSize
 
   -- Each project is treated in isolation, containing their own queue and state.
   let mandatoryChecksFromConfig projectConfig = Project.MandatoryChecks
@@ -148,7 +161,7 @@ runMain options = do
     -- process them. This conversion process does not reject events, but it blocks
     -- if the project queue is full (which will cause the webhook queue to fill
     -- up, so the server will reject new events).
-    projectQueue <- Logic.newEventQueue 10
+    projectQueue <- Logic.newEventQueue projectQueueSize
 
     -- Restore the previous state from disk if possible, or start clean.
     projectState <- initializeProjectState

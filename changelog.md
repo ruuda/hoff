@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+ * Increased internal event queue sizes from 10 to 128 to reduce the chance of
+   Hoff dropping events when receiving dozens of webhook events at the exact
+   same time.
+
 ## 0.31.6
 
 Released 2023-10-05.
